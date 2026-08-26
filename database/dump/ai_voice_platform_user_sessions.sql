@@ -1,0 +1,70 @@
+-- MySQL dump 10.13  Distrib 8.0.46, for Win64 (x86_64)
+--
+-- Host: localhost    Database: ai_voice_platform
+-- ------------------------------------------------------
+-- Server version	8.0.46
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!50503 SET NAMES utf8 */;
+/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;
+/*!40103 SET TIME_ZONE='+00:00' */;
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+
+--
+-- Table structure for table `user_sessions`
+--
+
+DROP TABLE IF EXISTS `user_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_sessions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `created_at` datetime(6) NOT NULL,
+  `created_by` bigint NOT NULL,
+  `deleted_at` datetime(6) DEFAULT NULL,
+  `is_active` int NOT NULL,
+  `is_deleted` int NOT NULL,
+  `public_id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `updated_at` datetime(6) NOT NULL,
+  `updated_by` bigint DEFAULT NULL,
+  `active` bit(1) NOT NULL,
+  `device_type` enum('DESKTOP','MOBILE','TABLET') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ip_address` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_activity` datetime(6) DEFAULT NULL,
+  `login_time` datetime(6) NOT NULL,
+  `login_type` enum('API','MOBILE','WEB') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `logout_time` datetime(6) DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_id` bigint NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `UK581bv38a4h2e9vyy0duwqcjte` (`public_id`),
+  KEY `FK8klxsgb8dcjjklmqebqp1twd5` (`user_id`),
+  CONSTRAINT `FK8klxsgb8dcjjklmqebqp1twd5` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `user_sessions`
+--
+
+LOCK TABLES `user_sessions` WRITE;
+/*!40000 ALTER TABLE `user_sessions` DISABLE KEYS */;
+INSERT INTO `user_sessions` VALUES (1,'2026-08-13 13:40:58.499983',1,NULL,1,0,'f7d1c0ed-7194-40a3-b342-a62b5f2d0d34','2026-08-13 13:40:58.499983',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-13 13:40:58.494694','2026-08-13 13:40:58.494694','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(2,'2026-08-13 13:50:21.727562',1,NULL,1,0,'ac0b956d-56b7-4a67-8964-62b2ae735924','2026-08-13 13:50:21.727562',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-13 13:50:21.723469','2026-08-13 13:50:21.723469','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(3,'2026-08-14 13:32:54.809000',1,NULL,1,0,'972f11c0-32ce-4543-996d-dfd30eb8fa0d','2026-08-14 13:32:54.809000',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-14 13:32:54.776413','2026-08-14 13:32:54.776413','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(4,'2026-08-14 13:47:03.284821',1,NULL,1,0,'d1344508-0ceb-4a2f-99fc-514fa0eda919','2026-08-14 13:47:03.284821',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-14 13:47:03.264377','2026-08-14 13:47:03.264377','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(5,'2026-08-14 14:05:36.504034',1,NULL,1,0,'a42c5380-a110-41b4-9cc4-1ed35037f10a','2026-08-14 14:05:36.504034',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-14 14:05:36.501035','2026-08-14 14:05:36.501035','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(6,'2026-08-14 14:54:31.658549',1,NULL,1,0,'ef617fef-709f-4b4a-a689-e67911b8bfe7','2026-08-14 14:54:31.659265',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-14 14:54:31.649373','2026-08-14 14:54:31.649373','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(7,'2026-08-17 10:26:29.294817',1,NULL,1,0,'a021271a-4e42-4255-8f8d-9547f3d6034d','2026-08-17 10:26:29.294817',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-17 10:26:29.293645','2026-08-17 10:26:29.293645','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(8,'2026-08-17 11:35:42.707489',1,NULL,1,0,'19aecd87-57b3-414d-9602-2ebd90f06e72','2026-08-17 11:35:42.707489',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-17 11:35:42.707490','2026-08-17 11:35:42.707490','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(9,'2026-08-17 12:02:56.083385',1,NULL,1,0,'fa0baf44-6416-468b-b38d-e54a184b0dc5','2026-08-17 12:02:56.083385',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-17 12:02:56.081385','2026-08-17 12:02:56.081385','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(10,'2026-08-17 12:19:53.497521',1,NULL,1,0,'d2c53fdd-e54f-4c71-8b0d-f7238b7e61fc','2026-08-17 12:19:53.497521',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-17 12:19:53.496515','2026-08-17 12:19:53.496515','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(11,'2026-08-17 15:11:20.800720',1,NULL,1,0,'091ef3b1-e6d2-4dfb-beba-eed746a72e05','2026-08-17 15:11:20.800720',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-17 15:11:20.788489','2026-08-17 15:11:20.788489','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(12,'2026-08-19 17:07:59.774985',1,NULL,1,0,'7bd4a5de-cd15-485a-9925-ddcd7e88c6ef','2026-08-19 17:07:59.774985',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-19 17:07:59.774986','2026-08-19 17:07:59.774986','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(13,'2026-08-19 17:14:03.075864',1,NULL,1,0,'4c435c49-2cc9-4ce0-9c3c-f03202a3e64e','2026-08-19 17:14:03.075864',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-19 17:14:03.068777','2026-08-19 17:14:03.068777','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(14,'2026-08-19 17:14:55.507793',1,NULL,1,0,'4daaa8a4-47b2-422c-bb1a-ff07b24af5d0','2026-08-19 17:14:55.507793',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-19 17:14:55.503554','2026-08-19 17:14:55.503554','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(15,'2026-08-20 11:31:32.946674',1,NULL,1,0,'c1c8d521-6924-4b0b-93b1-db1dcf3efab0','2026-08-20 11:31:32.946674',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-20 11:31:32.943629','2026-08-20 11:31:32.943629','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(16,'2026-08-20 12:21:49.905736',1,NULL,1,0,'585ce013-27c2-4794-9faf-2f7c76a9ccaa','2026-08-20 12:21:49.906709',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-20 12:21:49.904716','2026-08-20 12:21:49.904716','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(17,'2026-08-20 16:37:13.448171',1,NULL,1,0,'d8833f6c-2c16-49a6-aef4-c6f79653f454','2026-08-20 16:37:13.449607',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-20 16:37:13.411535','2026-08-20 16:37:13.411535','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(18,'2026-08-20 16:41:33.020773',1,NULL,1,0,'78a510de-a7eb-4476-bdc4-6a3ee0942375','2026-08-20 16:41:33.020773',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-20 16:41:33.014220','2026-08-20 16:41:33.014220','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(19,'2026-08-21 10:17:55.743667',1,NULL,1,0,'04efcfcd-6a27-4142-9047-7c2d033ea246','2026-08-21 10:17:55.743667',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-21 10:17:55.736861','2026-08-21 10:17:55.736861','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(20,'2026-08-21 13:03:13.210022',1,NULL,1,0,'d5495c84-4618-4276-8bf8-1b99072e292d','2026-08-21 13:03:13.210022',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-21 13:03:13.204973','2026-08-21 13:03:13.204973','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(21,'2026-08-21 14:27:19.497568',1,NULL,1,0,'2bfc8115-c94c-4c2b-b8ba-90eb314184ef','2026-08-21 14:27:19.497568',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-21 14:27:19.494557','2026-08-21 14:27:19.494557','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(22,'2026-08-21 15:37:15.443277',1,NULL,1,0,'ed84359c-fefb-48cd-be34-cac46dbc8079','2026-08-21 15:37:15.443277',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-21 15:37:15.435464','2026-08-21 15:37:15.435464','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(23,'2026-08-21 17:36:40.604456',1,NULL,1,0,'cf193351-174d-4a9c-a411-32009b8456bf','2026-08-21 17:36:40.604456',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-21 17:36:40.592484','2026-08-21 17:36:40.592484','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(24,'2026-08-22 10:11:59.332861',1,NULL,1,0,'ddc4f446-fcd2-4da3-80ce-2ca8e2550f97','2026-08-22 10:11:59.332861',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-22 10:11:59.331837','2026-08-22 10:11:59.331837','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(25,'2026-08-22 13:13:43.333212',1,NULL,1,0,'0b52cead-7e13-4bdb-84e6-ae9b24faabf2','2026-08-22 13:13:43.333212',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-22 13:13:43.332213','2026-08-22 13:13:43.332213','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(26,'2026-08-24 13:39:56.709675',1,NULL,1,0,'689c1891-e2c8-450a-be42-470c59780210','2026-08-24 13:39:56.710681',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-24 13:39:56.693022','2026-08-24 13:39:56.693022','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(27,'2026-08-24 16:19:14.237823',1,NULL,1,0,'9e8bdb56-0f3b-497f-8dbc-1e62d9909483','2026-08-24 16:19:14.237823',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-24 16:19:14.229532','2026-08-24 16:19:14.229532','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1),(28,'2026-08-25 10:58:37.938418',1,NULL,1,0,'e00221c4-f4e7-4675-8c6e-c4e6a4247096','2026-08-25 10:58:37.938418',NULL,_binary '','DESKTOP','0:0:0:0:0:0:0:1','2026-08-25 10:58:37.936418','2026-08-25 10:58:37.936418','WEB',NULL,'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',1);
+/*!40000 ALTER TABLE `user_sessions` ENABLE KEYS */;
+UNLOCK TABLES;
+/*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
+
+-- Dump completed on 2026-08-26 12:18:03
