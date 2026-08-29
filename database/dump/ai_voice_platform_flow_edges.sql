@@ -37,11 +37,15 @@ CREATE TABLE `flow_edges` (
   `flow_id` bigint NOT NULL,
   `source_node_id` bigint NOT NULL,
   `target_node_id` bigint NOT NULL,
+  `label` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_port` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_port` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `UKj6bq47axudmwa5ram0m7lxoh7` (`public_id`),
   KEY `idx_edge_source` (`source_node_id`),
   KEY `idx_edge_target` (`target_node_id`),
-  KEY `FKqyeop0u5x9rlauvqkai7m1va4` (`flow_id`),
+  KEY `idx_edge_source_port` (`source_node_id`,`source_port`),
+  KEY `idx_edge_flow_source_port` (`flow_id`,`source_node_id`,`source_port`),
   CONSTRAINT `FK2yvkmbtuakwt1ajxnn9lviep6` FOREIGN KEY (`source_node_id`) REFERENCES `flow_nodes` (`id`),
   CONSTRAINT `FKqyeop0u5x9rlauvqkai7m1va4` FOREIGN KEY (`flow_id`) REFERENCES `flows` (`id`),
   CONSTRAINT `FKs4w5d7go5uasctouydlca8iyy` FOREIGN KEY (`target_node_id`) REFERENCES `flow_nodes` (`id`)
@@ -54,7 +58,7 @@ CREATE TABLE `flow_edges` (
 
 LOCK TABLES `flow_edges` WRITE;
 /*!40000 ALTER TABLE `flow_edges` DISABLE KEYS */;
-INSERT INTO `flow_edges` VALUES (1,'2026-08-21 14:00:07.405859',1,NULL,1,0,'e4fbf45d-c2bd-4f29-9336-bd472f6f8c79','2026-08-21 14:00:07.405859',NULL,NULL,0,1,1,3),(2,'2026-08-21 14:00:55.804177',1,NULL,1,0,'29fffa45-33de-4695-af4c-8ee421931940','2026-08-21 14:00:55.804177',NULL,NULL,0,1,3,2);
+INSERT INTO `flow_edges` VALUES (1,'2026-08-21 14:00:07.405859',1,NULL,1,0,'e4fbf45d-c2bd-4f29-9336-bd472f6f8c79','2026-08-21 14:00:07.405859',NULL,NULL,0,1,1,3,NULL,'',''),(2,'2026-08-21 14:00:55.804177',1,NULL,1,0,'29fffa45-33de-4695-af4c-8ee421931940','2026-08-21 14:00:55.804177',NULL,NULL,0,1,3,2,NULL,'','');
 /*!40000 ALTER TABLE `flow_edges` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -67,4 +71,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 12:18:03
+-- Dump completed on 2026-08-26 16:55:50

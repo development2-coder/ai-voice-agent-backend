@@ -1,10 +1,20 @@
 package com.infinitio.aivoiceplatform.flow.service;
 
-import com.infinitio.aivoiceplatform.flow.dto.request.*;
-import com.infinitio.aivoiceplatform.flow.dto.response.*;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
 
 import java.util.List;
 
+/**
+ * Main Flow management service.
+ *
+ * @author Infinitio Digital
+ * @version 1.0.0
+ */
 public interface FlowService {
 
     FlowResponse create(
@@ -23,10 +33,6 @@ public interface FlowService {
             String flowPublicId
     );
 
-    List<FlowEdgeResponse> getEdges(
-            String flowPublicId
-    );
-
     FlowNodeResponse addNode(
             AddFlowNodeRequest request
     );
@@ -37,14 +43,6 @@ public interface FlowService {
 
     void deleteNode(
             String nodePublicId
-    );
-
-    FlowEdgeResponse addEdge(
-            AddFlowEdgeRequest request
-    );
-
-    void deleteEdge(
-            String edgePublicId
     );
 
     void activate(

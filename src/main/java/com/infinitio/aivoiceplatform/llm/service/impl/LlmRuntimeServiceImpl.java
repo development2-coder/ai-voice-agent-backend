@@ -12,6 +12,7 @@ import com.infinitio.aivoiceplatform.llm.dto.runtime.LlmGenerationResponseDto;
 import com.infinitio.aivoiceplatform.llm.dto.runtime.LlmMessageDto;
 import com.infinitio.aivoiceplatform.llm.provider.LlmProvider;
 import com.infinitio.aivoiceplatform.llm.service.LlmRuntimeService;
+import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,9 +33,9 @@ public class LlmRuntimeServiceImpl
 
     private final LlmProperties llmProperties;
 
-    /**
-     * {@inheritDoc}
-     */
+    private final RuntimePersistenceService
+            runtimePersistenceService;
+
     @Override
     public LlmGenerationResponseDto generate(
             LlmGenerationRequestDto request) {
@@ -42,7 +43,8 @@ public class LlmRuntimeServiceImpl
         validateRequest(request);
 
         log.info(
-                "Starting LLM generation. callId={}, language={}, messageCount={}, finalResponse={}",
+                "Starting LLM generation. callId={}, language={}, " +
+                        "messageCount={}, finalResponse={}",
                 request.getCallId(),
                 request.getLanguage(),
                 request.getMessages().size(),
@@ -66,7 +68,9 @@ public class LlmRuntimeServiceImpl
             validateProvider();
 
             LlmGenerationResponseDto response =
-                    llmProvider.generate(request);
+                    llmProvider.generate(
+                            request
+                    );
 
             long latencyMs =
                     System.currentTimeMillis()
@@ -75,7 +79,8 @@ public class LlmRuntimeServiceImpl
             if (response == null) {
 
                 log.error(
-                        "LLM provider returned an empty response. callId={}, latencyMs={}",
+                        "LLM provider returned an empty response. " +
+                                "callId={}, latencyMs={}",
                         request.getCallId(),
                         latencyMs
                 );
@@ -85,16 +90,28 @@ public class LlmRuntimeServiceImpl
                 );
             }
 
-            /*
-             * Provider latency is retained when supplied by the provider.
-             * Runtime latency is used as a fallback.
-             */
+            response.setCallId(
+                    request.getCallId()
+            );
+
             if (response.getLatencyMs() == null) {
 
                 response.setLatencyMs(
                         latencyMs
                 );
             }
+
+            if (response.getLanguage() == null
+                    || response.getLanguage().isBlank()) {
+
+                response.setLanguage(
+                        request.getLanguage()
+                );
+            }
+
+            response.setFinalResponse(
+                    request.isFinalResponse()
+            );
 
             if (response.getProvider() == null
                     || response.getProvider().isBlank()) {
@@ -113,7 +130,10 @@ public class LlmRuntimeServiceImpl
             }
 
             log.info(
-                    "LLM generation completed successfully. callId={}, provider={}, model={}, latencyMs={}, inputTokens={}, outputTokens={}, totalTokens={}",
+                    "LLM generation completed successfully. " +
+                            "callId={}, provider={}, model={}, " +
+                            "latencyMs={}, inputTokens={}, " +
+                            "outputTokens={}, totalTokens={}",
                     request.getCallId(),
                     response.getProvider(),
                     response.getModel(),
@@ -124,15 +144,11 @@ public class LlmRuntimeServiceImpl
             );
 
             /*
-             * Do not log the generated content because the response may
-             * contain sensitive caller information.
+             * Persist the actual LLM execution.
              */
-            log.debug(
-                    "LLM response generated. callId={}, responseContentLength={}",
-                    request.getCallId(),
-                    response.getContent() == null
-                            ? 0
-                            : response.getContent().length()
+            runtimePersistenceService.saveLlm(
+                    request,
+                    response
             );
 
             return response;
@@ -140,7 +156,8 @@ public class LlmRuntimeServiceImpl
         } catch (BadRequestException exception) {
 
             log.warn(
-                    "LLM generation validation failed. callId={}, reason={}",
+                    "LLM generation validation failed. " +
+                            "callId={}, reason={}",
                     request.getCallId(),
                     exception.getMessage()
             );
@@ -154,7 +171,8 @@ public class LlmRuntimeServiceImpl
                             - startTime;
 
             log.error(
-                    "LLM generation failed. callId={}, latencyMs={}",
+                    "LLM generation failed. " +
+                            "callId={}, latencyMs={}",
                     request.getCallId(),
                     latencyMs,
                     exception
@@ -167,11 +185,6 @@ public class LlmRuntimeServiceImpl
         }
     }
 
-    /**
-     * Validates the LLM generation request.
-     *
-     * @param request LLM generation request
-     */
     private void validateRequest(
             LlmGenerationRequestDto request) {
 
@@ -208,12 +221,6 @@ public class LlmRuntimeServiceImpl
         }
     }
 
-    /**
-     * Validates the requested language against the configured
-     * supported language list.
-     *
-     * @param language requested language
-     */
     private void validateLanguage(
             String language) {
 
@@ -247,11 +254,6 @@ public class LlmRuntimeServiceImpl
 
         if (!supported) {
 
-            log.warn(
-                    "Unsupported LLM language requested. language={}",
-                    language
-            );
-
             throw new BadRequestException(
                     LlmMessages
                             .LANGUAGE_NOT_SUPPORTED
@@ -259,12 +261,6 @@ public class LlmRuntimeServiceImpl
         }
     }
 
-    /**
-     * Validates all conversation messages.
-     *
-     * @param messages conversation messages
-     * @param callId call identifier used for logging
-     */
     private void validateMessages(
             List<LlmMessageDto> messages,
             String callId) {
@@ -273,25 +269,11 @@ public class LlmRuntimeServiceImpl
 
             if (message == null) {
 
-                log.warn(
-                        "Null LLM message received. callId={}",
-                        callId
-                );
-
                 throw new BadRequestException(
                         LlmMessages
                                 .MESSAGE_CONTENT_REQUIRED
                 );
             }
-
-            log.debug(
-                    "Validating LLM message. callId={}, role={}, contentLength={}",
-                    callId,
-                    message.getRole(),
-                    message.getContent() == null
-                            ? 0
-                            : message.getContent().length()
-            );
 
             if (message.getRole() == null
                     || message.getRole().isBlank()) {
@@ -313,16 +295,9 @@ public class LlmRuntimeServiceImpl
         }
     }
 
-    /**
-     * Validates that the configured LLM provider is available.
-     */
     private void validateProvider() {
 
         if (llmProvider == null) {
-
-            log.error(
-                    "LLM provider is not configured."
-            );
 
             throw new IllegalStateException(
                     LlmMessages
@@ -331,11 +306,6 @@ public class LlmRuntimeServiceImpl
         }
 
         if (!llmProvider.isAvailable()) {
-
-            log.error(
-                    "Configured LLM provider is unavailable. provider={}",
-                    llmProvider.getProviderCode()
-            );
 
             throw new IllegalStateException(
                     LlmMessages

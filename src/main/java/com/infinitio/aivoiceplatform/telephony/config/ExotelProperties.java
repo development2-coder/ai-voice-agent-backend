@@ -18,43 +18,52 @@ import lombok.Setter;
 @ConfigurationProperties(prefix = "exotel")
 public class ExotelProperties {
 
-    /**
-     * Exotel API base URL.
-     */
     private String baseUrl;
 
-    /**
-     * Exotel account SID.
-     */
     private String accountSid;
 
-    /**
-     * Exotel API key.
-     */
     private String apiKey;
 
-    /**
-     * Exotel API token.
-     */
     private String apiToken;
 
-    /**
-     * Exotel virtual number / ExoPhone.
-     */
     private String callerId;
 
-    /**
-     * Exotel application ID.
-     */
     private String appId;
 
-    /**
-     * Exotel application flow URL.
-     */
     private String appUrl;
 
-    /**
-     * Callback URL used by Exotel for call status updates.
-     */
     private String statusCallbackUrl;
+
+    /**
+     * Public WSS endpoint used for real-time
+     * bidirectional voice streaming.
+     */
+    private String streamUrl;
+
+    /**
+     * Expected value:
+     *
+     * bidirectional
+     */
+    private String streamType = "bidirectional";
+
+    /**
+     * Record outbound calls.
+     */
+    private Boolean record = true;
+
+    /**
+     * single / dual
+     */
+    private String recordingChannels = "single";
+
+    /**
+     * Optional maximum call duration in seconds.
+     */
+    private Integer timeLimit;
+
+    /**
+     * Secret used to protect the public WebSocket endpoint.
+     */
+    private String streamSecret;
 }

@@ -4,13 +4,14 @@ import java.util.List;
 
 import org.springframework.stereotype.Service;
 
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
 import com.infinitio.aivoiceplatform.stt.config.SttProperties;
 import com.infinitio.aivoiceplatform.stt.constant.SttMessages;
 import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionRequest;
 import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import com.infinitio.aivoiceplatform.stt.provider.SttProvider;
 import com.infinitio.aivoiceplatform.stt.service.SttRuntimeService;
-import com.infinitio.aivoiceplatform.exception.BadRequestException;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,9 @@ public class SttRuntimeServiceImpl
 
     private final SttProperties sttProperties;
 
+    private final RuntimePersistenceService
+            runtimePersistenceService;
+
     /**
      * {@inheritDoc}
      */
@@ -41,9 +45,14 @@ public class SttRuntimeServiceImpl
         validateRequest(request);
 
         log.info(
-                "Starting STT transcription. callId={}, language={}, finalTranscript={}",
+                "Starting STT transcription. callId={}, language={}, " +
+                        "contentType={}, fileName={}, audioSizeBytes={}, " +
+                        "finalTranscript={}",
                 request.getCallId(),
                 request.getLanguage(),
+                request.getContentType(),
+                request.getFileName(),
+                request.getAudio().length,
                 request.isFinalTranscript()
         );
 
@@ -63,7 +72,9 @@ public class SttRuntimeServiceImpl
             validateProvider();
 
             SttTranscriptionResponse response =
-                    sttProvider.transcribe(request);
+                    sttProvider.transcribe(
+                            request
+                    );
 
             long latencyMs =
                     System.currentTimeMillis()
@@ -72,7 +83,8 @@ public class SttRuntimeServiceImpl
             if (response == null) {
 
                 log.error(
-                        "STT provider returned an empty response. callId={}, latencyMs={}",
+                        "STT provider returned an empty response. " +
+                                "callId={}, latencyMs={}",
                         request.getCallId(),
                         latencyMs
                 );
@@ -83,18 +95,75 @@ public class SttRuntimeServiceImpl
             }
 
             /*
-             * Provider latency is retained when supplied by the provider.
-             * Runtime latency is used as a fallback.
+             * Always retain the request call ID.
+             *
+             * Provider implementations may or may not populate it.
+             */
+            response.setCallId(
+                    request.getCallId()
+            );
+
+            /*
+             * Provider latency is preferred.
+             * Runtime latency is used as fallback.
              */
             if (response.getLatencyMs() == null) {
-                response.setLatencyMs(latencyMs);
+
+                response.setLatencyMs(
+                        latencyMs
+                );
+            }
+
+            /*
+             * Provider may not populate language.
+             * Use the request language as fallback.
+             */
+            if (response.getLanguage() == null
+                    || response.getLanguage().isBlank()) {
+
+                response.setLanguage(
+                        request.getLanguage()
+                );
+            }
+
+            /*
+             * Provider may not populate finalTranscript.
+             */
+            response.setFinalTranscript(
+                    request.isFinalTranscript()
+            );
+
+            /*
+             * Provider may not populate provider name.
+             */
+            if (response.getProvider() == null
+                    || response.getProvider().isBlank()) {
+
+                response.setProvider(
+                        sttProvider.getProviderCode()
+                );
             }
 
             log.info(
-                    "STT transcription completed successfully. callId={}, provider={}, latencyMs={}",
+                    "STT transcription completed successfully. " +
+                            "callId={}, provider={}, language={}, " +
+                            "latencyMs={}, finalTranscript={}",
                     request.getCallId(),
                     response.getProvider(),
-                    response.getLatencyMs()
+                    response.getLanguage(),
+                    response.getLatencyMs(),
+                    response.isFinalTranscript()
+            );
+
+            /*
+             * Persist the actual runtime STT response.
+             *
+             * This does NOT modify the stts configuration table.
+             * It creates one row in stt_interactions.
+             */
+            runtimePersistenceService.saveStt(
+                    request,
+                    response
             );
 
             return response;
@@ -102,7 +171,8 @@ public class SttRuntimeServiceImpl
         } catch (BadRequestException exception) {
 
             log.warn(
-                    "STT transcription validation failed. callId={}, reason={}",
+                    "STT transcription validation failed. " +
+                            "callId={}, reason={}",
                     request.getCallId(),
                     exception.getMessage()
             );
@@ -116,7 +186,8 @@ public class SttRuntimeServiceImpl
                             - startTime;
 
             log.error(
-                    "STT transcription failed. callId={}, latencyMs={}",
+                    "STT transcription failed. " +
+                            "callId={}, latencyMs={}",
                     request.getCallId(),
                     latencyMs,
                     exception
@@ -130,9 +201,9 @@ public class SttRuntimeServiceImpl
     }
 
     /**
-     * Validates the transcription request.
+     * Validates the STT request.
      *
-     * @param request transcription request
+     * @param request STT request
      */
     private void validateRequest(
             SttTranscriptionRequest request) {
@@ -171,8 +242,7 @@ public class SttRuntimeServiceImpl
     }
 
     /**
-     * Validates the requested language against the configured
-     * supported language list.
+     * Validates the requested language.
      *
      * @param language requested language
      */
@@ -245,7 +315,8 @@ public class SttRuntimeServiceImpl
         if (audio.length > maxAudioSizeBytes) {
 
             log.warn(
-                    "STT audio size exceeds configured limit. sizeBytes={}, maxSizeBytes={}",
+                    "STT audio size exceeds configured limit. " +
+                            "sizeBytes={}, maxSizeBytes={}",
                     audio.length,
                     maxAudioSizeBytes
             );
@@ -258,7 +329,7 @@ public class SttRuntimeServiceImpl
     }
 
     /**
-     * Validates that the configured STT provider is available.
+     * Validates the configured STT provider.
      */
     private void validateProvider() {
 
@@ -289,10 +360,13 @@ public class SttRuntimeServiceImpl
         }
 
         if (!configuredProvider.equalsIgnoreCase(
-                sttProvider.getProviderCode())) {
+                sttProvider.getProviderCode()
+        )) {
 
             log.error(
-                    "Configured STT provider does not match runtime provider. configuredProvider={}, runtimeProvider={}",
+                    "Configured STT provider does not match " +
+                            "runtime provider. configuredProvider={}, " +
+                            "runtimeProvider={}",
                     configuredProvider,
                     sttProvider.getProviderCode()
             );

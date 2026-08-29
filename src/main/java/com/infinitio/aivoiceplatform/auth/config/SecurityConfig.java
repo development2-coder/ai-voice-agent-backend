@@ -161,10 +161,24 @@ public class SecurityConfig {
                                 "/tts-audio/**"
                         ).permitAll()
 
-                        // -------------------------------------------------
-                        // CORS PREFLIGHT
-                        // -------------------------------------------------
+                        // =================================================
+                        // EXOTEL WEBHOOKS
+                        // =================================================
 
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/telephony/webhooks/**"
+                        ).permitAll()
+
+                        // =================================================
+                        // EXOTEL REALTIME WEBSOCKET
+                        // =================================================
+
+                        .requestMatchers(
+                                "/ws/telephony/exotel/**"
+                        ).permitAll()
+
+                        // Existing CORS preflight
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
                                 "/**"

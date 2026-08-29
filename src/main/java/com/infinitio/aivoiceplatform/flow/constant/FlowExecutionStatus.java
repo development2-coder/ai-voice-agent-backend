@@ -16,5 +16,7 @@ public enum FlowExecutionStatus {
 
     FAILED,
 
-    CANCELLED
+    CANCELLED,
+
+    WAITING_FOR_TIMER
 }

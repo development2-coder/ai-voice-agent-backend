@@ -79,7 +79,7 @@ CREATE TABLE `users` (
 
 LOCK TABLES `users` WRITE;
 /*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'b0e19258-83d2-4a19-a936-738a5e3e7130',1,1,1,'superadmin','superadmin@infinitiodigital.com','$2a$10$C368xaoMdtnqx9m6aEzwGeGw.t6n5LL2t1RuE3P1XJWY9X7j4HMgm','Super','Admin','8010853917','',NULL,NULL,0,0,NULL,0,0,1,'2026-08-12 18:23:15',0,'2026-08-12 18:23:15',NULL,0,NULL,'Administration','System Administrator',_binary '\0','Super Admin','',_binary '\0');
+INSERT INTO `users` VALUES (1,'b0e19258-83d2-4a19-a936-738a5e3e7130',1,1,1,'superadmin','development2@infinitiodigital.com','$2a$10$XPEhxnLPvU7eVl2JK.WTB.xzQjieN5puN9NIvvRXphcstC6TV5KD6','Super','Admin','8010853917','',NULL,'2026-08-26 13:38:18',0,0,NULL,0,0,1,'2026-08-12 18:23:15',0,'2026-08-26 13:38:18',NULL,0,NULL,'Administration','System Administrator',_binary '\0','Super Admin','',_binary '\0');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -92,4 +92,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 12:17:59
+-- Dump completed on 2026-08-26 16:55:48

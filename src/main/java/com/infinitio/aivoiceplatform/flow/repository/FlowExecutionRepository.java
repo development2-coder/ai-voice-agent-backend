@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.flow.repository;
 
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.entity.FlowExecution;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -51,5 +52,15 @@ public interface FlowExecutionRepository
      */
     List<FlowExecution> findByCallPublicIdOrderByStartedAtAsc(
             String callPublicId
+    );
+
+    /**
+     * Finds Flow executions waiting for a timer.
+     *
+     * @param status execution status
+     * @return waiting executions
+     */
+    List<FlowExecution> findByStatus(
+            FlowExecutionStatus status
     );
 }

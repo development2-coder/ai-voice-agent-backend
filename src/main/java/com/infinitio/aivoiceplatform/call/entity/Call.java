@@ -2,8 +2,17 @@ package com.infinitio.aivoiceplatform.call.entity;
 
 import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
 import com.infinitio.aivoiceplatform.common.entity.BaseEntity;
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDateTime;
@@ -11,8 +20,17 @@ import java.time.LocalDateTime;
 /**
  * Call Entity.
  *
- * Represents an actual call attempt made
- * for a campaign contact.
+ * <p>
+ * Represents an actual telephony call.
+ * </p>
+ *
+ * <p>
+ * A Call may originate from:
+ *
+ * <ul>
+ *     <li>Campaign / AI Dialer</li>
+ *     <li>Direct Agent outbound call</li>
+ * </ul>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -34,10 +52,18 @@ import java.time.LocalDateTime;
 )
 public class Call extends BaseEntity {
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    /**
+     * Campaign contact.
+     *
+     * <p>
+     * Nullable because direct Agent calls do not belong
+     * to a Campaign.
+     * </p>
+     */
+    @ManyToOne
     @JoinColumn(
             name = "campaign_contact_id",
-            nullable = false
+            nullable = true
     )
     private CampaignContact campaignContact;
 
@@ -107,6 +133,12 @@ public class Call extends BaseEntity {
     private String recordingUrl;
 
     @Column(
+            name = "transcript_file_path",
+            length = 1000
+    )
+    private String transcriptFilePath;
+
+    @Column(
             name = "description",
             length = 500
     )
@@ -115,7 +147,9 @@ public class Call extends BaseEntity {
     @PrePersist
     public void initializeDefaults() {
 
-        if (status == null || status.isBlank()) {
+        if (status == null
+                || status.isBlank()) {
+
             status = "INITIATED";
         }
     }

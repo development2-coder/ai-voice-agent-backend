@@ -2,7 +2,7 @@ package com.infinitio.aivoiceplatform.telephony.service.impl;
 
 import com.infinitio.aivoiceplatform.call.entity.Call;
 import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingService;
-import com.infinitio.aivoiceplatform.telephony.constant.TelephonyConstants;
+import com.infinitio.aivoiceplatform.telephony.constants.TelephonyConstants;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NormalizedCallEventDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyCallStateService;

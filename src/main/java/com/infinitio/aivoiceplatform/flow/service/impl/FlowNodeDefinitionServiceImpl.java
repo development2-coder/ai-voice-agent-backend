@@ -1,10 +1,13 @@
 package com.infinitio.aivoiceplatform.flow.service.impl;
 
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
-import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
+import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeDefinitionResponse;
+import com.infinitio.aivoiceplatform.flow.service.FlowNodeConfigurationSchemaService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
+import com.infinitio.aivoiceplatform.flow.service.FlowNodePortDefinitionService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -12,13 +15,18 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Provides the built-in node definitions available to the
- * Flow Builder.
+ * Provides metadata for the built-in Flow node library.
  *
  * <p>
- * The definitions are intentionally centralized so the frontend
- * can build its node palette dynamically instead of hardcoding
- * node types.
+ * This service is responsible only for node metadata. Configuration
+ * schemas and connection-port definitions are delegated to their
+ * respective services to keep the implementation modular.
+ * </p>
+ *
+ * <p>
+ * The architecture is inspired by n8n's node-oriented workflow
+ * model, where the workflow canvas can discover node capabilities
+ * and configuration rather than hardcoding every node in the UI.
  * </p>
  *
  * @author Infinitio Digital
@@ -26,8 +34,15 @@ import java.util.List;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class FlowNodeDefinitionServiceImpl
         implements FlowNodeDefinitionService {
+
+    private final FlowNodeConfigurationSchemaService
+            configurationSchemaService;
+
+    private final FlowNodePortDefinitionService
+            portDefinitionService;
 
     /**
      * {@inheritDoc}
@@ -35,8 +50,8 @@ public class FlowNodeDefinitionServiceImpl
     @Override
     public List<FlowNodeDefinitionResponse> getAll() {
 
-        log.debug(
-                "Fetching Flow node definitions."
+        log.info(
+                "Fetching all Flow node definitions."
         );
 
         return Arrays.stream(
@@ -57,12 +72,16 @@ public class FlowNodeDefinitionServiceImpl
 
         if (nodeType == null) {
 
+            log.warn(
+                    "Flow node definition requested without node type."
+            );
+
             throw new ResourceNotFoundException(
                     FlowMessages.NODE_NOT_FOUND
             );
         }
 
-        log.debug(
+        log.info(
                 "Fetching Flow node definition. nodeType={}",
                 nodeType
         );
@@ -73,7 +92,7 @@ public class FlowNodeDefinitionServiceImpl
     }
 
     /**
-     * Builds metadata for one node type.
+     * Builds metadata for a single node type.
      *
      * @param nodeType node type
      * @return node definition
@@ -83,658 +102,514 @@ public class FlowNodeDefinitionServiceImpl
 
         return switch (nodeType) {
 
-            case START -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Start")
-                    .category("TRIGGER")
-                    .description(
-                            "Entry point of the voice agent flow."
-                    )
-                    .icon("play")
-                    .userCreatable(false)
-                    .startNode(true)
-                    .endNode(false)
-                    .inputSupported(false)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            "{}"
-                    )
-                    .build();
+            case START ->
+                    buildStartDefinition();
 
-            case GREETING -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Greeting")
-                    .category("CONVERSATION")
-                    .description(
-                            "Starts the conversation with a greeting."
-                    )
-                    .icon("hand")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            greetingSchema()
-                    )
-                    .build();
+            case GREETING ->
+                    buildGreetingDefinition();
 
-            case MESSAGE -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Message")
-                    .category("CONVERSATION")
-                    .description(
-                            "Speaks a fixed message to the caller."
-                    )
-                    .icon("message")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            messageSchema()
-                    )
-                    .build();
+            case MESSAGE ->
+                    buildMessageDefinition();
 
-            case USER_INPUT -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("User Input")
-                    .category("INPUT")
-                    .description(
-                            "Collects information from the caller."
-                    )
-                    .icon("keyboard")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            userInputSchema()
-                    )
-                    .build();
+            case USER_INPUT ->
+                    buildUserInputDefinition();
 
-            case AI_RESPONSE -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("AI Response")
-                    .category("AI")
-                    .description(
-                            "Generates a response using the configured AI model."
-                    )
-                    .icon("sparkles")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            aiResponseSchema()
-                    )
-                    .build();
+            case AI_RESPONSE ->
+                    buildAiResponseDefinition();
 
-            case CONDITION -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Condition")
-                    .category("LOGIC")
-                    .description(
-                            "Routes execution based on a condition."
-                    )
-                    .icon("git-branch")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(true)
-                    .configurationSchema(
-                            conditionSchema()
-                    )
-                    .build();
+            case CONDITION ->
+                    buildConditionDefinition();
 
-            case API -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("API Request")
-                    .category("INTEGRATION")
-                    .description(
-                            "Calls an external HTTP API."
-                    )
-                    .icon("globe")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            apiSchema()
-                    )
-                    .build();
+            case API ->
+                    buildApiDefinition();
 
-            case WEBHOOK -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Webhook")
-                    .category("INTEGRATION")
-                    .description(
-                            "Receives or sends webhook data."
-                    )
-                    .icon("webhook")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            webhookSchema()
-                    )
-                    .build();
+            case WEBHOOK ->
+                    buildWebhookDefinition();
 
-            case FUNCTION -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Function")
-                    .category("LOGIC")
-                    .description(
-                            "Runs custom flow transformation logic."
-                    )
-                    .icon("code")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            functionSchema()
-                    )
-                    .build();
+            case FUNCTION ->
+                    buildFunctionDefinition();
 
-            case KNOWLEDGE_BASE -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Knowledge Base")
-                    .category("AI")
-                    .description(
-                            "Retrieves information from a knowledge base."
-                    )
-                    .icon("book-open")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            knowledgeBaseSchema()
-                    )
-                    .build();
+            case KNOWLEDGE_BASE ->
+                    buildKnowledgeBaseDefinition();
 
-            case RAG -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("RAG")
-                    .category("AI")
-                    .description(
-                            "Retrieves relevant knowledge for AI generation."
-                    )
-                    .icon("database")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            ragSchema()
-                    )
-                    .build();
+            case RAG ->
+                    buildRagDefinition();
 
-            case SET_VARIABLE -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Set Variable")
-                    .category("DATA")
-                    .description(
-                            "Creates or updates a flow variable."
-                    )
-                    .icon("variable")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            setVariableSchema()
-                    )
-                    .build();
+            case SET_VARIABLE ->
+                    buildSetVariableDefinition();
 
-            case TRANSFER -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Transfer")
-                    .category("VOICE")
-                    .description(
-                            "Transfers the current call to a destination."
-                    )
-                    .icon("phone-forwarded")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            transferSchema()
-                    )
-                    .build();
+            case TRANSFER ->
+                    buildTransferDefinition();
 
-            case WAIT -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("Wait")
-                    .category("CONTROL")
-                    .description(
-                            "Pauses flow execution before continuing."
-                    )
-                    .icon("clock")
-                    .userCreatable(true)
-                    .startNode(false)
-                    .endNode(false)
-                    .inputSupported(true)
-                    .outputSupported(true)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            waitSchema()
-                    )
-                    .build();
+            case WAIT ->
+                    buildWaitDefinition();
 
-            case END -> FlowNodeDefinitionResponse
-                    .builder()
-                    .nodeType(nodeType)
-                    .displayName("End")
-                    .category("CONTROL")
-                    .description(
-                            "Terminates the flow."
-                    )
-                    .icon("square")
-                    .userCreatable(false)
-                    .startNode(false)
-                    .endNode(true)
-                    .inputSupported(true)
-                    .outputSupported(false)
-                    .multipleOutputs(false)
-                    .configurationSchema(
-                            "{}"
-                    )
-                    .build();
+            case END ->
+                    buildEndDefinition();
+
+            case STT ->
+                    buildSttDefinition();
+
+            case LLM ->
+                    buildLlmDefinition();
+
+            case TTS ->
+                    buildTtsDefinition();
         };
     }
 
-    private String greetingSchema() {
+    /**
+     * Builds START node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildStartDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "message",
-                      "label": "Greeting",
-                      "type": "TEXTAREA",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.START,
+                "Start",
+                "TRIGGER",
+                "Entry point of the voice agent flow.",
+                "play",
+                false,
+                true,
+                false,
+                false,
+                true,
+                false
+        );
     }
 
-    private String messageSchema() {
+    /**
+     * Builds GREETING node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildGreetingDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "message",
-                      "label": "Message",
-                      "type": "TEXTAREA",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.GREETING,
+                "Greeting",
+                "CONVERSATION",
+                "Starts the conversation with a greeting.",
+                "hand",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String userInputSchema() {
+    /**
+     * Builds MESSAGE node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildMessageDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "variableName",
-                      "label": "Variable Name",
-                      "type": "TEXT",
-                      "required": true
-                    },
-                    {
-                      "name": "inputType",
-                      "label": "Input Type",
-                      "type": "SELECT",
-                      "options": [
-                        "TEXT",
-                        "NUMBER",
-                        "DATE",
-                        "DTMF"
-                      ],
-                      "required": true
-                    },
-                    {
-                      "name": "prompt",
-                      "label": "Prompt",
-                      "type": "TEXTAREA",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.MESSAGE,
+                "Message",
+                "CONVERSATION",
+                "Speaks a fixed message to the caller.",
+                "message",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String aiResponseSchema() {
+    /**
+     * Builds USER_INPUT node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildUserInputDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "prompt",
-                      "label": "Prompt",
-                      "type": "TEXTAREA",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "llmConfigPublicId",
-                      "label": "LLM Configuration",
-                      "type": "SELECT",
-                      "required": true
-                    },
-                    {
-                      "name": "temperature",
-                      "label": "Temperature",
-                      "type": "NUMBER",
-                      "required": false
-                    },
-                    {
-                      "name": "outputVariable",
-                      "label": "Output Variable",
-                      "type": "TEXT",
-                      "required": false
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.USER_INPUT,
+                "User Input",
+                "INPUT",
+                "Collects information from the caller.",
+                "keyboard",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String conditionSchema() {
+    /**
+     * Builds AI_RESPONSE node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildAiResponseDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "variable",
-                      "label": "Variable",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "operator",
-                      "label": "Operator",
-                      "type": "SELECT",
-                      "options": [
-                        "EQUALS",
-                        "NOT_EQUALS",
-                        "GREATER_THAN",
-                        "LESS_THAN",
-                        "GREATER_THAN_OR_EQUALS",
-                        "LESS_THAN_OR_EQUALS",
-                        "CONTAINS",
-                        "EXISTS",
-                        "NOT_EXISTS"
-                      ],
-                      "required": true
-                    },
-                    {
-                      "name": "value",
-                      "label": "Value",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.AI_RESPONSE,
+                "AI Response",
+                "AI",
+                "Generates a response using the configured AI model.",
+                "sparkles",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String apiSchema() {
+    /**
+     * Builds CONDITION node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildConditionDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "method",
-                      "label": "HTTP Method",
-                      "type": "SELECT",
-                      "options": [
-                        "GET",
-                        "POST",
-                        "PUT",
-                        "PATCH",
-                        "DELETE"
-                      ],
-                      "required": true
-                    },
-                    {
-                      "name": "url",
-                      "label": "URL",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "headers",
-                      "label": "Headers",
-                      "type": "JSON",
-                      "required": false
-                    },
-                    {
-                      "name": "body",
-                      "label": "Request Body",
-                      "type": "JSON",
-                      "required": false,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "outputVariable",
-                      "label": "Output Variable",
-                      "type": "TEXT",
-                      "required": false
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.CONDITION,
+                "Condition",
+                "LOGIC",
+                "Routes execution based on a condition.",
+                "git-branch",
+                true,
+                false,
+                false,
+                true,
+                true,
+                true
+        );
     }
 
-    private String webhookSchema() {
+    /**
+     * Builds API node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildApiDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "url",
-                      "label": "Webhook URL",
-                      "type": "TEXT",
-                      "required": true
-                    },
-                    {
-                      "name": "method",
-                      "label": "HTTP Method",
-                      "type": "SELECT",
-                      "options": [
-                        "GET",
-                        "POST"
-                      ],
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.API,
+                "API Request",
+                "INTEGRATION",
+                "Calls an external HTTP API.",
+                "globe",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String functionSchema() {
+    /**
+     * Builds WEBHOOK node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildWebhookDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "code",
-                      "label": "Function Code",
-                      "type": "CODE",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.WEBHOOK,
+                "Webhook",
+                "INTEGRATION",
+                "Receives or sends webhook data.",
+                "webhook",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String knowledgeBaseSchema() {
+    /**
+     * Builds FUNCTION node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildFunctionDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "knowledgeBasePublicId",
-                      "label": "Knowledge Base",
-                      "type": "SELECT",
-                      "required": true
-                    },
-                    {
-                      "name": "query",
-                      "label": "Query",
-                      "type": "TEXTAREA",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "outputVariable",
-                      "label": "Output Variable",
-                      "type": "TEXT",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.FUNCTION,
+                "Function",
+                "LOGIC",
+                "Runs custom flow transformation logic.",
+                "code",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String ragSchema() {
+    /**
+     * Builds KNOWLEDGE_BASE node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse
+    buildKnowledgeBaseDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "knowledgeBasePublicId",
-                      "label": "Knowledge Base",
-                      "type": "SELECT",
-                      "required": true
-                    },
-                    {
-                      "name": "query",
-                      "label": "Query",
-                      "type": "TEXTAREA",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "topK",
-                      "label": "Top K",
-                      "type": "NUMBER",
-                      "required": false
-                    },
-                    {
-                      "name": "outputVariable",
-                      "label": "Output Variable",
-                      "type": "TEXT",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.KNOWLEDGE_BASE,
+                "Knowledge Base",
+                "AI",
+                "Retrieves information from a knowledge base.",
+                "book-open",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String setVariableSchema() {
+    /**
+     * Builds RAG node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildRagDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "variableName",
-                      "label": "Variable Name",
-                      "type": "TEXT",
-                      "required": true
-                    },
-                    {
-                      "name": "value",
-                      "label": "Value",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.RAG,
+                "RAG",
+                "AI",
+                "Retrieves relevant knowledge for AI generation.",
+                "database",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String transferSchema() {
+    /**
+     * Builds SET_VARIABLE node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse
+    buildSetVariableDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "destination",
-                      "label": "Transfer Destination",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.SET_VARIABLE,
+                "Set Variable",
+                "DATA",
+                "Creates or updates a flow variable.",
+                "variable",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
     }
 
-    private String waitSchema() {
+    /**
+     * Builds TRANSFER node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildTransferDefinition() {
 
-        return """
-                {
-                  "fields": [
-                    {
-                      "name": "durationSeconds",
-                      "label": "Duration",
-                      "type": "NUMBER",
-                      "required": true
-                    }
-                  ]
-                }
-                """;
+        return build(
+                FlowNodeType.TRANSFER,
+                "Transfer",
+                "VOICE",
+                "Transfers the current call to a destination.",
+                "phone-forwarded",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
+    }
+
+    /**
+     * Builds WAIT node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildWaitDefinition() {
+
+        return build(
+                FlowNodeType.WAIT,
+                "Wait",
+                "CONTROL",
+                "Pauses flow execution before continuing.",
+                "clock",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
+    }
+
+    /**
+     * Builds END node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildEndDefinition() {
+
+        return build(
+                FlowNodeType.END,
+                "End",
+                "CONTROL",
+                "Terminates the flow.",
+                "square",
+                false,
+                false,
+                true,
+                true,
+                false,
+                false
+        );
+    }
+
+    /**
+     * Builds STT node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildSttDefinition() {
+
+        return build(
+                FlowNodeType.STT,
+                "Speech to Text",
+                "VOICE",
+                "Converts caller speech into text for downstream flow processing.",
+                "mic",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
+    }
+
+    /**
+     * Builds LLM node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildLlmDefinition() {
+
+        return build(
+                FlowNodeType.LLM,
+                "LLM",
+                "AI",
+                "Generates an AI response using the configured language model.",
+                "sparkles",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
+    }
+
+    /**
+     * Builds TTS node metadata.
+     *
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse buildTtsDefinition() {
+
+        return build(
+                FlowNodeType.TTS,
+                "Text to Speech",
+                "VOICE",
+                "Converts generated text into speech for the caller.",
+                "volume-2",
+                true,
+                false,
+                false,
+                true,
+                true,
+                false
+        );
+    }
+
+    /**
+     * Creates a complete node definition.
+     *
+     * @param nodeType node type
+     * @param displayName display name
+     * @param category category
+     * @param description description
+     * @param icon icon identifier
+     * @param userCreatable user-creatable flag
+     * @param startNode start-node flag
+     * @param endNode end-node flag
+     * @param inputSupported input support flag
+     * @param outputSupported output support flag
+     * @param multipleOutputs multiple output flag
+     * @return node definition
+     */
+    private FlowNodeDefinitionResponse build(
+            FlowNodeType nodeType,
+            String displayName,
+            String category,
+            String description,
+            String icon,
+            boolean userCreatable,
+            boolean startNode,
+            boolean endNode,
+            boolean inputSupported,
+            boolean outputSupported,
+            boolean multipleOutputs) {
+
+        return FlowNodeDefinitionResponse
+                .builder()
+                .nodeType(nodeType)
+                .displayName(displayName)
+                .category(category)
+                .description(description)
+                .icon(icon)
+                .userCreatable(userCreatable)
+                .startNode(startNode)
+                .endNode(endNode)
+                .inputSupported(inputSupported)
+                .outputSupported(outputSupported)
+                .multipleOutputs(multipleOutputs)
+                .configurationSchema(
+                        configurationSchemaService
+                                .getSchema(nodeType)
+                )
+                .inputPorts(
+                        portDefinitionService
+                                .getInputPorts(nodeType)
+                )
+                .outputPorts(
+                        portDefinitionService
+                                .getOutputPorts(nodeType)
+                )
+                .build();
     }
 }

@@ -1,13 +1,17 @@
 package com.infinitio.aivoiceplatform.flow.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.constant.FlowStatus;
+import com.infinitio.aivoiceplatform.flow.dto.request.ContinueApiResponseRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.ContinueAiResponseRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.ContinueFlowExecutionRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.StartFlowExecutionRequest;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeExecutionResult;
 import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import com.infinitio.aivoiceplatform.flow.entity.FlowExecution;
 import com.infinitio.aivoiceplatform.flow.entity.FlowNode;
@@ -18,10 +22,7 @@ import com.infinitio.aivoiceplatform.flow.service.FlowExecutionService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeExecutionService;
 import com.infinitio.aivoiceplatform.flow.service.FlowResultService;
 import com.infinitio.aivoiceplatform.flow.service.FlowTransitionService;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeExecutionResult;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
-import com.infinitio.aivoiceplatform.flow.dto.request.ContinueApiResponseRequest;
-import com.infinitio.aivoiceplatform.flow.dto.request.ContinueAiResponseRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,13 +53,30 @@ public class FlowExecutionServiceImpl
 
     private final FlowResultService resultService;
 
+    /**
+     * Current authenticated user service.
+     *
+     * Used to populate audit information such as
+     * createdBy for newly created FlowExecution records.
+     */
+    private final CurrentUserService currentUserService;
+
+
+    // =========================================================
+    // START FLOW EXECUTION
+    // =========================================================
+
     @Override
     public FlowExecutionResult start(
             StartFlowExecutionRequest request) {
 
         log.info(
-                "Starting flow execution. flow={}",
-                request.getFlowPublicId()
+                "Starting Flow execution. " +
+                        "flowPublicId={}, callPublicId={}, " +
+                        "conversationPublicId={}",
+                request.getFlowPublicId(),
+                request.getCallPublicId(),
+                request.getConversationPublicId()
         );
 
         /*
@@ -102,6 +120,37 @@ public class FlowExecutionServiceImpl
                 );
 
         /*
+         * Resolve current authenticated user.
+         *
+         * FlowExecution extends the common audit entity and
+         * createdBy is NOT NULL in the database.
+         */
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        if (currentUserId == null) {
+
+            log.error(
+                    "Unable to start Flow execution because " +
+                            "current authenticated user ID is null. " +
+                            "flowPublicId={}",
+                    request.getFlowPublicId()
+            );
+
+            throw new IllegalStateException(
+                    "Authenticated user is required to start flow execution."
+            );
+        }
+
+        log.debug(
+                "Creating Flow execution. flowPublicId={}, " +
+                        "createdBy={}, startNodeId={}",
+                request.getFlowPublicId(),
+                currentUserId,
+                startNode.getId()
+        );
+
+        /*
          * Create execution.
          */
         FlowExecution execution =
@@ -127,6 +176,9 @@ public class FlowExecutionServiceImpl
                         .startedAt(
                                 LocalDateTime.now()
                         )
+                        .createdBy(
+                                currentUserId
+                        )
                         .build();
 
         FlowExecution savedExecution =
@@ -135,8 +187,12 @@ public class FlowExecutionServiceImpl
                 );
 
         log.info(
-                "Flow execution created. execution={}",
-                savedExecution.getPublicId()
+                "Flow execution created successfully. " +
+                        "executionPublicId={}, flowPublicId={}, " +
+                        "createdBy={}",
+                savedExecution.getPublicId(),
+                request.getFlowPublicId(),
+                currentUserId
         );
 
         /*
@@ -149,12 +205,17 @@ public class FlowExecutionServiceImpl
         );
     }
 
+
+    // =========================================================
+    // CONTINUE EXECUTION
+    // =========================================================
+
     @Override
     public FlowExecutionResult continueExecution(
             ContinueFlowExecutionRequest request) {
 
         log.info(
-                "Continuing flow execution. execution={}",
+                "Continuing Flow execution. execution={}",
                 request.getExecutionPublicId()
         );
 
@@ -170,23 +231,46 @@ public class FlowExecutionServiceImpl
                         );
 
         /*
-         * Do not continue a completed/cancelled execution.
+         * Do not continue a completed execution.
          */
-        validateExecutionState(
-                execution
-        );
+        if (execution.getStatus()
+                == FlowExecutionStatus.COMPLETED) {
+
+            throw new IllegalStateException(
+                    "Flow execution is already completed."
+            );
+        }
 
         /*
-         * Restore context.
+         * Do not continue a cancelled execution.
+         */
+        if (execution.getStatus()
+                == FlowExecutionStatus.CANCELLED) {
+
+            throw new IllegalStateException(
+                    "Flow execution is cancelled."
+            );
+        }
+
+        /*
+         * Do not continue a transferred execution.
+         */
+        if (execution.getStatus()
+                == FlowExecutionStatus.TRANSFERRED) {
+
+            throw new IllegalStateException(
+                    "Flow execution has already been transferred."
+            );
+        }
+
+        /*
+         * Restore runtime context.
          */
         Map<String, Object> context =
                 flowContextService.readContext(
                         execution.getContextData()
                 );
 
-        /*
-         * Merge additional context.
-         */
         if (request.getContext() != null) {
 
             context.putAll(
@@ -195,23 +279,19 @@ public class FlowExecutionServiceImpl
         }
 
         /*
-         * Process user input.
+         * Store user input.
          */
-        if (request.getUserInput() != null
-                && !request.getUserInput().isBlank()) {
-
-            processUserInput(
-                    request.getUserInput(),
-                    context
-            );
-        }
+        processUserInput(
+                request.getUserInput(),
+                context
+        );
 
         /*
          * Find current node.
          */
         if (execution.getCurrentNodeId() == null) {
 
-            throw new IllegalStateException(
+            throw new ResourceNotFoundException(
                     FlowMessages.NODE_NOT_FOUND
             );
         }
@@ -228,11 +308,8 @@ public class FlowExecutionServiceImpl
                         );
 
         /*
-         * If execution was waiting for external
-         * input/AI result, the current node has
-         * already completed its waiting action.
-         *
-         * Therefore continue from the next node.
+         * If execution was waiting for an external
+         * input/result, continue from the next node.
          */
         if (isWaitingStatus(
                 execution.getStatus()
@@ -266,7 +343,7 @@ public class FlowExecutionServiceImpl
         }
 
         /*
-         * Normal execution.
+         * Normal continuation.
          */
         execution.setStatus(
                 FlowExecutionStatus.RUNNING
@@ -289,6 +366,11 @@ public class FlowExecutionServiceImpl
         );
     }
 
+
+    // =========================================================
+    // GET EXECUTION
+    // =========================================================
+
     @Override
     @Transactional(readOnly = true)
     public FlowExecutionResult getExecution(
@@ -305,69 +387,361 @@ public class FlowExecutionServiceImpl
                                 )
                         );
 
+        if (execution.getCurrentNodeId() == null) {
+
+            throw new ResourceNotFoundException(
+                    FlowMessages.NODE_NOT_FOUND
+            );
+        }
+
+        FlowNode currentNode =
+                nodeRepository
+                        .findById(
+                                execution.getCurrentNodeId()
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.NODE_NOT_FOUND
+                                )
+                        );
+
         Map<String, Object> context =
                 flowContextService.readContext(
                         execution.getContextData()
                 );
 
-        FlowNode node = null;
+        FlowNodeExecutionResult nodeResult =
+                FlowNodeExecutionResult.builder()
+                        .build();
 
-        if (execution.getCurrentNodeId() != null) {
+        return resultService.buildResult(
+                execution,
+                currentNode,
+                nodeResult
+        );
+    }
 
-            node =
-                    nodeRepository
-                            .findById(
-                                    execution.getCurrentNodeId()
-                            )
-                            .orElse(null);
+
+    // =========================================================
+    // CONTINUE WITH API RESPONSE
+    // =========================================================
+
+    @Override
+    public FlowExecutionResult continueWithApiResponse(
+            ContinueApiResponseRequest request) {
+
+        log.info(
+                "Continuing Flow execution with API response. " +
+                        "execution={}",
+                request.getExecutionPublicId()
+        );
+
+        FlowExecution execution =
+                executionRepository
+                        .findByPublicId(
+                                request.getExecutionPublicId()
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.EXECUTION_NOT_FOUND
+                                )
+                        );
+
+        /*
+         * API response is valid only while waiting
+         * for an API response.
+         */
+        if (execution.getStatus()
+                != FlowExecutionStatus.WAITING_FOR_API) {
+
+            throw new IllegalStateException(
+                    "Flow execution is not waiting for an API response."
+            );
         }
 
-        return FlowExecutionResult.builder()
-                .executionPublicId(
-                        execution.getPublicId()
-                )
-                .status(
-                        execution.getStatus()
-                )
-                .currentNodeKey(
-                        node != null
-                                ? node.getNodeKey()
-                                : null
-                )
-                .currentNodeType(
-                        node != null
-                                ? node.getNodeType().name()
-                                : null
-                )
-                .waitingForInput(
-                        execution.getStatus()
-                                == FlowExecutionStatus.WAITING_FOR_INPUT
-                )
-                .waitingForAi(
-                        execution.getStatus()
-                                == FlowExecutionStatus.WAITING_FOR_AI
-                )
-                .waitingForApi(
-                        execution.getStatus()
-                                == FlowExecutionStatus.WAITING_FOR_API
-                )
-                .completed(
-                        execution.getStatus()
-                                == FlowExecutionStatus.COMPLETED
-                )
-                .transferred(
-                        execution.getStatus()
-                                == FlowExecutionStatus.TRANSFERRED
-                )
-                .context(
+        /*
+         * Restore existing context.
+         */
+        Map<String, Object> context =
+                flowContextService.readContext(
+                        execution.getContextData()
+                );
+
+        /*
+         * Get API response.
+         */
+        Object response =
+                request.getResponse();
+
+        /*
+         * Store response in the configured
+         * waiting variable.
+         */
+        Object waitingVariable =
+                context.get(
+                        "_waitingApiVariable"
+                );
+
+        if (waitingVariable != null
+                && !String.valueOf(
+                waitingVariable
+        ).isBlank()) {
+
+            context.put(
+                    String.valueOf(
+                            waitingVariable
+                    ),
+                    response
+            );
+        }
+
+        /*
+         * Store raw API response.
+         */
+        context.put(
+                "lastApiResponse",
+                response
+        );
+
+        /*
+         * Merge additional context.
+         */
+        if (request.getContext() != null) {
+
+            context.putAll(
+                    request.getContext()
+            );
+        }
+
+        /*
+         * Remove API waiting state.
+         */
+        context.remove(
+                "_waitingApiVariable"
+        );
+
+        context.remove(
+                "_apiRequest"
+        );
+
+        execution.setStatus(
+                FlowExecutionStatus.RUNNING
+        );
+
+        execution.setContextData(
+                flowContextService.writeContext(
                         context
                 )
-                .build();
+        );
+
+        executionRepository.save(
+                execution
+        );
+
+        /*
+         * Find current API node.
+         */
+        if (execution.getCurrentNodeId() == null) {
+
+            throw new IllegalStateException(
+                    FlowMessages.NODE_NOT_FOUND
+            );
+        }
+
+        FlowNode currentNode =
+                nodeRepository
+                        .findById(
+                                execution.getCurrentNodeId()
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.NODE_NOT_FOUND
+                                )
+                        );
+
+        /*
+         * Move to next node.
+         */
+        FlowNode nextNode =
+                transitionService.getNextNode(
+                        currentNode,
+                        context
+                );
+
+        return executeCurrentNode(
+                execution,
+                nextNode,
+                context
+        );
     }
+
+
+    // =========================================================
+    // CONTINUE WITH AI RESPONSE
+    // =========================================================
+
+    @Override
+    public FlowExecutionResult continueWithAiResponse(
+            ContinueAiResponseRequest request) {
+
+        log.info(
+                "Continuing Flow execution with AI response. " +
+                        "execution={}",
+                request.getExecutionPublicId()
+        );
+
+        FlowExecution execution =
+                executionRepository
+                        .findByPublicId(
+                                request.getExecutionPublicId()
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.EXECUTION_NOT_FOUND
+                                )
+                        );
+
+        /*
+         * AI response is valid only while waiting
+         * for an AI response.
+         */
+        if (execution.getStatus()
+                != FlowExecutionStatus.WAITING_FOR_AI) {
+
+            throw new IllegalStateException(
+                    "Flow execution is not waiting for an AI response."
+            );
+        }
+
+        /*
+         * Restore existing context.
+         */
+        Map<String, Object> context =
+                flowContextService.readContext(
+                        execution.getContextData()
+                );
+
+        /*
+         * Get AI response.
+         */
+        String response =
+                request.getResponse();
+
+        /*
+         * Get waiting variable configured
+         * by the AI node.
+         */
+        Object waitingVariable =
+                context.get(
+                        "_waitingAiVariable"
+                );
+
+        if (waitingVariable != null
+                && !String.valueOf(
+                waitingVariable
+        ).isBlank()) {
+
+            context.put(
+                    String.valueOf(
+                            waitingVariable
+                    ),
+                    response
+            );
+        }
+
+        /*
+         * Store raw AI response.
+         */
+        context.put(
+                "lastAiResponse",
+                response
+        );
+
+        /*
+         * Merge additional context.
+         */
+        if (request.getContext() != null) {
+
+            context.putAll(
+                    request.getContext()
+            );
+        }
+
+        /*
+         * Remove AI waiting state.
+         */
+        context.remove(
+                "_waitingAiVariable"
+        );
+
+        context.remove(
+                "_aiPrompt"
+        );
+
+        execution.setStatus(
+                FlowExecutionStatus.RUNNING
+        );
+
+        execution.setContextData(
+                flowContextService.writeContext(
+                        context
+                )
+        );
+
+        executionRepository.save(
+                execution
+        );
+
+        /*
+         * Find current AI node.
+         */
+        if (execution.getCurrentNodeId() == null) {
+
+            throw new IllegalStateException(
+                    FlowMessages.NODE_NOT_FOUND
+            );
+        }
+
+        FlowNode currentNode =
+                nodeRepository
+                        .findById(
+                                execution.getCurrentNodeId()
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.NODE_NOT_FOUND
+                                )
+                        );
+
+        /*
+         * Move to next node.
+         */
+        FlowNode nextNode =
+                transitionService.getNextNode(
+                        currentNode,
+                        context
+                );
+
+        return executeCurrentNode(
+                execution,
+                nextNode,
+                context
+        );
+    }
+
+
+    // =========================================================
+    // CANCEL EXECUTION
+    // =========================================================
 
     @Override
     public void cancel(
             String executionPublicId) {
+
+        log.info(
+                "Cancelling Flow execution. execution={}",
+                executionPublicId
+        );
 
         FlowExecution execution =
                 executionRepository
@@ -388,15 +762,24 @@ public class FlowExecutionServiceImpl
                 LocalDateTime.now()
         );
 
+        execution.setUpdatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
         executionRepository.save(
                 execution
         );
 
         log.info(
-                "Flow execution cancelled. execution={}",
+                "Flow execution cancelled successfully. execution={}",
                 executionPublicId
         );
     }
+
+
+    // =========================================================
+    // NODE EXECUTION
+    // =========================================================
 
     /*
      * Executes one node and decides whether
@@ -407,6 +790,39 @@ public class FlowExecutionServiceImpl
             FlowNode node,
             Map<String, Object> context) {
 
+        if (node == null) {
+
+            throw new ResourceNotFoundException(
+                    FlowMessages.NODE_NOT_FOUND
+            );
+        }
+
+        /*
+         * Keep current node synchronized with
+         * the node actually being executed.
+         */
+        execution.setCurrentNodeId(
+                node.getId()
+        );
+
+        execution.setContextData(
+                flowContextService.writeContext(
+                        context
+                )
+        );
+
+        executionRepository.save(
+                execution
+        );
+
+        log.debug(
+                "Executing Flow node. " +
+                        "executionPublicId={}, nodeKey={}, nodeType={}",
+                execution.getPublicId(),
+                node.getNodeKey(),
+                node.getNodeType()
+        );
+
         FlowNodeExecutionResult nodeResult =
                 nodeExecutionService.execute(
                         execution,
@@ -415,11 +831,25 @@ public class FlowExecutionServiceImpl
                 );
 
         /*
+         * Persist any context changes made by
+         * the node handler.
+         */
+        execution.setContextData(
+                flowContextService.writeContext(
+                        context
+                )
+        );
+
+        /*
          * Node requires external input/result.
          */
         if (nodeResult.isWaiting()
                 || nodeResult.isTransferred()
                 || nodeResult.isCompleted()) {
+
+            executionRepository.save(
+                    execution
+            );
 
             return resultService.buildResult(
                     execution,
@@ -438,6 +868,10 @@ public class FlowExecutionServiceImpl
                         context
                 );
 
+        executionRepository.save(
+                execution
+        );
+
         return executeCurrentNode(
                 execution,
                 nextNode,
@@ -445,12 +879,23 @@ public class FlowExecutionServiceImpl
         );
     }
 
+
+    // =========================================================
+    // USER INPUT
+    // =========================================================
+
     /*
      * Store user input into the flow context.
      */
     private void processUserInput(
             String userInput,
             Map<String, Object> context) {
+
+        if (userInput == null
+                || userInput.isBlank()) {
+
+            return;
+        }
 
         context.put(
                 "lastUserInput",
@@ -480,6 +925,11 @@ public class FlowExecutionServiceImpl
         }
     }
 
+
+    // =========================================================
+    // WAITING STATUS
+    // =========================================================
+
     private boolean isWaitingStatus(
             FlowExecutionStatus status) {
 
@@ -490,358 +940,9 @@ public class FlowExecutionServiceImpl
                 == FlowExecutionStatus.WAITING_FOR_AI
 
                 || status
-                == FlowExecutionStatus.WAITING_FOR_API;
-    }
+                == FlowExecutionStatus.WAITING_FOR_API
 
-    private void validateExecutionState(
-            FlowExecution execution) {
-
-        FlowExecutionStatus status =
-                execution.getStatus();
-
-        if (status
-                == FlowExecutionStatus.COMPLETED) {
-
-            throw new IllegalStateException(
-                    "Flow execution is already completed."
-            );
-        }
-
-        if (status
-                == FlowExecutionStatus.CANCELLED) {
-
-            throw new IllegalStateException(
-                    "Flow execution is cancelled."
-            );
-        }
-
-        if (status
-                == FlowExecutionStatus.TRANSFERRED) {
-
-            throw new IllegalStateException(
-                    "Flow execution has already been transferred."
-            );
-        }
-    }
-
-    @Override
-    public FlowExecutionResult continueWithApiResponse(
-            ContinueApiResponseRequest request) {
-
-        log.info(
-                "Continuing flow execution with API response. execution={}",
-                request.getExecutionPublicId()
-        );
-
-        FlowExecution execution =
-                executionRepository
-                        .findByPublicId(
-                                request.getExecutionPublicId()
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        FlowMessages.EXECUTION_NOT_FOUND
-                                )
-                        );
-
-        /*
-         * API response is only valid when the flow
-         * is waiting for an API response.
-         */
-        if (execution.getStatus()
-                != FlowExecutionStatus.WAITING_FOR_API) {
-
-            throw new IllegalStateException(
-                    "Flow execution is not waiting for an API response."
-            );
-        }
-
-        /*
-         * Restore existing flow context.
-         */
-        Map<String, Object> context =
-                flowContextService.readContext(
-                        execution.getContextData()
-                );
-
-        /*
-         * Store the API response in the variable
-         * configured by the API node.
-         *
-         * Example:
-         *
-         * _waitingApiVariable = appointmentResponse
-         *
-         * response = {
-         *     "appointmentId": 123,
-         *     "status": "CONFIRMED"
-         * }
-         *
-         * Result:
-         *
-         * appointmentResponse = {...}
-         */
-        Object response =
-                request.getResponse();
-
-        Object waitingVariable =
-                context.get(
-                        "_waitingApiVariable"
-                );
-
-        if (waitingVariable != null
-                && !String.valueOf(
-                waitingVariable
-        ).isBlank()) {
-
-            context.put(
-                    String.valueOf(
-                            waitingVariable
-                    ),
-                    response
-            );
-        }
-
-        /*
-         * Store the raw API response as well.
-         * This is useful for debugging and for
-         * subsequent flow nodes.
-         */
-        context.put(
-                "lastApiResponse",
-                response
-        );
-
-        /*
-         * Merge any additional context supplied
-         * by the integration layer.
-         */
-        if (request.getContext() != null) {
-
-            context.putAll(
-                    request.getContext()
-            );
-        }
-
-        /*
-         * API request has completed.
-         */
-        context.remove(
-                "_waitingApiVariable"
-        );
-
-        context.remove(
-                "_apiRequest"
-        );
-
-        execution.setStatus(
-                FlowExecutionStatus.RUNNING
-        );
-
-        execution.setContextData(
-                flowContextService.writeContext(
-                        context
-                )
-        );
-
-        executionRepository.save(
-                execution
-        );
-
-        /*
-         * Find the node that produced the API request.
-         */
-        if (execution.getCurrentNodeId() == null) {
-
-            throw new IllegalStateException(
-                    FlowMessages.NODE_NOT_FOUND
-            );
-        }
-
-        FlowNode currentNode =
-                nodeRepository
-                        .findById(
-                                execution.getCurrentNodeId()
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        FlowMessages.NODE_NOT_FOUND
-                                )
-                        );
-
-        /*
-         * API node has completed.
-         * Move to the next node.
-         */
-        FlowNode nextNode =
-                transitionService.getNextNode(
-                        currentNode,
-                        context
-                );
-
-        return executeCurrentNode(
-                execution,
-                nextNode,
-                context
-        );
-    }
-
-    @Override
-    public FlowExecutionResult continueWithAiResponse(
-            ContinueAiResponseRequest request) {
-
-        log.info(
-                "Continuing flow execution with AI response. execution={}",
-                request.getExecutionPublicId()
-        );
-
-        FlowExecution execution =
-                executionRepository
-                        .findByPublicId(
-                                request.getExecutionPublicId()
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        FlowMessages.EXECUTION_NOT_FOUND
-                                )
-                        );
-
-        /*
-         * AI response is valid only when the flow
-         * is waiting for an AI response.
-         */
-        if (execution.getStatus()
-                != FlowExecutionStatus.WAITING_FOR_AI) {
-
-            throw new IllegalStateException(
-                    "Flow execution is not waiting for an AI response."
-            );
-        }
-
-        /*
-         * Restore existing context.
-         */
-        Map<String, Object> context =
-                flowContextService.readContext(
-                        execution.getContextData()
-                );
-
-        /*
-         * Get the variable configured in the AI node.
-         *
-         * Example:
-         *
-         * _waitingAiVariable = aiResponse
-         */
-        Object waitingVariable =
-                context.get(
-                        "_waitingAiVariable"
-                );
-
-        /*
-         * Store AI response in the configured
-         * flow variable.
-         */
-        String aiResponse =
-                request.getResponse();
-
-        if (waitingVariable != null
-                && !String.valueOf(
-                waitingVariable
-        ).isBlank()) {
-
-            context.put(
-                    String.valueOf(
-                            waitingVariable
-                    ),
-                    aiResponse
-            );
-        }
-
-        /*
-         * Also keep the latest AI response available
-         * to subsequent nodes.
-         */
-        context.put(
-                "lastAiResponse",
-                aiResponse
-        );
-
-        /*
-         * Merge additional context if supplied by
-         * the AI integration service.
-         */
-        if (request.getContext() != null) {
-
-            context.putAll(
-                    request.getContext()
-            );
-        }
-
-        /*
-         * Remove temporary AI execution variables.
-         */
-        context.remove(
-                "_waitingAiVariable"
-        );
-
-        context.remove(
-                "_aiPrompt"
-        );
-
-        /*
-         * AI processing is completed.
-         */
-        execution.setStatus(
-                FlowExecutionStatus.RUNNING
-        );
-
-        execution.setContextData(
-                flowContextService.writeContext(
-                        context
-                )
-        );
-
-        executionRepository.save(
-                execution
-        );
-
-        /*
-         * Find the AI node that initiated the
-         * waiting state.
-         */
-        if (execution.getCurrentNodeId() == null) {
-
-            throw new IllegalStateException(
-                    FlowMessages.NODE_NOT_FOUND
-            );
-        }
-
-        FlowNode currentNode =
-                nodeRepository
-                        .findById(
-                                execution.getCurrentNodeId()
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        FlowMessages.NODE_NOT_FOUND
-                                )
-                        );
-
-        /*
-         * AI node has completed.
-         * Find and execute the next node.
-         */
-        FlowNode nextNode =
-                transitionService.getNextNode(
-                        currentNode,
-                        context
-                );
-
-        return executeCurrentNode(
-                execution,
-                nextNode,
-                context
-        );
+                || status
+                == FlowExecutionStatus.WAITING_FOR_TIMER;
     }
 }

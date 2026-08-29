@@ -6,6 +6,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
 import com.infinitio.aivoiceplatform.tts.config.TtsProperties;
 import com.infinitio.aivoiceplatform.tts.constant.TtsMessages;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsAudioStorageResponse;
@@ -36,6 +37,9 @@ public class TtsRuntimeServiceImpl
 
     private final TtsAudioStorageService
             ttsAudioStorageService;
+
+    private final RuntimePersistenceService
+            runtimePersistenceService;
 
     /**
      * {@inheritDoc}
@@ -146,15 +150,19 @@ public class TtsRuntimeServiceImpl
                     storageResponse.getFileName()
             );
 
+            response.setFilePath(
+                    storageResponse.getFilePath()
+            );
+
             /*
-             * Raw audio bytes are used only internally by the backend
-             * for storage and must not remain in the response object.
+             * Raw audio bytes are required only during
+             * internal file storage.
              */
             response.setAudioBytes(null);
 
             /*
-             * Provider latency is retained when supplied.
-             * Runtime latency is used as fallback.
+             * Provider latency is retained when available.
+             * Runtime latency is fallback.
              */
             if (response.getLatencyMs() == null) {
 
@@ -162,6 +170,14 @@ public class TtsRuntimeServiceImpl
                         latencyMs
                 );
             }
+
+            /*
+             * Persist TTS interaction.
+             */
+            runtimePersistenceService.saveTts(
+                    request,
+                    response
+            );
 
             log.info(
                     "TTS synthesis completed successfully. callId={}, provider={}, model={}, speaker={}, language={}, latencyMs={}, inputCharacters={}, fileName={}, audioUrl={}",
@@ -214,9 +230,7 @@ public class TtsRuntimeServiceImpl
     }
 
     /**
-     * Validates the TTS synthesis request.
-     *
-     * @param request TTS synthesis request
+     * Validates TTS synthesis request.
      */
     private void validateRequest(
             TtsSynthesisRequest request) {
@@ -224,8 +238,7 @@ public class TtsRuntimeServiceImpl
         if (request == null) {
 
             throw new BadRequestException(
-                    TtsMessages
-                            .SYNTHESIS_REQUEST_REQUIRED
+                    TtsMessages.SYNTHESIS_REQUEST_REQUIRED
             );
         }
 
@@ -263,9 +276,7 @@ public class TtsRuntimeServiceImpl
     }
 
     /**
-     * Validates the requested language.
-     *
-     * @param language requested language
+     * Validates requested language.
      */
     private void validateLanguage(
             String language) {
@@ -306,16 +317,19 @@ public class TtsRuntimeServiceImpl
             );
 
             throw new BadRequestException(
-                    TtsMessages
-                            .LANGUAGE_NOT_SUPPORTED
+                    TtsMessages.LANGUAGE_NOT_SUPPORTED
             );
         }
     }
 
     /**
-     * Validates the requested speaker.
+     * Validates requested speaker.
      *
-     * @param speaker selected speaker
+     * TtsProperties defines supportedSpeakers as:
+     *
+     * Map<String, List<String>>
+     *
+     * where the key can represent a speaker group/gender.
      */
     private void validateSpeaker(
             String speaker) {
@@ -364,16 +378,19 @@ public class TtsRuntimeServiceImpl
             );
 
             throw new BadRequestException(
-                    TtsMessages
-                            .SPEAKER_NOT_SUPPORTED
+                    TtsMessages.SPEAKER_NOT_SUPPORTED
             );
         }
     }
 
     /**
-     * Validates configured maximum text size.
+     * Validates configured maximum TTS text size.
      *
-     * @param text text to synthesize
+     * IMPORTANT:
+     * TtsProperties contains maxTextCharacters,
+     * therefore Lombok generates:
+     *
+     * getMaxTextCharacters()
      */
     private void validateTextSize(
             String text) {
@@ -401,14 +418,13 @@ public class TtsRuntimeServiceImpl
             );
 
             throw new BadRequestException(
-                    TtsMessages
-                            .TEXT_SIZE_EXCEEDED
+                    TtsMessages.TEXT_SIZE_EXCEEDED
             );
         }
     }
 
     /**
-     * Validates that the configured TTS provider is available.
+     * Validates configured TTS provider.
      */
     private void validateProvider() {
 
@@ -419,8 +435,7 @@ public class TtsRuntimeServiceImpl
             );
 
             throw new IllegalStateException(
-                    TtsMessages
-                            .PROVIDER_NOT_CONFIGURED
+                    TtsMessages.PROVIDER_NOT_CONFIGURED
             );
         }
 
@@ -432,16 +447,13 @@ public class TtsRuntimeServiceImpl
             );
 
             throw new IllegalStateException(
-                    TtsMessages
-                            .PROVIDER_UNAVAILABLE
+                    TtsMessages.PROVIDER_UNAVAILABLE
             );
         }
     }
 
     /**
-     * Returns the configured provider code for logging.
-     *
-     * @return provider code
+     * Returns provider code for logging.
      */
     private String getProviderCode() {
 
@@ -452,8 +464,7 @@ public class TtsRuntimeServiceImpl
 
         try {
 
-            return ttsProvider
-                    .getProviderCode();
+            return ttsProvider.getProviderCode();
 
         } catch (Exception exception) {
 

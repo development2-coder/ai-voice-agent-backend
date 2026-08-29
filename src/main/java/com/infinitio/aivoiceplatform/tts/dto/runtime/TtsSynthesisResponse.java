@@ -11,12 +11,6 @@ import lombok.Setter;
 /**
  * Represents the response returned by the runtime text-to-speech operation.
  *
- * <p>
- * The generated audio is returned as Base64 together with metadata.
- * The actual generated audio bytes are retained internally so that the
- * runtime service can store the generated audio file on the backend.
- * </p>
- *
  * @author Infinitio Digital
  * @version 1.0.0
  */
@@ -27,83 +21,45 @@ import lombok.Setter;
 @AllArgsConstructor
 public class TtsSynthesisResponse {
 
-    /**
-     * Unique call identifier.
-     */
     private String callId;
 
-    /**
-     * Generated audio encoded as Base64.
-     */
     private String audioBase64;
 
-    /**
-     * Generated audio file URL.
-     */
     private String audioUrl;
 
-    /**
-     * Generated audio file name.
-     */
     private String fileName;
 
     /**
-     * Audio content type.
+     * Absolute/local filesystem path of the generated audio.
      *
      * <p>
-     * Example: audio/wav or audio/mpeg.
+     * This value is persisted in tts_interactions.
      * </p>
      */
+    private String filePath;
+
     private String contentType;
 
-    /**
-     * Target language used for synthesis.
-     */
     private String language;
 
-    /**
-     * Speaker used for synthesis.
-     */
     private String speaker;
 
-    /**
-     * TTS provider used for synthesis.
-     */
     private String provider;
 
-    /**
-     * TTS model used for synthesis.
-     */
     private String model;
 
-    /**
-     * Indicates whether this is the final response for the current
-     * conversation turn.
-     */
     private boolean finalResponse;
 
-    /**
-     * Provider synthesis latency in milliseconds.
-     */
     private Long latencyMs;
 
-    /**
-     * Number of input characters sent for synthesis.
-     */
     private Integer inputCharacters;
 
-    /**
-     * Provider request identifier.
-     */
     private String providerRequestId;
 
     /**
-     * Raw generated audio bytes.
+     * Internal raw audio bytes.
      *
-     * <p>
-     * This field is used internally by the backend for file storage.
-     * It is intentionally excluded from JSON serialization.
-     * </p>
+     * Never serialize this field in the API response.
      */
     @JsonIgnore
     private byte[] audioBytes;

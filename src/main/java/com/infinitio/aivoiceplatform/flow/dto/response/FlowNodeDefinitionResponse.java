@@ -1,16 +1,22 @@
 package com.infinitio.aivoiceplatform.flow.dto.response;
 
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.util.List;
 
 /**
  * Defines the metadata required by the Flow Builder frontend
  * to render and configure a Flow node.
  *
  * <p>
- * The structure is intentionally inspired by the n8n node
- * model where nodes expose a type, display information,
- * parameters and connection capabilities.
+ * The structure is inspired by the n8n node model where a node
+ * exposes display information, configuration parameters and
+ * connection capabilities.
  * </p>
  *
  * @author Infinitio Digital
@@ -83,4 +89,14 @@ public class FlowNodeDefinitionResponse {
      * to render the node configuration panel.
      */
     private String configurationSchema;
+
+    /**
+     * Input ports exposed by the node.
+     */
+    private List<FlowNodePortResponse> inputPorts;
+
+    /**
+     * Output ports exposed by the node.
+     */
+    private List<FlowNodePortResponse> outputPorts;
 }

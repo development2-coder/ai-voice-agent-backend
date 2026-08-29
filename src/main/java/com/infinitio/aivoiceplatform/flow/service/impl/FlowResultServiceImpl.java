@@ -86,6 +86,10 @@ public class FlowResultServiceImpl
                 .waitingForApi(
                         waitingForApi
                 )
+                .waitingForTimer(
+                        execution.getStatus()
+                                == FlowExecutionStatus.WAITING_FOR_TIMER
+                )
                 .transferred(
                         transferred
                 )

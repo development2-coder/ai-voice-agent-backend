@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.telephony.provider.impl;
 
+import java.io.StringReader;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -9,17 +10,25 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infinitio.aivoiceplatform.telephony.config.ExotelProperties;
-import com.infinitio.aivoiceplatform.telephony.constant.TelephonyConstants;
+import com.infinitio.aivoiceplatform.telephony.constants.TelephonyConstants;
 import com.infinitio.aivoiceplatform.telephony.dto.request.HangupCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.request.ProvisionNumberRequestDto;
@@ -52,14 +61,13 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class ExotelTelephonyProvider
-        implements TelephonyProvider {
+public class ExotelTelephonyProvider implements TelephonyProvider {
 
     private static final String PROVIDER_CODE =
             TelephonyConstants.PROVIDER_EXOTEL;
 
     private static final String CONNECT_CALL_PATH =
-            "/v1/Accounts/{accountSid}/Calls/connect.json";
+            "/v1/Accounts/{accountSid}/Calls/connect";
 
     /*
      * ---------------------------------------------------------
@@ -126,7 +134,6 @@ public class ExotelTelephonyProvider
      * Exotel first calls the number supplied in the From field.
      * Once that party answers, Exotel connects the call to the
      * configured Exotel application flow.
-     * </p>
      *
      * @param request outbound call request
      * @return provider call response
@@ -135,26 +142,34 @@ public class ExotelTelephonyProvider
     public ProviderCallResponseDto placeOutboundCall(
             PlaceOutboundCallRequestDto request) {
 
+        if (request == null) {
+
+            throw new IllegalArgumentException(
+                    "Outbound call request is required."
+            );
+        }
+
         log.info(
-                "Placing outbound Exotel call. from={}, to={}",
+                "Placing outbound Exotel call. from={}, to={}, realtime={}",
                 request.getFromNumber(),
-                request.getToNumber()
+                request.getToNumber(),
+                request.getStreamUrl() != null
+                        && !request.getStreamUrl().isBlank()
         );
 
         MultiValueMap<String, String> formData =
                 new LinkedMultiValueMap<>();
 
         /*
-         * Exotel Connect API:
+         * ---------------------------------------------------------
+         * EXOTEL CONNECT API
+         * ---------------------------------------------------------
          *
          * From     = number that Exotel calls first
-         * CallerId = ExoPhone displayed as caller ID
-         * Url      = Exotel application flow
-         *
-         * For AI Dialer:
-         *
-         * request.toNumber = customer number.
+         * CallerId = Exotel virtual number
+         * To       = destination number
          */
+
         formData.add(
                 FIELD_FROM,
                 request.getToNumber()
@@ -162,13 +177,80 @@ public class ExotelTelephonyProvider
 
         formData.add(
                 FIELD_CALLER_ID,
-                exotelProperties.getCallerId()
+                request.getFromNumber()
         );
 
-        formData.add(
-                FIELD_URL,
-                exotelProperties.getAppUrl()
-        );
+        /*
+         * ---------------------------------------------------------
+         * REALTIME BIDIRECTIONAL VOICE AI
+         * ---------------------------------------------------------
+         */
+
+        boolean realtime =
+                request.getStreamUrl() != null
+                        && !request.getStreamUrl().isBlank();
+
+        if (realtime) {
+
+            formData.add(
+                    "StreamUrl",
+                    request.getStreamUrl()
+            );
+
+            formData.add(
+                    "StreamType",
+                    request.getStreamType() != null
+                            && !request.getStreamType().isBlank()
+                            ? request.getStreamType()
+                            : exotelProperties.getStreamType()
+            );
+
+            if (Boolean.TRUE.equals(request.getRecord())) {
+
+                formData.add(
+                        "Record",
+                        "true"
+                );
+            }
+
+            if (request.getRecordingChannels() != null
+                    && !request.getRecordingChannels().isBlank()) {
+
+                formData.add(
+                        "RecordingChannels",
+                        request.getRecordingChannels()
+                );
+            }
+
+            if (request.getTimeLimit() != null) {
+
+                formData.add(
+                        "TimeLimit",
+                        String.valueOf(
+                                request.getTimeLimit()
+                        )
+                );
+            }
+
+        } else {
+
+            /*
+             * -----------------------------------------------------
+             * EXISTING EXOTEL APPLICATION FLOW
+             * -----------------------------------------------------
+             */
+
+            formData.add(
+                    FIELD_URL,
+                    exotelProperties.getAppUrl()
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * STATUS CALLBACK
+         * ---------------------------------------------------------
+         */
 
         String callbackUrl =
                 request.getCallbackUrl();
@@ -177,8 +259,7 @@ public class ExotelTelephonyProvider
                 || callbackUrl.isBlank()) {
 
             callbackUrl =
-                    exotelProperties
-                            .getStatusCallbackUrl();
+                    exotelProperties.getStatusCallbackUrl();
         }
 
         if (callbackUrl != null
@@ -188,39 +269,137 @@ public class ExotelTelephonyProvider
                     FIELD_STATUS_CALLBACK,
                     callbackUrl
             );
+
+            /*
+             * Exotel supports these callback events.
+             */
+
+            formData.add(
+                    "StatusCallbackEvents[]",
+                    "answered"
+            );
+
+            formData.add(
+                    "StatusCallbackEvents[]",
+                    "terminal"
+            );
+
+            formData.add(
+                    "StatusCallbackEvents[]",
+                    "ringing"
+            );
         }
 
-        log.debug(
-                "Sending Exotel outbound call request. "
-                        + "callbackConfigured={}",
+        log.info(
+                "Sending Exotel outbound request. "
+                        + "realtime={}, callbackConfigured={}, "
+                        + "streamConfigured={}",
+                realtime,
                 callbackUrl != null
-                        && !callbackUrl.isBlank()
+                        && !callbackUrl.isBlank(),
+                request.getStreamUrl() != null
+                        && !request.getStreamUrl().isBlank()
         );
 
-        String responseBody =
-                exotelRestClient
-                        .post()
-                        .uri(
-                                CONNECT_CALL_PATH,
-                                exotelProperties.getAccountSid()
-                        )
-                        .headers(
-                                headers ->
-                                        headers.setBasicAuth(
-                                                exotelProperties.getApiKey(),
-                                                exotelProperties.getApiToken()
-                                        )
-                        )
-                        .contentType(
-                                MediaType.APPLICATION_FORM_URLENCODED
-                        )
-                        .body(formData)
-                        .retrieve()
-                        .body(String.class);
+        /*
+         * ---------------------------------------------------------
+         * CALL EXOTEL
+         * ---------------------------------------------------------
+         *
+         * Exotel's Connect API uses:
+         *
+         * POST /v1/Accounts/{accountSid}/Calls/connect
+         *
+         * The response is XML.
+         */
+
+        String responseBody;
+
+        try {
+
+            responseBody =
+                    exotelRestClient
+                            .post()
+                            .uri(
+                                    CONNECT_CALL_PATH,
+                                    exotelProperties.getAccountSid()
+                            )
+                            .headers(
+                                    headers ->
+                                            headers.setBasicAuth(
+                                                    exotelProperties
+                                                            .getApiKey(),
+                                                    exotelProperties
+                                                            .getApiToken()
+                                            )
+                            )
+                            .contentType(
+                                    MediaType.APPLICATION_FORM_URLENCODED
+                            )
+                            .body(formData)
+                            .retrieve()
+                            .body(String.class);
+
+            log.info("Exotel raw outbound response: {}", responseBody);
+
+        } catch (RestClientResponseException exception) {
+
+            /*
+             * Exotel returns XML even for many error responses.
+             *
+             * Example:
+             *
+             * <TwilioResponse>
+             *     <RestException>
+             *         <Status>400</Status>
+             *         <Message>...</Message>
+             *     </RestException>
+             * </TwilioResponse>
+             */
+
+            String errorBody =
+                    exception.getResponseBodyAsString();
+
+            String exotelError =
+                    parseExotelErrorResponse(
+                            errorBody
+                    );
+
+            log.error(
+                    "Exotel outbound call request failed. "
+                            + "httpStatus={}, exotelError={}",
+                    exception.getStatusCode().value(),
+                    exotelError
+            );
+
+            throw new IllegalStateException(
+                    "Exotel outbound call failed. "
+                            + exotelError,
+                    exception
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to send outbound call request to Exotel.",
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to send outbound call request to Exotel.",
+                    exception
+            );
+        }
 
         log.debug(
                 "Exotel outbound call response received."
         );
+
+        /*
+         * ---------------------------------------------------------
+         * PARSE EXOTEL RESPONSE
+         * ---------------------------------------------------------
+         */
 
         return buildProviderCallResponse(
                 responseBody
@@ -231,39 +410,223 @@ public class ExotelTelephonyProvider
      * Converts Exotel call response into the provider-neutral
      * response DTO.
      *
+     * <p>
+     * Exotel's Calls/connect API returns XML:
+     *
+     * <pre>
+     * &lt;TwilioResponse&gt;
+     *     &lt;Call&gt;
+     *         &lt;Sid&gt;xxxxxxxx&lt;/Sid&gt;
+     *         &lt;Status&gt;in-progress&lt;/Status&gt;
+     *     &lt;/Call&gt;
+     * &lt;/TwilioResponse&gt;
+     * </pre>
+     *
+     * <p>
+     * JSON parsing is retained as a fallback because some
+     * Exotel APIs may return JSON depending on endpoint/version.
+     *
      * @param responseBody Exotel response
      * @return provider call response
      */
     private ProviderCallResponseDto buildProviderCallResponse(
             String responseBody) {
 
+        if (responseBody == null
+                || responseBody.isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel returned an empty call response."
+            );
+        }
+
+        String trimmedResponse =
+                responseBody.trim();
+
+        /*
+         * ---------------------------------------------------------
+         * XML RESPONSE
+         * ---------------------------------------------------------
+         */
+
+        if (trimmedResponse.startsWith("<")) {
+
+            return buildProviderCallResponseFromXml(
+                    trimmedResponse
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * JSON FALLBACK
+         * ---------------------------------------------------------
+         */
+
+        if (trimmedResponse.startsWith("{")
+                || trimmedResponse.startsWith("[")) {
+
+            return buildProviderCallResponseFromJson(
+                    trimmedResponse
+            );
+        }
+
+        log.error(
+                "Unknown Exotel response format. "
+                        + "responsePrefix={}",
+                trimmedResponse.substring(
+                        0,
+                        Math.min(
+                                trimmedResponse.length(),
+                                100
+                        )
+                )
+        );
+
+        throw new IllegalStateException(
+                "Unknown Exotel call response format."
+        );
+    }
+
+    /**
+     * Parses Exotel XML success response.
+     *
+     * @param responseBody XML response
+     * @return provider call response
+     */
+    private ProviderCallResponseDto buildProviderCallResponseFromXml(
+            String responseBody) {
+
         try {
 
-            JsonNode root =
-                    objectMapper.readTree(
-                            responseBody
+            DocumentBuilderFactory factory =
+                    DocumentBuilderFactory.newInstance();
+
+            /*
+             * -----------------------------------------------------
+             * XML SECURITY
+             * -----------------------------------------------------
+             *
+             * Disable external entities and external DTDs.
+             */
+
+            factory.setFeature(
+                    XMLConstants.FEATURE_SECURE_PROCESSING,
+                    true
+            );
+
+            factory.setFeature(
+                    "http://apache.org/xml/features/disallow-doctype-decl",
+                    true
+            );
+
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-general-entities",
+                    false
+            );
+
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-parameter-entities",
+                    false
+            );
+
+            factory.setFeature(
+                    "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                    false
+            );
+
+            factory.setXIncludeAware(false);
+
+            factory.setExpandEntityReferences(false);
+
+            DocumentBuilder builder =
+                    factory.newDocumentBuilder();
+
+            Document document =
+                    builder.parse(
+                            new InputSource(
+                                    new StringReader(
+                                            responseBody
+                                    )
+                            )
                     );
 
-            JsonNode callNode =
-                    root.path("Call");
+            /*
+             * -----------------------------------------------------
+             * CHECK FOR EXOTEL ERROR RESPONSE
+             * -----------------------------------------------------
+             */
+
+            String errorMessage =
+                    getXmlElementText(
+                            document,
+                            "Message"
+                    );
+
+            NodeList restExceptionNodes =
+                    document.getElementsByTagName(
+                            "RestException"
+                    );
+
+            if (restExceptionNodes.getLength() > 0) {
+
+                String errorStatus =
+                        getXmlElementText(
+                                document,
+                                "Status"
+                        );
+
+                throw new IllegalStateException(
+                        "Exotel rejected the call. "
+                                + "status="
+                                + firstNonBlank(
+                                errorStatus,
+                                "unknown"
+                        )
+                                + ", message="
+                                + firstNonBlank(
+                                errorMessage,
+                                "Unknown Exotel error"
+                        )
+                );
+            }
+
+            /*
+             * -----------------------------------------------------
+             * EXTRACT CALL
+             * -----------------------------------------------------
+             */
 
             String providerCallId =
                     firstNonBlank(
-                            callNode.path("Sid")
-                                    .asText(null),
-
-                            root.path("Sid")
-                                    .asText(null)
+                            getXmlElementText(
+                                    document,
+                                    "Sid"
+                            ),
+                            getXmlElementText(
+                                    document,
+                                    "CallSid"
+                            )
                     );
 
             String status =
-                    firstNonBlank(
-                            callNode.path("Status")
-                                    .asText(null),
-
-                            root.path("Status")
-                                    .asText(null)
+                    getXmlElementText(
+                            document,
+                            "Status"
                     );
+
+            if (providerCallId == null) {
+
+                log.error(
+                        "Exotel XML response did not contain "
+                                + "a Call Sid. response={}",
+                        responseBody
+                );
+
+                throw new IllegalStateException(
+                        "Exotel response did not contain "
+                                + "a call identifier."
+                );
+            }
 
             log.info(
                     "Exotel outbound call response parsed. "
@@ -284,27 +647,305 @@ public class ExotelTelephonyProvider
                     )
                     .build();
 
+        } catch (IllegalStateException exception) {
+
+            throw exception;
+
         } catch (Exception exception) {
 
             log.error(
-                    "Unable to parse Exotel call response.",
+                    "Unable to parse Exotel XML call response.",
                     exception
             );
 
             throw new IllegalStateException(
-                    "Unable to parse Exotel call response.",
+                    "Unable to parse Exotel XML call response.",
                     exception
             );
         }
     }
 
     /**
-     * Provisions a telephony number.
+     * Parses JSON response as a fallback.
      *
-     * <p>
-     * ExoPhones for the current integration are provisioned
-     * through the Exotel dashboard.
-     * </p>
+     * @param responseBody JSON response
+     * @return provider call response
+     */
+    private ProviderCallResponseDto buildProviderCallResponseFromJson(
+            String responseBody) {
+
+        try {
+
+            JsonNode root =
+                    objectMapper.readTree(
+                            responseBody
+                    );
+
+            JsonNode callNode =
+                    root.path("Call");
+
+            String providerCallId =
+                    firstNonBlank(
+                            callNode.path("Sid")
+                                    .asText(null),
+
+                            callNode.path("CallSid")
+                                    .asText(null),
+
+                            root.path("Sid")
+                                    .asText(null),
+
+                            root.path("CallSid")
+                                    .asText(null)
+                    );
+
+            String status =
+                    firstNonBlank(
+                            callNode.path("Status")
+                                    .asText(null),
+
+                            root.path("Status")
+                                    .asText(null)
+                    );
+
+            if (providerCallId == null) {
+
+                throw new IllegalStateException(
+                        "Exotel JSON response did not contain "
+                                + "a call identifier."
+                );
+            }
+
+            log.info(
+                    "Exotel JSON outbound call response parsed. "
+                            + "providerCallId={}, providerStatus={}",
+                    providerCallId,
+                    status
+            );
+
+            return ProviderCallResponseDto.builder()
+                    .provider(
+                            PROVIDER_CODE
+                    )
+                    .providerCallId(
+                            providerCallId
+                    )
+                    .status(
+                            status
+                    )
+                    .build();
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to parse Exotel JSON call response.",
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to parse Exotel JSON call response.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Extracts an element's text from an XML document.
+     *
+     * @param document XML document
+     * @param elementName element name
+     * @return element text
+     */
+    private String getXmlElementText(
+            Document document,
+            String elementName) {
+
+        NodeList nodes =
+                document.getElementsByTagName(
+                        elementName
+                );
+
+        if (nodes.getLength() == 0) {
+
+            return null;
+        }
+
+        Node node =
+                nodes.item(0);
+
+        if (node == null) {
+
+            return null;
+        }
+
+        String value =
+                node.getTextContent();
+
+        if (value == null) {
+
+            return null;
+        }
+
+        value =
+                value.trim();
+
+        return value.isBlank()
+                ? null
+                : value;
+    }
+
+    /**
+     * Parses Exotel error response.
+     *
+     * @param responseBody Exotel error response
+     * @return readable error
+     */
+    private String parseExotelErrorResponse(
+            String responseBody) {
+
+        if (responseBody == null
+                || responseBody.isBlank()) {
+
+            return "Empty response from Exotel.";
+        }
+
+        String trimmed =
+                responseBody.trim();
+
+        /*
+         * XML error response.
+         */
+
+        if (trimmed.startsWith("<")) {
+
+            try {
+
+                DocumentBuilderFactory factory =
+                        DocumentBuilderFactory.newInstance();
+
+                factory.setFeature(
+                        XMLConstants.FEATURE_SECURE_PROCESSING,
+                        true
+                );
+
+                factory.setFeature(
+                        "http://apache.org/xml/features/disallow-doctype-decl",
+                        true
+                );
+
+                factory.setFeature(
+                        "http://xml.org/sax/features/external-general-entities",
+                        false
+                );
+
+                factory.setFeature(
+                        "http://xml.org/sax/features/external-parameter-entities",
+                        false
+                );
+
+                factory.setFeature(
+                        "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                        false
+                );
+
+                factory.setXIncludeAware(false);
+                factory.setExpandEntityReferences(false);
+
+                DocumentBuilder builder =
+                        factory.newDocumentBuilder();
+
+                Document document =
+                        builder.parse(
+                                new InputSource(
+                                        new StringReader(
+                                                trimmed
+                                        )
+                                )
+                        );
+
+                String status =
+                        getXmlElementText(
+                                document,
+                                "Status"
+                        );
+
+                String message =
+                        getXmlElementText(
+                                document,
+                                "Message"
+                        );
+
+                return firstNonBlank(
+                        message,
+                        status != null
+                                ? "Exotel returned status "
+                                + status
+                                : "Unknown Exotel XML error."
+                );
+
+            } catch (Exception exception) {
+
+                log.warn(
+                        "Unable to parse Exotel XML error response.",
+                        exception
+                );
+            }
+        }
+
+        /*
+         * JSON error fallback.
+         */
+
+        if (trimmed.startsWith("{")
+                || trimmed.startsWith("[")) {
+
+            try {
+
+                JsonNode root =
+                        objectMapper.readTree(
+                                trimmed
+                        );
+
+                String message =
+                        root.path("Message")
+                                .asText(null);
+
+                if (message == null) {
+
+                    message =
+                            root.path("message")
+                                    .asText(null);
+                }
+
+                if (message != null
+                        && !message.isBlank()) {
+
+                    return message;
+                }
+
+            } catch (Exception exception) {
+
+                log.debug(
+                        "Unable to parse Exotel JSON error response.",
+                        exception
+                );
+            }
+        }
+
+        /*
+         * Last fallback.
+         */
+
+        return trimmed.length() > 500
+                ? trimmed.substring(
+                0,
+                500
+        )
+                : trimmed;
+    }
+
+    /**
+     * Provisions a telephony number.
      *
      * @param request number provisioning request
      * @return number response
@@ -370,23 +1011,6 @@ public class ExotelTelephonyProvider
 
     /**
      * Normalizes an Exotel call status callback.
-     *
-     * <p>
-     * Exotel sends callback parameters such as:
-     *
-     * <ul>
-     *     <li>CallSid</li>
-     *     <li>Status</li>
-     *     <li>RecordingUrl</li>
-     *     <li>DateUpdated</li>
-     *     <li>From</li>
-     *     <li>To</li>
-     * </ul>
-     *
-     * <p>
-     * The provider status is converted into a platform-neutral
-     * event before being passed to the telephony service.
-     * </p>
      *
      * @param payload provider callback payload
      * @return normalized call event
@@ -549,32 +1173,7 @@ public class ExotelTelephonyProvider
     }
 
     /**
-     * Resolves the normalized platform event from the
-     * Exotel call status.
-     *
-     * <p>
-     * This method is intentionally provider-specific.
-     * No Exotel status should be directly exposed to
-     * downstream application services.
-     * </p>
-     *
-     * <p>
-     * Supported statuses include:
-     *
-     * <ul>
-     *     <li>initiated</li>
-     *     <li>queued</li>
-     *     <li>ringing</li>
-     *     <li>in-progress</li>
-     *     <li>answered</li>
-     *     <li>completed</li>
-     *     <li>failed</li>
-     *     <li>busy</li>
-     *     <li>no-answer</li>
-     *     <li>canceled</li>
-     *     <li>cancelled</li>
-     *     <li>rejected</li>
-     * </ul>
+     * Resolves the normalized platform event from Exotel status.
      *
      * @param status Exotel provider status
      * @return normalized platform event
@@ -601,93 +1200,44 @@ public class ExotelTelephonyProvider
         String event =
                 switch (normalizedStatus) {
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL INITIATION
-                     * -------------------------------------------------
-                     */
                     case "initiated",
                          "queued" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_INITIATED;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL RINGING
-                     * -------------------------------------------------
-                     */
                     case "ringing" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_RINGING;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL ANSWERED
-                     * -------------------------------------------------
-                     *
-                     * Exotel commonly exposes the active call
-                     * state as in-progress. For our platform,
-                     * this is the point at which the customer has
-                     * answered and the AI runtime may proceed.
-                     */
                     case "in-progress",
                          "answered" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_ANSWERED;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL COMPLETED
-                     * -------------------------------------------------
-                     */
                     case "completed" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_COMPLETED;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL FAILED
-                     * -------------------------------------------------
-                     */
                     case "failed" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_FAILED;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL BUSY
-                     * -------------------------------------------------
-                     */
                     case "busy" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_BUSY;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL NOT ANSWERED
-                     * -------------------------------------------------
-                     */
                     case "no-answer",
                          "no_answer" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_NO_ANSWER;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL CANCELLED
-                     * -------------------------------------------------
-                     *
-                     * Both spellings are supported because
-                     * provider payloads/integrations may use
-                     * canceled or cancelled.
-                     */
                     case "canceled",
                          "cancelled",
                          "canceled-by-caller",
@@ -696,21 +1246,11 @@ public class ExotelTelephonyProvider
                             TelephonyConstants
                                     .EVENT_CALL_CANCELLED;
 
-                    /*
-                     * -------------------------------------------------
-                     * CALL REJECTED
-                     * -------------------------------------------------
-                     */
                     case "rejected" ->
 
                             TelephonyConstants
                                     .EVENT_CALL_REJECTED;
 
-                    /*
-                     * -------------------------------------------------
-                     * UNKNOWN STATUS
-                     * -------------------------------------------------
-                     */
                     default -> {
 
                         log.warn(

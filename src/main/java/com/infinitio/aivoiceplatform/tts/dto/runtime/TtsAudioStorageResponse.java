@@ -25,6 +25,11 @@ public class TtsAudioStorageResponse {
     private String fileName;
 
     /**
+     * Filesystem path of the stored audio file.
+     */
+    private String filePath;
+
+    /**
      * Public URL of the stored audio file.
      */
     private String audioUrl;

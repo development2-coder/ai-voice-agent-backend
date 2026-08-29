@@ -42,7 +42,7 @@ CREATE TABLE `password_reset_tokens` (
   KEY `idx_password_reset_token_user` (`user_id`),
   KEY `idx_password_reset_token_expiry` (`expires_at`),
   CONSTRAINT `FKk3ndxg5xp6v7wd4gjyusp15gq` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -51,6 +51,7 @@ CREATE TABLE `password_reset_tokens` (
 
 LOCK TABLES `password_reset_tokens` WRITE;
 /*!40000 ALTER TABLE `password_reset_tokens` DISABLE KEYS */;
+INSERT INTO `password_reset_tokens` VALUES (1,'2026-08-26 13:27:32.777832',1,NULL,1,0,'81d67ae4-a57e-4798-a963-656262963bab','2026-08-26 13:27:32.777832',NULL,'2026-08-26 13:42:32.221105','ef4d8cf2ba51bfb13beda74d2e9d059998416635f0cb36cd1f66d56f9d3f560a',_binary '\0',1);
 /*!40000 ALTER TABLE `password_reset_tokens` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -63,4 +64,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 12:18:00
+-- Dump completed on 2026-08-26 16:55:46

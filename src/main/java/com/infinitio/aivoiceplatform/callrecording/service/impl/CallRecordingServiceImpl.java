@@ -2,7 +2,6 @@ package com.infinitio.aivoiceplatform.callrecording.service.impl;
 
 import com.infinitio.aivoiceplatform.call.entity.Call;
 import com.infinitio.aivoiceplatform.call.validator.CallValidator;
-import com.infinitio.aivoiceplatform.callrecording.constant.CallRecordingMessages;
 import com.infinitio.aivoiceplatform.callrecording.dto.request.CreateCallRecordingRequest;
 import com.infinitio.aivoiceplatform.callrecording.dto.request.UpdateCallRecordingRequest;
 import com.infinitio.aivoiceplatform.callrecording.dto.response.CallRecordingResponse;
@@ -10,6 +9,7 @@ import com.infinitio.aivoiceplatform.callrecording.entity.CallRecording;
 import com.infinitio.aivoiceplatform.callrecording.mapper.CallRecordingMapper;
 import com.infinitio.aivoiceplatform.callrecording.repository.CallRecordingRepository;
 import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingService;
+import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingStorageService;
 import com.infinitio.aivoiceplatform.callrecording.validator.CallRecordingValidator;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import lombok.RequiredArgsConstructor;
@@ -19,18 +19,20 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+
 /**
  * Service implementation for Call Recording.
  *
  * <p>
- * Handles normal CRUD operations as well as recording creation
- * received from the telephony provider webhook.
+ * Handles CRUD operations and complete call recording
+ * persistence received from the telephony provider.
  * </p>
  *
  * <p>
- * Webhook recording creation is idempotent using the provider
- * recording URL. This prevents duplicate CallRecording records
- * when the provider retries the same webhook.
+ * Provider recordings are downloaded to local storage.
+ * The database stores the provider URL together with
+ * the local file path.
  * </p>
  *
  * @author Infinitio Digital
@@ -43,10 +45,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CallRecordingServiceImpl
         implements CallRecordingService {
 
-    private static final Integer NOT_DELETED = 0;
-
     private static final String DEFAULT_FILE_TYPE =
-            "audio";
+            "mp3";
+
+    private static final String LOCAL_STORAGE_PROVIDER =
+            "LOCAL";
 
     private final CallRecordingRepository
             callRecordingRepository;
@@ -60,9 +63,11 @@ public class CallRecordingServiceImpl
     private final CallValidator
             callValidator;
 
+    private final CallRecordingStorageService
+            callRecordingStorageService;
+
     /**
-     * Creates a Call Recording through the normal application
-     * API.
+     * Creates a Call Recording through the normal API.
      *
      * @param request create request
      * @return created recording
@@ -119,20 +124,16 @@ public class CallRecordingServiceImpl
     }
 
     /**
-     * Creates a Call Recording from a telephony provider
-     * webhook.
+     * Creates a complete call recording from a telephony
+     * provider webhook.
      *
      * <p>
-     * This method is intentionally separate from the normal
-     * create operation because provider webhooks already
-     * contain the recording URL and do not require the complete
-     * external CreateCallRecordingRequest DTO.
+     * The provider recording URL is downloaded and stored
+     * locally. The local path is persisted in filePath.
      * </p>
      *
      * <p>
-     * If the same recording URL has already been persisted,
-     * the existing record is returned instead of creating
-     * another row.
+     * The method is idempotent using the provider recording URL.
      * </p>
      *
      * @param callPublicId platform Call public identifier
@@ -149,7 +150,7 @@ public class CallRecordingServiceImpl
             String provider) {
 
         log.info(
-                "Creating Call Recording from telephony webhook. "
+                "Processing complete call recording. "
                         + "callPublicId={}, provider={}, "
                         + "durationSeconds={}",
                 callPublicId,
@@ -159,16 +160,12 @@ public class CallRecordingServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * STEP 1: Validate required webhook values.
+         * STEP 1: Validate input.
          * ---------------------------------------------------------
          */
+
         if (callPublicId == null
                 || callPublicId.isBlank()) {
-
-            log.warn(
-                    "Ignoring recording webhook because "
-                            + "callPublicId is missing."
-            );
 
             throw new IllegalArgumentException(
                     "Call public ID is required."
@@ -178,13 +175,6 @@ public class CallRecordingServiceImpl
         if (recordingUrl == null
                 || recordingUrl.isBlank()) {
 
-            log.warn(
-                    "Ignoring recording webhook because "
-                            + "recordingUrl is missing. "
-                            + "callPublicId={}",
-                    callPublicId
-            );
-
             throw new IllegalArgumentException(
                     "Recording URL is required."
             );
@@ -192,9 +182,10 @@ public class CallRecordingServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * STEP 2: Find the platform Call.
+         * STEP 2: Find Call.
          * ---------------------------------------------------------
          */
+
         Call call =
                 callValidator.validateAndGet(
                         callPublicId
@@ -202,12 +193,12 @@ public class CallRecordingServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * STEP 3: Check duplicate recording URL.
+         * STEP 3: Check duplicate.
          * ---------------------------------------------------------
          *
-         * Exotel/provider webhooks may be delivered more than
-         * once. Never create a second row for the same URL.
+         * Provider may retry the same webhook.
          */
+
         CallRecording existingRecording =
                 callRecordingRepository
                         .findByFileUrl(
@@ -219,41 +210,150 @@ public class CallRecordingServiceImpl
 
             log.info(
                     "Call Recording already exists. "
-                            + "Returning existing recording. "
                             + "recordingPublicId={}, "
-                            + "callPublicId={}, "
-                            + "recordingUrl={}",
+                            + "callPublicId={}",
                     existingRecording.getPublicId(),
-                    callPublicId,
-                    recordingUrl
+                    callPublicId
             );
 
-            return callRecordingMapper.toResponse(
-                    existingRecording
+            /*
+             * If the database record already has a local path,
+             * the complete recording has already been stored.
+             */
+            if (existingRecording.getFilePath() != null
+                    && !existingRecording
+                    .getFilePath()
+                    .isBlank()) {
+
+                return callRecordingMapper.toResponse(
+                        existingRecording
+                );
+            }
+
+            /*
+             * Existing DB row without local file.
+             *
+             * This can happen if an older implementation stored
+             * only the provider URL.
+             */
+            try {
+
+                CallRecordingStorageService.StoredCallRecording
+                        storedRecording =
+                        callRecordingStorageService.store(
+                                recordingUrl,
+                                callPublicId
+                        );
+
+                existingRecording.setFileName(
+                        storedRecording.fileName()
+                );
+
+                existingRecording.setFilePath(
+                        storedRecording.filePath()
+                );
+
+                existingRecording.setFileType(
+                        storedRecording.fileType()
+                );
+
+                existingRecording.setStorageProvider(
+                        LOCAL_STORAGE_PROVIDER
+                );
+
+                existingRecording.setDurationSeconds(
+                        durationSeconds
+                );
+
+                CallRecording savedRecording =
+                        callRecordingRepository.save(
+                                existingRecording
+                        );
+
+                log.info(
+                        "Existing CallRecording completed with "
+                                + "local audio file. "
+                                + "callPublicId={}, filePath={}",
+                        callPublicId,
+                        storedRecording.filePath()
+                );
+
+                return callRecordingMapper.toResponse(
+                        savedRecording
+                );
+
+            } catch (IOException exception) {
+
+                log.error(
+                        "Unable to store existing call recording. "
+                                + "callPublicId={}",
+                        callPublicId,
+                        exception
+                );
+
+                throw new IllegalStateException(
+                        "Unable to store call recording.",
+                        exception
+                );
+            }
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * STEP 4: Download complete call recording.
+         * ---------------------------------------------------------
+         */
+
+        CallRecordingStorageService.StoredCallRecording
+                storedRecording;
+
+        try {
+
+            storedRecording =
+                    callRecordingStorageService.store(
+                            recordingUrl,
+                            callPublicId
+                    );
+
+        } catch (IOException exception) {
+
+            log.error(
+                    "Unable to download complete call recording. "
+                            + "callPublicId={}, provider={}",
+                    callPublicId,
+                    provider,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to store complete call recording.",
+                    exception
             );
         }
 
         /*
          * ---------------------------------------------------------
-         * STEP 4: Build recording entity.
+         * STEP 5: Build CallRecording.
          * ---------------------------------------------------------
          */
+
         CallRecording recording =
                 CallRecording.builder()
                         .call(call)
                         .fileName(
-                                buildFileName(
-                                        callPublicId
-                                )
+                                storedRecording.fileName()
                         )
                         .fileUrl(
                                 recordingUrl
                         )
+                        .filePath(
+                                storedRecording.filePath()
+                        )
                         .fileType(
-                                DEFAULT_FILE_TYPE
+                                storedRecording.fileType()
                         )
                         .storageProvider(
-                                provider
+                                LOCAL_STORAGE_PROVIDER
                         )
                         .durationSeconds(
                                 durationSeconds
@@ -267,24 +367,25 @@ public class CallRecordingServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * STEP 5: Persist recording.
+         * STEP 6: Save metadata.
          * ---------------------------------------------------------
          */
+
         CallRecording savedRecording =
                 callRecordingRepository.save(
                         recording
                 );
 
         log.info(
-                "Call Recording created from telephony webhook. "
+                "Complete call recording persisted successfully. "
                         + "recordingPublicId={}, "
                         + "callPublicId={}, "
-                        + "provider={}, "
-                        + "recordingUrl={}",
+                        + "filePath={}, "
+                        + "durationSeconds={}",
                 savedRecording.getPublicId(),
                 callPublicId,
-                provider,
-                recordingUrl
+                savedRecording.getFilePath(),
+                durationSeconds
         );
 
         return callRecordingMapper.toResponse(
@@ -337,13 +438,6 @@ public class CallRecordingServiceImpl
                         recording
                 );
 
-        log.info(
-                "Call Recording updated successfully. "
-                        + "publicId={}, callPublicId={}",
-                updatedRecording.getPublicId(),
-                call.getPublicId()
-        );
-
         return callRecordingMapper.toResponse(
                 updatedRecording
         );
@@ -351,19 +445,11 @@ public class CallRecordingServiceImpl
 
     /**
      * Gets a Call Recording by public ID.
-     *
-     * @param publicId recording public identifier
-     * @return recording response
      */
     @Override
     @Transactional(readOnly = true)
     public CallRecordingResponse getByPublicId(
             String publicId) {
-
-        log.info(
-                "Fetching Call Recording. publicId={}",
-                publicId
-        );
 
         CallRecording recording =
                 callRecordingValidator.validateAndGet(
@@ -377,22 +463,12 @@ public class CallRecordingServiceImpl
 
     /**
      * Gets all Call Recordings.
-     *
-     * @param page page number
-     * @param size page size
-     * @return paginated recordings
      */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<CallRecordingResponse> getAll(
             int page,
             int size) {
-
-        log.info(
-                "Fetching Call Recordings. page={}, size={}",
-                page,
-                size
-        );
 
         Page<CallRecording> result =
                 callRecordingRepository.findAll(
@@ -409,11 +485,6 @@ public class CallRecordingServiceImpl
 
     /**
      * Gets recordings associated with a Call.
-     *
-     * @param callPublicId Call public identifier
-     * @param page page number
-     * @param size page size
-     * @return paginated recordings
      */
     @Override
     @Transactional(readOnly = true)
@@ -421,14 +492,6 @@ public class CallRecordingServiceImpl
             String callPublicId,
             int page,
             int size) {
-
-        log.info(
-                "Fetching recordings for Call. "
-                        + "callPublicId={}, page={}, size={}",
-                callPublicId,
-                page,
-                size
-        );
 
         Call call =
                 callValidator.validateAndGet(
@@ -451,9 +514,6 @@ public class CallRecordingServiceImpl
 
     /**
      * Builds paginated response.
-     *
-     * @param result recording page
-     * @return page response
      */
     private PageResponse<CallRecordingResponse>
     buildPageResponse(
@@ -493,17 +553,10 @@ public class CallRecordingServiceImpl
 
     /**
      * Deletes a Call Recording.
-     *
-     * @param publicId recording public identifier
      */
     @Override
     public void delete(
             String publicId) {
-
-        log.info(
-                "Deleting Call Recording. publicId={}",
-                publicId
-        );
 
         CallRecording recording =
                 callRecordingValidator.validateAndGet(
@@ -517,27 +570,14 @@ public class CallRecordingServiceImpl
         callRecordingRepository.save(
                 recording
         );
-
-        log.info(
-                "Call Recording deleted successfully. "
-                        + "publicId={}",
-                publicId
-        );
     }
 
     /**
      * Activates a Call Recording.
-     *
-     * @param publicId recording public identifier
      */
     @Override
     public void activate(
             String publicId) {
-
-        log.info(
-                "Activating Call Recording. publicId={}",
-                publicId
-        );
 
         CallRecording recording =
                 callRecordingValidator.validateAndGet(
@@ -551,27 +591,14 @@ public class CallRecordingServiceImpl
         callRecordingRepository.save(
                 recording
         );
-
-        log.info(
-                "Call Recording activated successfully. "
-                        + "publicId={}",
-                publicId
-        );
     }
 
     /**
      * Deactivates a Call Recording.
-     *
-     * @param publicId recording public identifier
      */
     @Override
     public void deactivate(
             String publicId) {
-
-        log.info(
-                "Deactivating Call Recording. publicId={}",
-                publicId
-        );
 
         CallRecording recording =
                 callRecordingValidator.validateAndGet(
@@ -585,34 +612,10 @@ public class CallRecordingServiceImpl
         callRecordingRepository.save(
                 recording
         );
-
-        log.info(
-                "Call Recording deactivated successfully. "
-                        + "publicId={}",
-                publicId
-        );
     }
 
     /**
-     * Builds a deterministic file name for recordings received
-     * through the telephony webhook.
-     *
-     * @param callPublicId Call public identifier
-     * @return recording file name
-     */
-    private String buildFileName(
-            String callPublicId) {
-
-        return "call-recording-"
-                + callPublicId
-                + ".mp3";
-    }
-
-    /**
-     * Builds a recording description.
-     *
-     * @param provider provider code
-     * @return description
+     * Builds recording description.
      */
     private String buildDescription(
             String provider) {
@@ -620,10 +623,10 @@ public class CallRecordingServiceImpl
         if (provider == null
                 || provider.isBlank()) {
 
-            return "Recording received from telephony provider.";
+            return "Complete call recording.";
         }
 
-        return "Recording received from "
+        return "Complete call recording from "
                 + provider
                 + " telephony provider.";
     }

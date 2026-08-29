@@ -6,7 +6,10 @@ import com.infinitio.aivoiceplatform.telephony.dto.request.ProvisionNumberReques
 import com.infinitio.aivoiceplatform.telephony.dto.request.TransferCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NumberResponseDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
+import com.infinitio.aivoiceplatform.telephony.service.AgentOutboundCallService;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
+import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceAgentOutboundCallRequestDto;
+import com.infinitio.aivoiceplatform.telephony.dto.response.AgentOutboundCallResponseDto;
 
 import jakarta.validation.Valid;
 
@@ -27,6 +30,9 @@ import org.springframework.web.bind.annotation.*;
 public class TelephonyController {
 
     private final TelephonyService telephonyService;
+
+    private final AgentOutboundCallService
+            agentOutboundCallService;
 
     /**
      * Places an outbound call.
@@ -126,5 +132,20 @@ public class TelephonyController {
 
         return ResponseEntity.ok()
                 .build();
+    }
+
+    @PostMapping("/exotel/agent-calls")
+    public ResponseEntity<AgentOutboundCallResponseDto>
+    placeAgentOutboundCall(
+            @Valid
+            @RequestBody
+            PlaceAgentOutboundCallRequestDto request) {
+
+        return ResponseEntity.ok(
+                agentOutboundCallService
+                        .placeAgentOutboundCall(
+                                request
+                        )
+        );
     }
 }

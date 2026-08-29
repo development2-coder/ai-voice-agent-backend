@@ -39,7 +39,7 @@ CREATE TABLE `flow_executions` (
   `current_node_id` bigint DEFAULT NULL,
   `error_message` text COLLATE utf8mb4_unicode_ci,
   `started_at` datetime(6) DEFAULT NULL,
-  `status` enum('CANCELLED','COMPLETED','FAILED','RUNNING','TRANSFERRED','WAITING_FOR_AI','WAITING_FOR_API','WAITING_FOR_INPUT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('CANCELLED','COMPLETED','FAILED','RUNNING','TRANSFERRED','WAITING_FOR_AI','WAITING_FOR_API','WAITING_FOR_INPUT','WAITING_FOR_TIMER') COLLATE utf8mb4_unicode_ci NOT NULL,
   `flow_id` bigint NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `UKht7c4bq70b7qwerqqxaxuk0w4` (`public_id`),
@@ -68,4 +68,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 12:17:59
+-- Dump completed on 2026-08-26 16:55:50

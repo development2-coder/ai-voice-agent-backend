@@ -30,5 +30,11 @@ public enum FlowNodeType {
 
     WAIT,
 
+    STT,
+
+    LLM,
+
+    TTS,
+
     END
 }

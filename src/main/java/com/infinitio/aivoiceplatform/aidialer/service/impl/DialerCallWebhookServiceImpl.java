@@ -11,7 +11,7 @@ import com.infinitio.aivoiceplatform.callsession.dto.response.CallSessionRespons
 import com.infinitio.aivoiceplatform.callsession.repository.CallSessionRepository;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionFlowRuntimeService;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionRuntimeService;
-import com.infinitio.aivoiceplatform.telephony.constant.TelephonyConstants;
+import com.infinitio.aivoiceplatform.telephony.constants.TelephonyConstants;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NormalizedCallEventDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

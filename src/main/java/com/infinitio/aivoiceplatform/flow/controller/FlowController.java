@@ -1,8 +1,14 @@
 package com.infinitio.aivoiceplatform.flow.controller;
 
-import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
-import com.infinitio.aivoiceplatform.flow.dto.request.*;
-import com.infinitio.aivoiceplatform.flow.dto.response.*;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowEdgeResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +18,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * REST controller for Flow management and Flow Builder operations.
+ *
+ * @author Infinitio Digital
+ * @version 1.0.0
+ */
 @Slf4j
 @RestController
 @RequiredArgsConstructor
@@ -20,13 +32,21 @@ public class FlowController {
 
     private final FlowService flowService;
 
+    private final FlowEdgeService flowEdgeService;
+
+    /**
+     * Creates a Flow.
+     *
+     * @param request create request
+     * @return created Flow
+     */
     @PostMapping
-    public ResponseEntity<?> create(
+    public ResponseEntity<FlowResponse> create(
             @Valid @RequestBody
             CreateFlowRequest request) {
 
         log.info(
-                "Create flow request received."
+                "Create Flow request received."
         );
 
         return ResponseEntity.ok(
@@ -34,13 +54,19 @@ public class FlowController {
         );
     }
 
+    /**
+     * Updates a Flow.
+     *
+     * @param request update request
+     * @return updated Flow
+     */
     @PutMapping
-    public ResponseEntity<?> update(
+    public ResponseEntity<FlowResponse> update(
             @Valid @RequestBody
             UpdateFlowRequest request) {
 
         log.info(
-                "Update flow request received. publicId={}",
+                "Update Flow request received. publicId={}",
                 request.getPublicId()
         );
 
@@ -49,6 +75,12 @@ public class FlowController {
         );
     }
 
+    /**
+     * Gets a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return Flow
+     */
     @GetMapping("/{publicId}")
     public ResponseEntity<FlowResponse> get(
             @PathVariable String publicId) {
@@ -60,6 +92,12 @@ public class FlowController {
         );
     }
 
+    /**
+     * Gets all nodes of a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return Flow nodes
+     */
     @GetMapping("/{publicId}/nodes")
     public ResponseEntity<List<FlowNodeResponse>>
     getNodes(
@@ -70,16 +108,28 @@ public class FlowController {
         );
     }
 
+    /**
+     * Gets all edges of a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return Flow edges
+     */
     @GetMapping("/{publicId}/edges")
     public ResponseEntity<List<FlowEdgeResponse>>
     getEdges(
             @PathVariable String publicId) {
 
         return ResponseEntity.ok(
-                flowService.getEdges(publicId)
+                flowEdgeService.getEdges(publicId)
         );
     }
 
+    /**
+     * Adds a node to a Flow.
+     *
+     * @param request node creation request
+     * @return created node
+     */
     @PostMapping("/nodes")
     public ResponseEntity<FlowNodeResponse>
     addNode(
@@ -91,6 +141,12 @@ public class FlowController {
         );
     }
 
+    /**
+     * Updates a Flow node.
+     *
+     * @param request node update request
+     * @return updated node
+     */
     @PutMapping("/nodes")
     public ResponseEntity<FlowNodeResponse>
     updateNode(
@@ -102,16 +158,30 @@ public class FlowController {
         );
     }
 
+    /**
+     * Deletes a Flow node.
+     *
+     * @param publicId node public ID
+     * @return empty response
+     */
     @DeleteMapping("/nodes/{publicId}")
     public ResponseEntity<Void> deleteNode(
             @PathVariable String publicId) {
 
-        flowService.deleteNode(publicId);
+        flowService.deleteNode(
+                publicId
+        );
 
         return ResponseEntity.noContent()
                 .build();
     }
 
+    /**
+     * Creates an edge between two Flow nodes.
+     *
+     * @param request edge request
+     * @return created edge
+     */
     @PostMapping("/edges")
     public ResponseEntity<FlowEdgeResponse>
     addEdge(
@@ -119,20 +189,34 @@ public class FlowController {
             AddFlowEdgeRequest request) {
 
         return ResponseEntity.ok(
-                flowService.addEdge(request)
+                flowEdgeService.addEdge(request)
         );
     }
 
+    /**
+     * Deletes a Flow edge.
+     *
+     * @param publicId edge public ID
+     * @return empty response
+     */
     @DeleteMapping("/edges/{publicId}")
     public ResponseEntity<Void> deleteEdge(
             @PathVariable String publicId) {
 
-        flowService.deleteEdge(publicId);
+        flowEdgeService.deleteEdge(
+                publicId
+        );
 
         return ResponseEntity.noContent()
                 .build();
     }
 
+    /**
+     * Activates a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return empty response
+     */
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<Void> activate(
             @PathVariable String publicId) {
@@ -143,6 +227,12 @@ public class FlowController {
                 .build();
     }
 
+    /**
+     * Deactivates a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return empty response
+     */
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<Void> deactivate(
             @PathVariable String publicId) {
@@ -153,6 +243,12 @@ public class FlowController {
                 .build();
     }
 
+    /**
+     * Soft-deletes a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return empty response
+     */
     @DeleteMapping("/{publicId}")
     public ResponseEntity<Void> delete(
             @PathVariable String publicId) {
