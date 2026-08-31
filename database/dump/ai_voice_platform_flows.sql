@@ -43,7 +43,7 @@ CREATE TABLE `flows` (
   KEY `idx_flow_agent` (`agent_id`),
   KEY `idx_flow_status` (`status`),
   CONSTRAINT `FKd9lxfcmwla1o4rqxg59ymx880` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -52,7 +52,7 @@ CREATE TABLE `flows` (
 
 LOCK TABLES `flows` WRITE;
 /*!40000 ALTER TABLE `flows` DISABLE KEYS */;
-INSERT INTO `flows` VALUES (1,'2026-08-21 13:33:40.223386',1,NULL,1,0,'6dc49470-f91f-4522-b4d0-02597c361b93','2026-08-21 14:27:53.940797',1,'Test outbound flow for call session runtime testing','OUTBOUND','Test Outbound Banking Flow','ACTIVE',1,1),(2,'2026-08-26 17:38:28.772471',1,NULL,1,0,'0e5b549e-64a1-4acf-8189-e2837cdfab3b','2026-08-26 17:56:45.824432',1,'Test outbound voice agent flow','OUTBOUND','Voice STT LLM TTS Test','ACTIVE',1,1);
+INSERT INTO `flows` VALUES (1,'2026-08-21 13:33:40.223386',1,NULL,1,0,'6dc49470-f91f-4522-b4d0-02597c361b93','2026-08-21 14:27:53.940797',1,'Test outbound flow for call session runtime testing','OUTBOUND','Test Outbound Banking Flow','ACTIVE',1,1),(2,'2026-08-26 17:38:28.772471',1,NULL,1,0,'0e5b549e-64a1-4acf-8189-e2837cdfab3b','2026-08-26 17:56:45.824432',1,'Test outbound voice agent flow','OUTBOUND','Voice STT LLM TTS Test','ACTIVE',1,1),(3,'2026-08-29 17:23:59.367645',1,NULL,1,0,'61f31a8b-805b-420f-ae1b-02595ffe2801','2026-08-29 17:23:59.367645',NULL,'Outbound AI voice flow for multilingual banking conversations using Sarvam STT, LLM and TTS.','OUTBOUND','Banking Voice Assistant Outbound Flow','DRAFT',1,2);
 /*!40000 ALTER TABLE `flows` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -65,4 +65,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-29 13:01:27
+-- Dump completed on 2026-08-31 12:38:17

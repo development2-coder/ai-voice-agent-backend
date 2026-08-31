@@ -44,7 +44,7 @@ CREATE TABLE `flyway_schema_history` (
 
 LOCK TABLES `flyway_schema_history` WRITE;
 /*!40000 ALTER TABLE `flyway_schema_history` DISABLE KEYS */;
-INSERT INTO `flyway_schema_history` VALUES (1,'1','<< Flyway Baseline >>','BASELINE','<< Flyway Baseline >>',NULL,'root','2026-08-27 08:28:35',0,1),(2,'2','make campaign contact nullable','SQL','V2__make_campaign_contact_nullable.sql',-1644885970,'root','2026-08-27 08:28:36',270,1);
+INSERT INTO `flyway_schema_history` VALUES (1,'1','<< Flyway Baseline >>','BASELINE','<< Flyway Baseline >>',NULL,'root','2026-08-27 08:28:35',0,1),(2,'2','make campaign contact nullable','SQL','V2__make_campaign_contact_nullable.sql',-1644885970,'root','2026-08-27 08:28:36',270,1),(3,'3','add flow public id to call sessions','SQL','V3__add_flow_public_id_to_call_sessions.sql',1178094145,'root','2026-08-29 10:50:11',499,1);
 /*!40000 ALTER TABLE `flyway_schema_history` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -57,4 +57,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-29 13:01:22
+-- Dump completed on 2026-08-31 12:38:14

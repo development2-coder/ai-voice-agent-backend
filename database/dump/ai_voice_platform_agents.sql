@@ -46,7 +46,7 @@ CREATE TABLE `agents` (
   KEY `FKgopbr37oyxrxp1m7fsf3u6x47` (`tenant_id`),
   CONSTRAINT `FKgopbr37oyxrxp1m7fsf3u6x47` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`),
   CONSTRAINT `FKi0rmdabap917umgdqvg9r36m5` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -55,7 +55,7 @@ CREATE TABLE `agents` (
 
 LOCK TABLES `agents` WRITE;
 /*!40000 ALTER TABLE `agents` DISABLE KEYS */;
-INSERT INTO `agents` VALUES (1,'2026-08-21 13:26:09.935925',1,NULL,1,0,'70cef447-a1bf-4e48-956b-7743813acc5c','2026-08-21 13:26:09.935925',NULL,'TEST-AGENT-001','Test Banking Agent','Test agent for call session runtime testing','mr-IN','नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.',1,1);
+INSERT INTO `agents` VALUES (1,'2026-08-21 13:26:09.935925',1,NULL,1,0,'70cef447-a1bf-4e48-956b-7743813acc5c','2026-08-21 13:26:09.935925',NULL,'TEST-AGENT-001','Test Banking Agent','Test agent for call session runtime testing','mr-IN','नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.',1,1),(2,'2026-08-29 16:35:34.076962',1,NULL,1,0,'6e257223-dbf9-4359-99af-667e17c63952','2026-08-29 16:35:34.076962',NULL,'TEST_AGENT_001','Test Voice Agent','Phase 1 voice agent testing','en','Hello, how can I help you?',1,1);
 /*!40000 ALTER TABLE `agents` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -68,4 +68,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-29 13:01:28
+-- Dump completed on 2026-08-31 12:38:14

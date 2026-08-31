@@ -26,7 +26,7 @@ CREATE TABLE `organization_statuses` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `public_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
   `status_code` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status_name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `description` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `display_order` int NOT NULL DEFAULT '1',
   `is_active` int NOT NULL,
@@ -66,4 +66,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-29 13:01:26
+-- Dump completed on 2026-08-31 12:38:13

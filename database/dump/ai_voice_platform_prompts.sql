@@ -45,7 +45,7 @@ CREATE TABLE `prompts` (
   UNIQUE KEY `UK2etbk9jchoqnva4b3ta8cevya` (`prompt_code`),
   KEY `FKo5e48ad8dou5xlcr87ev60t94` (`agent_id`),
   CONSTRAINT `FKo5e48ad8dou5xlcr87ev60t94` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -54,6 +54,7 @@ CREATE TABLE `prompts` (
 
 LOCK TABLES `prompts` WRITE;
 /*!40000 ALTER TABLE `prompts` DISABLE KEYS */;
+INSERT INTO `prompts` VALUES (1,'2026-08-29 17:19:05.854039',1,NULL,1,0,'acbc9d96-4b32-477c-af97-2e013239f533','2026-08-29 17:19:05.854039',NULL,_binary '','Default system prompt for multilingual real-time voice conversations.','DEFAULT_VOICE_ASSISTANT','Default Voice Assistant Prompt','SYSTEM','You are a helpful AI voice assistant. At the beginning of every conversation, detect the language used by the user from their first meaningful utterance. Respond in the same language as the user. Supported languages are English, Hindi, Marathi, Tamil, Telugu, Kannada, Malayalam, Gujarati, Bengali, and Punjabi. Continue using the detected language throughout the conversation. If the user changes to another supported language, automatically switch to that language. If the user mixes multiple languages, respond primarily in the language used most by the user in the current message. Never translate the user\'s message unless explicitly asked. Do not mention that you detected the language. Keep responses natural, short, clear, and suitable for a real-time voice conversation. Do not use markdown, tables, or long explanations. If the user\'s language cannot be determined confidently, respond in English.','1.0',2);
 /*!40000 ALTER TABLE `prompts` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -66,4 +67,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-29 13:01:26
+-- Dump completed on 2026-08-31 12:38:16
