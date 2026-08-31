@@ -31,6 +31,13 @@ import lombok.experimental.SuperBuilder;
  * file and archived as a GZIP-compressed JSONL file.
  * </p>
  *
+ * <p>
+ * The selected Flow public identifier is persisted with the
+ * Call Session so that real-time provider callbacks such as
+ * Voice Gateway START can recover the exact Flow selected
+ * when the call was created.
+ * </p>
+ *
  * @author Infinitio Digital
  * @version 1.0.0
  */
@@ -51,6 +58,10 @@ import lombok.experimental.SuperBuilder;
                 @Index(
                         name = "idx_call_session_agent",
                         columnList = "agent_id"
+                ),
+                @Index(
+                        name = "idx_call_session_flow",
+                        columnList = "flow_public_id"
                 ),
                 @Index(
                         name = "idx_call_session_status",
@@ -107,6 +118,22 @@ public class CallSession extends BaseEntity {
             nullable = false
     )
     private Integer agentVersion;
+
+    /**
+     * Public identifier of the Flow selected for this call.
+     *
+     * <p>
+     * This is the Flow that was selected when the Call Session
+     * was created. It is persisted because the later real-time
+     * Voice Gateway callback contains the call identifier but
+     * must not independently choose a Flow.
+     * </p>
+     */
+    @Column(
+            name = "flow_public_id",
+            length = 100
+    )
+    private String flowPublicId;
 
     /**
      * Current conversation turn number.
@@ -170,7 +197,7 @@ public class CallSession extends BaseEntity {
     private CallSessionStatus status;
 
     /**
-     * Public identifier of the active flow execution.
+     * Public identifier of the active Flow Execution.
      */
     @Column(
             name = "flow_execution_public_id",
@@ -203,6 +230,7 @@ public class CallSession extends BaseEntity {
             String value) {
 
         if (collectedSlots == null) {
+
             collectedSlots =
                     new HashMap<>();
         }
@@ -219,6 +247,7 @@ public class CallSession extends BaseEntity {
     public void incrementTurnIndex() {
 
         if (turnIndex == null) {
+
             turnIndex = 0;
         }
 

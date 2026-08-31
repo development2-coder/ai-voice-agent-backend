@@ -35,7 +35,7 @@ CREATE TABLE `flow_nodes` (
   `configuration` text COLLATE utf8mb4_unicode_ci,
   `name` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
   `node_key` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `node_type` enum('AI_RESPONSE','API','CONDITION','END','FUNCTION','GREETING','KNOWLEDGE_BASE','MESSAGE','RAG','SET_VARIABLE','START','TRANSFER','USER_INPUT','WAIT','WEBHOOK') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `node_type` enum('AI_RESPONSE','API','CONDITION','END','FUNCTION','GREETING','KNOWLEDGE_BASE','LLM','MESSAGE','RAG','SET_VARIABLE','START','STT','TRANSFER','TTS','USER_INPUT','WAIT','WEBHOOK') COLLATE utf8mb4_unicode_ci NOT NULL,
   `position_x` double DEFAULT NULL,
   `position_y` double DEFAULT NULL,
   `flow_id` bigint NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE `flow_nodes` (
   UNIQUE KEY `UKguu3aqygc6eqg2mwo9neyfweu` (`public_id`),
   KEY `idx_flow_node_flow` (`flow_id`),
   CONSTRAINT `FKqoyp5p3t73c8arxhx1r12ugj3` FOREIGN KEY (`flow_id`) REFERENCES `flows` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -53,7 +53,7 @@ CREATE TABLE `flow_nodes` (
 
 LOCK TABLES `flow_nodes` WRITE;
 /*!40000 ALTER TABLE `flow_nodes` DISABLE KEYS */;
-INSERT INTO `flow_nodes` VALUES (1,'2026-08-21 13:51:02.270412',1,NULL,1,0,'d56273e6-2509-43fd-923c-97e2d93300c2','2026-08-21 13:51:02.270412',NULL,'{}','Start','start','START',100,100,1),(2,'2026-08-21 13:52:01.951271',1,NULL,1,0,'4de5cd52-a7a5-41df-b3e0-5d80f773c9ad','2026-08-21 13:52:01.951271',NULL,'{}','End','end','END',500,100,1),(3,'2026-08-21 13:56:09.420695',1,NULL,1,0,'a6d40a2f-c356-4639-82ab-6e8499592653','2026-08-21 13:56:09.420695',NULL,'{\"message\":\"नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.\"}','Welcome Message','welcome_message','MESSAGE',300,100,1);
+INSERT INTO `flow_nodes` VALUES (1,'2026-08-21 13:51:02.270412',1,NULL,1,0,'d56273e6-2509-43fd-923c-97e2d93300c2','2026-08-21 13:51:02.270412',NULL,'{}','Start','start','START',100,100,1),(2,'2026-08-21 13:52:01.951271',1,NULL,1,0,'4de5cd52-a7a5-41df-b3e0-5d80f773c9ad','2026-08-21 13:52:01.951271',NULL,'{}','End','end','END',500,100,1),(3,'2026-08-21 13:56:09.420695',1,NULL,1,0,'a6d40a2f-c356-4639-82ab-6e8499592653','2026-08-21 13:56:09.420695',NULL,'{\"message\":\"नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.\"}','Welcome Message','welcome_message','MESSAGE',300,100,1),(4,'2026-08-26 17:48:49.308943',1,NULL,1,0,'d9c6f413-190c-4233-9769-558c3e6d5123','2026-08-26 17:48:49.308943',NULL,'{}','Start','start','START',100,300,2),(5,'2026-08-26 17:49:26.652660',1,NULL,1,0,'208d0e80-ff58-441f-b98b-53ed48786896','2026-08-26 17:49:26.652660',NULL,'{\"language\":\"en-IN\",\"finalTranscript\":true}','Speech to Text','stt','STT',350,300,2),(6,'2026-08-26 17:49:46.470172',1,NULL,1,0,'4312901a-cef7-4762-8152-6c9dc9fc7406','2026-08-26 17:49:46.470172',NULL,'{\"language\":\"en-IN\",\"finalResponse\":true}','LLM','llm','LLM',600,300,2),(7,'2026-08-26 17:50:09.122745',1,NULL,1,0,'5e8cb6e7-f702-4162-a235-a1531c001178','2026-08-26 17:50:09.122745',NULL,'{\"language\":\"en-IN\",\"speaker\":\"shubh\",\"pace\":1.0,\"speechSampleRate\":22050,\"finalResponse\":true}','Text to Speech','tts','TTS',850,300,2),(8,'2026-08-26 17:50:29.066301',1,NULL,1,0,'e6406e0e-6578-4d6b-a977-e3357668a227','2026-08-26 17:50:29.066301',NULL,'{}','End','end','END',1100,300,2);
 /*!40000 ALTER TABLE `flow_nodes` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -66,4 +66,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 16:55:48
+-- Dump completed on 2026-08-29 13:01:30

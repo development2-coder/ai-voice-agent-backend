@@ -12,6 +12,7 @@ import com.infinitio.aivoiceplatform.agentconfig.mapper.AgentConfigMapper;
 import com.infinitio.aivoiceplatform.agentconfig.repository.AgentConfigRepository;
 import com.infinitio.aivoiceplatform.agentconfig.service.AgentConfigService;
 import com.infinitio.aivoiceplatform.agentconfig.validator.AgentConfigValidator;
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Service implementation for Agent Configuration.
+ *
+ * <p>
+ * Handles Agent Configuration lifecycle operations.
+ * Audit fields are populated using the currently authenticated user.
+ * </p>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -36,8 +42,6 @@ public class AgentConfigServiceImpl
 
     private static final Integer NOT_DELETED = 0;
 
-    private static final Long SYSTEM_USER_ID = 1L;
-
     private final AgentConfigRepository agentConfigRepository;
 
     private final AgentConfigMapper agentConfigMapper;
@@ -46,11 +50,23 @@ public class AgentConfigServiceImpl
 
     private final AgentValidator agentValidator;
 
+    private final CurrentUserService currentUserService;
+
 
     // =========================================================
     // CREATE
     // =========================================================
 
+    /**
+     * Creates an Agent Configuration.
+     *
+     * <p>
+     * The authenticated user is stored as createdBy.
+     * </p>
+     *
+     * @param request create request
+     * @return created Agent Configuration
+     */
     @Override
     public AgentConfigResponse create(
             CreateAgentConfigRequest request) {
@@ -81,14 +97,30 @@ public class AgentConfigServiceImpl
                 agent
         );
 
+        /*
+         * Set audit information using the authenticated user.
+         *
+         * BaseEntity.createdBy is NOT nullable in the database,
+         * therefore it must be populated before persistence.
+         */
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        config.setCreatedBy(
+                currentUserId
+        );
+
         AgentConfig savedConfig =
                 agentConfigRepository.save(
                         config
                 );
 
         log.info(
-                "Agent Configuration created successfully. Public Id : {}",
-                savedConfig.getPublicId()
+                "Agent Configuration created successfully. " +
+                        "publicId={}, agentPublicId={}, createdBy={}",
+                savedConfig.getPublicId(),
+                agent.getPublicId(),
+                currentUserId
         );
 
         return agentConfigMapper.toResponse(
@@ -101,6 +133,16 @@ public class AgentConfigServiceImpl
     // UPDATE
     // =========================================================
 
+    /**
+     * Updates an Agent Configuration.
+     *
+     * <p>
+     * The authenticated user is stored as updatedBy.
+     * </p>
+     *
+     * @param request update request
+     * @return updated Agent Configuration
+     */
     @Override
     public AgentConfigResponse update(
             UpdateAgentConfigRequest request) {
@@ -136,14 +178,25 @@ public class AgentConfigServiceImpl
                 agent
         );
 
+        /*
+         * Preserve the original createdBy value.
+         *
+         * Only updatedBy should change during an update.
+         */
+        config.setUpdatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
         AgentConfig updatedConfig =
                 agentConfigRepository.save(
                         config
                 );
 
         log.info(
-                "Agent Configuration updated successfully. Public Id : {}",
-                updatedConfig.getPublicId()
+                "Agent Configuration updated successfully. " +
+                        "publicId={}, updatedBy={}",
+                updatedConfig.getPublicId(),
+                updatedConfig.getUpdatedBy()
         );
 
         return agentConfigMapper.toResponse(
@@ -156,6 +209,12 @@ public class AgentConfigServiceImpl
     // GET BY PUBLIC ID
     // =========================================================
 
+    /**
+     * Fetches an Agent Configuration by public ID.
+     *
+     * @param publicId Agent Configuration public ID
+     * @return Agent Configuration
+     */
     @Override
     @Transactional(readOnly = true)
     public AgentConfigResponse getByPublicId(
@@ -181,6 +240,12 @@ public class AgentConfigServiceImpl
     // GET BY AGENT
     // =========================================================
 
+    /**
+     * Fetches the configuration belonging to an Agent.
+     *
+     * @param agentPublicId Agent public ID
+     * @return Agent Configuration
+     */
     @Override
     @Transactional(readOnly = true)
     public AgentConfigResponse getByAgent(
@@ -218,6 +283,13 @@ public class AgentConfigServiceImpl
     // GET ALL
     // =========================================================
 
+    /**
+     * Fetches all non-deleted Agent Configurations.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated Agent Configurations
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AgentConfigResponse> getAll(
@@ -280,6 +352,11 @@ public class AgentConfigServiceImpl
     // DELETE
     // =========================================================
 
+    /**
+     * Soft deletes an Agent Configuration.
+     *
+     * @param publicId Agent Configuration public ID
+     */
     @Override
     public void delete(
             String publicId) {
@@ -295,7 +372,7 @@ public class AgentConfigServiceImpl
                 );
 
         config.markAsDeleted(
-                SYSTEM_USER_ID
+                currentUserService.getCurrentUserId()
         );
 
         agentConfigRepository.save(
@@ -313,6 +390,11 @@ public class AgentConfigServiceImpl
     // ACTIVATE
     // =========================================================
 
+    /**
+     * Activates an Agent Configuration.
+     *
+     * @param publicId Agent Configuration public ID
+     */
     @Override
     public void activate(
             String publicId) {
@@ -328,7 +410,7 @@ public class AgentConfigServiceImpl
                 );
 
         config.activate(
-                SYSTEM_USER_ID
+                currentUserService.getCurrentUserId()
         );
 
         config.setStatus(
@@ -350,6 +432,11 @@ public class AgentConfigServiceImpl
     // DEACTIVATE
     // =========================================================
 
+    /**
+     * Deactivates an Agent Configuration.
+     *
+     * @param publicId Agent Configuration public ID
+     */
     @Override
     public void deactivate(
             String publicId) {
@@ -365,7 +452,7 @@ public class AgentConfigServiceImpl
                 );
 
         config.deactivate(
-                SYSTEM_USER_ID
+                currentUserService.getCurrentUserId()
         );
 
         config.setStatus(

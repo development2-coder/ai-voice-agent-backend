@@ -2,8 +2,8 @@ package com.infinitio.aivoiceplatform.prompt.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
-import com.infinitio.aivoiceplatform.prompt.constant.PromptMessages;
 import com.infinitio.aivoiceplatform.prompt.dto.request.CreatePromptRequest;
 import com.infinitio.aivoiceplatform.prompt.dto.request.UpdatePromptRequest;
 import com.infinitio.aivoiceplatform.prompt.dto.response.PromptResponse;
@@ -22,6 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Service implementation for Prompt.
  *
+ * <p>
+ * Handles Prompt lifecycle operations and maintains audit information
+ * using the currently authenticated user.
+ * </p>
+ *
  * @author Infinitio Digital
  * @version 1.0.0
  */
@@ -39,15 +44,31 @@ public class PromptServiceImpl implements PromptService {
 
     private final AgentValidator agentValidator;
 
+    private final CurrentUserService currentUserService;
+
+
+    // =========================================================
+    // CREATE
+    // =========================================================
+
+    /**
+     * Creates a Prompt.
+     *
+     * @param request create prompt request
+     * @return created prompt
+     */
     @Override
-    public PromptResponse create(CreatePromptRequest request) {
+    public PromptResponse create(
+            CreatePromptRequest request) {
 
         log.info(
                 "Creating Prompt. Prompt Code : {}",
                 request.getPromptCode()
         );
 
-        promptValidator.validateForCreate(request);
+        promptValidator.validateForCreate(
+                request
+        );
 
         Agent agent =
                 agentValidator.validateAndGet(
@@ -55,30 +76,67 @@ public class PromptServiceImpl implements PromptService {
                 );
 
         Prompt prompt =
-                promptMapper.toEntity(request);
+                promptMapper.toEntity(
+                        request
+                );
 
-        prompt.setAgent(agent);
-
-        Prompt savedPrompt =
-                promptRepository.save(prompt);
-
-        log.info(
-                "Prompt created successfully. Public Id : {}",
-                savedPrompt.getPublicId()
+        prompt.setAgent(
+                agent
         );
 
-        return promptMapper.toResponse(savedPrompt);
+        /*
+         * Populate audit information from the authenticated user.
+         *
+         * BaseEntity.createdBy is NOT NULL in the database,
+         * therefore this must be set before persistence.
+         */
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        prompt.setCreatedBy(
+                currentUserId
+        );
+
+        Prompt savedPrompt =
+                promptRepository.save(
+                        prompt
+                );
+
+        log.info(
+                "Prompt created successfully. " +
+                        "Public Id : {}, Created By : {}",
+                savedPrompt.getPublicId(),
+                currentUserId
+        );
+
+        return promptMapper.toResponse(
+                savedPrompt
+        );
     }
 
+
+    // =========================================================
+    // UPDATE
+    // =========================================================
+
+    /**
+     * Updates a Prompt.
+     *
+     * @param request update prompt request
+     * @return updated prompt
+     */
     @Override
-    public PromptResponse update(UpdatePromptRequest request) {
+    public PromptResponse update(
+            UpdatePromptRequest request) {
 
         log.info(
                 "Updating Prompt. Public Id : {}",
                 request.getPublicId()
         );
 
-        promptValidator.validateForUpdate(request);
+        promptValidator.validateForUpdate(
+                request
+        );
 
         Prompt prompt =
                 promptValidator.validateAndGet(
@@ -95,22 +153,51 @@ public class PromptServiceImpl implements PromptService {
                 prompt
         );
 
-        prompt.setAgent(agent);
-
-        Prompt updatedPrompt =
-                promptRepository.save(prompt);
-
-        log.info(
-                "Prompt updated successfully. Public Id : {}",
-                updatedPrompt.getPublicId()
+        prompt.setAgent(
+                agent
         );
 
-        return promptMapper.toResponse(updatedPrompt);
+        /*
+         * Update audit information.
+         *
+         * Do NOT modify createdBy during update.
+         */
+        prompt.setUpdatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
+        Prompt updatedPrompt =
+                promptRepository.save(
+                        prompt
+                );
+
+        log.info(
+                "Prompt updated successfully. " +
+                        "Public Id : {}, Updated By : {}",
+                updatedPrompt.getPublicId(),
+                updatedPrompt.getUpdatedBy()
+        );
+
+        return promptMapper.toResponse(
+                updatedPrompt
+        );
     }
 
+
+    // =========================================================
+    // GET BY PUBLIC ID
+    // =========================================================
+
+    /**
+     * Fetches a Prompt by public ID.
+     *
+     * @param publicId prompt public ID
+     * @return prompt
+     */
     @Override
     @Transactional(readOnly = true)
-    public PromptResponse getByPublicId(String publicId) {
+    public PromptResponse getByPublicId(
+            String publicId) {
 
         log.info(
                 "Fetching Prompt. Public Id : {}",
@@ -118,11 +205,27 @@ public class PromptServiceImpl implements PromptService {
         );
 
         Prompt prompt =
-                promptValidator.validateAndGet(publicId);
+                promptValidator.validateAndGet(
+                        publicId
+                );
 
-        return promptMapper.toResponse(prompt);
+        return promptMapper.toResponse(
+                prompt
+        );
     }
 
+
+    // =========================================================
+    // GET ALL
+    // =========================================================
+
+    /**
+     * Fetches all prompts.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated prompts
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<PromptResponse> getAll(
@@ -137,27 +240,56 @@ public class PromptServiceImpl implements PromptService {
 
         Page<Prompt> result =
                 promptRepository.findAll(
-                        PageRequest.of(page, size)
+                        PageRequest.of(
+                                page,
+                                size
+                        )
                 );
 
-        return PageResponse.<PromptResponse>builder()
+        return PageResponse
+                .<PromptResponse>builder()
                 .content(
                         result.getContent()
                                 .stream()
-                                .map(promptMapper::toResponse)
+                                .map(
+                                        promptMapper::toResponse
+                                )
                                 .toList()
                 )
-                .pageNumber(result.getNumber())
-                .pageSize(result.getSize())
-                .totalPages(result.getTotalPages())
-                .totalElements(result.getTotalElements())
-                .first(result.isFirst())
-                .last(result.isLast())
+                .pageNumber(
+                        result.getNumber()
+                )
+                .pageSize(
+                        result.getSize()
+                )
+                .totalPages(
+                        result.getTotalPages()
+                )
+                .totalElements(
+                        result.getTotalElements()
+                )
+                .first(
+                        result.isFirst()
+                )
+                .last(
+                        result.isLast()
+                )
                 .build();
     }
 
+
+    // =========================================================
+    // DELETE
+    // =========================================================
+
+    /**
+     * Soft deletes a Prompt.
+     *
+     * @param publicId prompt public ID
+     */
     @Override
-    public void delete(String publicId) {
+    public void delete(
+            String publicId) {
 
         log.info(
                 "Deleting Prompt. Public Id : {}",
@@ -165,11 +297,17 @@ public class PromptServiceImpl implements PromptService {
         );
 
         Prompt prompt =
-                promptValidator.validateAndGet(publicId);
+                promptValidator.validateAndGet(
+                        publicId
+                );
 
-        prompt.markAsDeleted(1L);
+        prompt.markAsDeleted(
+                currentUserService.getCurrentUserId()
+        );
 
-        promptRepository.save(prompt);
+        promptRepository.save(
+                prompt
+        );
 
         log.info(
                 "Prompt deleted successfully. Public Id : {}",
@@ -177,8 +315,19 @@ public class PromptServiceImpl implements PromptService {
         );
     }
 
+
+    // =========================================================
+    // ACTIVATE
+    // =========================================================
+
+    /**
+     * Activates a Prompt.
+     *
+     * @param publicId prompt public ID
+     */
     @Override
-    public void activate(String publicId) {
+    public void activate(
+            String publicId) {
 
         log.info(
                 "Activating Prompt. Public Id : {}",
@@ -186,11 +335,17 @@ public class PromptServiceImpl implements PromptService {
         );
 
         Prompt prompt =
-                promptValidator.validateAndGet(publicId);
+                promptValidator.validateAndGet(
+                        publicId
+                );
 
-        prompt.activate(1L);
+        prompt.activate(
+                currentUserService.getCurrentUserId()
+        );
 
-        promptRepository.save(prompt);
+        promptRepository.save(
+                prompt
+        );
 
         log.info(
                 "Prompt activated successfully. Public Id : {}",
@@ -198,8 +353,19 @@ public class PromptServiceImpl implements PromptService {
         );
     }
 
+
+    // =========================================================
+    // DEACTIVATE
+    // =========================================================
+
+    /**
+     * Deactivates a Prompt.
+     *
+     * @param publicId prompt public ID
+     */
     @Override
-    public void deactivate(String publicId) {
+    public void deactivate(
+            String publicId) {
 
         log.info(
                 "Deactivating Prompt. Public Id : {}",
@@ -207,11 +373,17 @@ public class PromptServiceImpl implements PromptService {
         );
 
         Prompt prompt =
-                promptValidator.validateAndGet(publicId);
+                promptValidator.validateAndGet(
+                        publicId
+                );
 
-        prompt.deactivate(1L);
+        prompt.deactivate(
+                currentUserService.getCurrentUserId()
+        );
 
-        promptRepository.save(prompt);
+        promptRepository.save(
+                prompt
+        );
 
         log.info(
                 "Prompt deactivated successfully. Public Id : {}",

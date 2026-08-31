@@ -1,25 +1,26 @@
 package com.infinitio.aivoiceplatform.callsession.mapper;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.springframework.stereotype.Component;
-
 import com.infinitio.aivoiceplatform.callsession.constant.CallSessionStatus;
-import com.infinitio.aivoiceplatform.callsession.dto.CallConversationMessageDto;
 import com.infinitio.aivoiceplatform.callsession.dto.request.CreateCallSessionRequestDto;
-import com.infinitio.aivoiceplatform.callsession.dto.response.CallConversationMessageResponseDto;
 import com.infinitio.aivoiceplatform.callsession.dto.response.CallSessionResponseDto;
 import com.infinitio.aivoiceplatform.callsession.entity.CallSession;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
-
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
- * Maps call session objects between request, domain and response models.
+ * Maps Call Session objects between request,
+ * domain and response models.
+ *
+ * <p>
+ * Flow public ID belongs to the persistent Call Session
+ * runtime context because the real-time Voice Gateway must
+ * recover the exact Flow selected when the call was created.
+ * </p>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -29,13 +30,18 @@ import lombok.RequiredArgsConstructor;
 public class CallSessionMapper {
 
     /**
-     * Converts a create request into a call session.
+     * Converts a create request into a Call Session entity.
      *
-     * @param request creation request
-     * @return call session
+     * @param request Call Session creation request
+     * @return Call Session entity
      */
     public CallSession toEntity(
             CreateCallSessionRequestDto request) {
+
+        if (request == null) {
+
+            return null;
+        }
 
         return CallSession.builder()
                 .callId(
@@ -50,7 +56,12 @@ public class CallSessionMapper {
                 .agentVersion(
                         request.getAgentVersion()
                 )
-                .turnIndex(0)
+                .flowPublicId(
+                        request.getFlowPublicId()
+                )
+                .turnIndex(
+                        0
+                )
                 .collectedSlots(
                         new HashMap<>()
                 )
@@ -67,37 +78,55 @@ public class CallSessionMapper {
     }
 
     /**
-     * Updates a call session with the runtime state
-     * returned by the Flow Execution module.
+     * Updates a Call Session using the latest Flow Execution state.
      *
-     * @param callSession call session
-     * @param execution flow execution result
+     * @param callSession Call Session
+     * @param execution Flow Execution result
      */
     public void updateFromExecution(
             CallSession callSession,
             FlowExecutionResult execution) {
 
-        if (execution == null) {
+        if (callSession == null
+                || execution == null) {
+
             return;
         }
 
-        callSession.setFlowExecutionPublicId(
-                execution.getExecutionPublicId()
-        );
+        if (execution.getExecutionPublicId() != null) {
 
-        callSession.setFlowNodeId(
-                execution.getCurrentNodeKey()
-        );
+            callSession.setFlowExecutionPublicId(
+                    execution.getExecutionPublicId()
+            );
+        }
+
+        if (execution.getCurrentNodeKey() != null
+                && !execution.getCurrentNodeKey().isBlank()) {
+
+            callSession.setFlowNodeId(
+                    execution.getCurrentNodeKey()
+            );
+        }
 
         if (execution.getStatus() != null) {
 
-            callSession.setStatus(
-                    CallSessionStatus.valueOf(
-                            execution
-                                    .getStatus()
-                                    .name()
-                    )
-            );
+            try {
+
+                callSession.setStatus(
+                        CallSessionStatus.valueOf(
+                                execution
+                                        .getStatus()
+                                        .name()
+                        )
+                );
+
+            } catch (IllegalArgumentException exception) {
+
+                /*
+                 * Keep the existing Call Session status when
+                 * the Flow status has no direct equivalent.
+                 */
+            }
         }
 
         callSession.setCollectedSlots(
@@ -108,13 +137,18 @@ public class CallSessionMapper {
     }
 
     /**
-     * Converts a call session into a response DTO.
+     * Converts a Call Session entity into a response DTO.
      *
-     * @param callSession call session
-     * @return response DTO
+     * @param callSession Call Session entity
+     * @return Call Session response
      */
     public CallSessionResponseDto toResponse(
             CallSession callSession) {
+
+        if (callSession == null) {
+
+            return null;
+        }
 
         return CallSessionResponseDto.builder()
                 .callId(
@@ -129,11 +163,17 @@ public class CallSessionMapper {
                 .agentVersion(
                         callSession.getAgentVersion()
                 )
+                .flowPublicId(
+                        callSession.getFlowPublicId()
+                )
                 .flowExecutionPublicId(
                         callSession.getFlowExecutionPublicId()
                 )
                 .turnIndex(
                         callSession.getTurnIndex()
+                )
+                .conversationHistory(
+                        Collections.emptyList()
                 )
                 .collectedSlots(
                         callSession.getCollectedSlots() == null
@@ -156,21 +196,21 @@ public class CallSessionMapper {
     }
 
     /**
-     * Converts a create request and flow execution result
-     * into a call session response.
+     * Converts a Call Session creation request and Flow
+     * Execution result into a response DTO.
      *
-     * @param request creation request
-     * @param execution flow execution result
-     * @return call session response
+     * @param request Call Session creation request
+     * @param execution Flow Execution result
+     * @return Call Session response
      */
     public CallSessionResponseDto toResponse(
             CreateCallSessionRequestDto request,
             FlowExecutionResult execution) {
 
-        Map<String, Object> context =
-                execution.getContext() == null
-                        ? Collections.emptyMap()
-                        : execution.getContext();
+        if (request == null) {
+
+            return null;
+        }
 
         return CallSessionResponseDto.builder()
                 .callId(
@@ -185,36 +225,49 @@ public class CallSessionMapper {
                 .agentVersion(
                         request.getAgentVersion()
                 )
-                .turnIndex(0)
+                .flowPublicId(
+                        request.getFlowPublicId()
+                )
+                .turnIndex(
+                        0
+                )
                 .conversationHistory(
                         Collections.emptyList()
                 )
                 .collectedSlots(
-                        mapCollectedSlots(
-                                context
+                        execution == null
+                                ? Collections.emptyMap()
+                                : mapCollectedSlots(
+                                execution.getContext()
                         )
                 )
                 .flowNodeId(
-                        execution.getCurrentNodeKey()
+                        execution == null
+                                ? request.getFlowNodeId()
+                                : execution.getCurrentNodeKey()
                 )
                 .language(
                         request.getLanguage()
                 )
                 .status(
-                        mapStatus(
+                        execution == null
+                                ? CallSessionStatus.ACTIVE
+                                : mapStatus(
                                 execution
                         )
                 )
                 .flowExecutionPublicId(
-                        execution.getExecutionPublicId()
+                        execution == null
+                                ? null
+                                : execution.getExecutionPublicId()
                 )
                 .build();
     }
 
     /**
-     * Converts flow execution context into call session slots.
+     * Converts Flow Execution context into collected slots.
      *
-     * @param context flow execution context
+     * @param context Flow Execution context
      * @return collected slots
      */
     private Map<String, String> mapCollectedSlots(
@@ -232,12 +285,27 @@ public class CallSessionMapper {
         context.forEach(
                 (key, value) -> {
 
-                    if (key != null
-                            && value != null) {
+                    if (key == null
+                            || value == null) {
+
+                        return;
+                    }
+
+                    if (value instanceof String) {
 
                         collectedSlots.put(
                                 key,
-                                String.valueOf(value)
+                                (String) value
+                        );
+
+                    } else if (value instanceof Number
+                            || value instanceof Boolean) {
+
+                        collectedSlots.put(
+                                key,
+                                String.valueOf(
+                                        value
+                                )
                         );
                     }
                 }
@@ -247,10 +315,10 @@ public class CallSessionMapper {
     }
 
     /**
-     * Maps flow execution status to call session status.
+     * Maps Flow Execution status to Call Session status.
      *
-     * @param execution flow execution result
-     * @return call session status
+     * @param execution Flow Execution result
+     * @return Call Session status
      */
     private CallSessionStatus mapStatus(
             FlowExecutionResult execution) {
@@ -261,44 +329,17 @@ public class CallSessionMapper {
             return CallSessionStatus.ACTIVE;
         }
 
-        return CallSessionStatus.valueOf(
-                execution
-                        .getStatus()
-                        .name()
-        );
-    }
+        try {
 
-    /**
-     * Maps conversation history messages.
-     *
-     * @param messages conversation messages
-     * @return response messages
-     */
-    private List<CallConversationMessageResponseDto>
-    mapConversationHistory(
-            List<CallConversationMessageDto> messages) {
+            return CallSessionStatus.valueOf(
+                    execution
+                            .getStatus()
+                            .name()
+            );
 
-        if (messages == null
-                || messages.isEmpty()) {
+        } catch (IllegalArgumentException exception) {
 
-            return Collections.emptyList();
+            return CallSessionStatus.ACTIVE;
         }
-
-        return messages.stream()
-                .map(message ->
-                        CallConversationMessageResponseDto
-                                .builder()
-                                .role(
-                                        message.getRole()
-                                )
-                                .text(
-                                        message.getText()
-                                )
-                                .timestamp(
-                                        message.getTimestamp()
-                                )
-                                .build()
-                )
-                .toList();
     }
 }

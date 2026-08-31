@@ -1,5 +1,5 @@
 package com.infinitio.aivoiceplatform.flow.service.impl;
-
+import com.infinitio.aivoiceplatform.flow.dto.response.*;
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
@@ -8,16 +8,18 @@ import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
 import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import com.infinitio.aivoiceplatform.flow.mapper.FlowMapper;
 import com.infinitio.aivoiceplatform.flow.repository.FlowRepository;
+import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowGraphValidator;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
+import com.infinitio.aivoiceplatform.flow.constant.FlowType;
 
+import java.util.Arrays;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -89,6 +91,8 @@ public class FlowServiceImpl
      * Current authenticated user service.
      */
     private final CurrentUserService currentUserService;
+
+    private final FlowEdgeService flowEdgeService;
 
     // =========================================================
     // CREATE FLOW
@@ -233,6 +237,64 @@ public class FlowServiceImpl
         return flowMapper.toResponse(
                 flow
         );
+    }
+
+    // =========================================================
+// GET COMPLETE FLOW DEFINITION
+// =========================================================
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>
+     * Retrieves the complete Flow definition required by the
+     * Flow Builder, including Flow metadata, active nodes and
+     * active edges.
+     * </p>
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public FlowDefinitionResponse getDefinition(
+            String publicId) {
+
+        log.debug(
+                "Fetching complete Flow definition. publicId={}",
+                publicId
+        );
+
+        Flow flow =
+                flowValidator.validateAndGet(
+                        publicId
+                );
+
+        FlowResponse flowResponse =
+                flowMapper.toResponse(
+                        flow
+                );
+
+        List<FlowNodeResponse> nodes =
+                flowNodeService.getNodes(
+                        publicId
+                );
+
+        List<FlowEdgeResponse> edges =
+                flowEdgeService.getEdges(
+                        publicId
+                );
+
+        log.debug(
+                "Flow definition fetched successfully. " +
+                        "publicId={}, nodeCount={}, edgeCount={}",
+                publicId,
+                nodes.size(),
+                edges.size()
+        );
+
+        return FlowDefinitionResponse.builder()
+                .flow(flowResponse)
+                .nodes(nodes)
+                .edges(edges)
+                .build();
     }
 
     // =========================================================
@@ -460,5 +522,60 @@ public class FlowServiceImpl
                 "Flow deleted successfully. publicId={}",
                 publicId
         );
+    }
+
+    @Override
+    public List<FlowTypeResponse> getFlowTypes() {
+
+        log.debug("Fetching supported flow types");
+
+        return Arrays.stream(FlowType.values())
+                .map(this::buildFlowTypeResponse)
+                .toList();
+    }
+
+    /**
+     * Builds the response representation for a flow type.
+     *
+     * @param flowType flow type
+     * @return flow type response
+     */
+    private FlowTypeResponse buildFlowTypeResponse(FlowType flowType) {
+
+        return FlowTypeResponse.builder()
+                .code(flowType.name())
+                .displayName(getFlowTypeDisplayName(flowType))
+                .description(getFlowTypeDescription(flowType))
+                .build();
+    }
+
+    /**
+     * Returns the display name for the specified flow type.
+     *
+     * @param flowType flow type
+     * @return display name
+     */
+    private String getFlowTypeDisplayName(FlowType flowType) {
+
+        return switch (flowType) {
+            case INBOUND -> "Inbound";
+            case OUTBOUND -> "Outbound";
+            case BOTH -> "Both";
+        };
+    }
+
+    /**
+     * Returns the description for the specified flow type.
+     *
+     * @param flowType flow type
+     * @return description
+     */
+    private String getFlowTypeDescription(FlowType flowType) {
+
+        return switch (flowType) {
+            case INBOUND -> "Flow for incoming calls";
+            case OUTBOUND -> "Flow for outgoing calls";
+            case BOTH -> "Flow usable for inbound and outbound calls";
+        };
     }
 }

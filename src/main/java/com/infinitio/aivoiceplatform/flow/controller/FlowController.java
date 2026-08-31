@@ -1,15 +1,16 @@
 package com.infinitio.aivoiceplatform.flow.controller;
 
+import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowEdgeResponse;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
-import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.*;
 import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -257,5 +258,48 @@ public class FlowController {
 
         return ResponseEntity.noContent()
                 .build();
+    }
+
+    @GetMapping("/types")
+    public ResponseEntity<ApiResponse<List<FlowTypeResponse>>> getFlowTypes() {
+
+        log.info("Request received to retrieve supported flow types");
+
+        List<FlowTypeResponse> flowTypes = flowService.getFlowTypes();
+
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        "Flow types retrieved successfully",
+                        flowTypes
+                )
+        );
+    }
+
+    /**
+     * Gets the complete Flow definition.
+     *
+     * <p>
+     * The response contains Flow metadata, active nodes and
+     * active edges required by the Flow Builder.
+     * </p>
+     *
+     * @param publicId Flow public identifier
+     * @return complete Flow definition
+     */
+    @GetMapping("/{publicId}/definition")
+    public ResponseEntity<FlowDefinitionResponse>
+    getDefinition(
+            @PathVariable String publicId) {
+
+        log.info(
+                "Get Flow definition request received. publicId={}",
+                publicId
+        );
+
+        return ResponseEntity.ok(
+                flowService.getDefinition(
+                        publicId
+                )
+        );
     }
 }

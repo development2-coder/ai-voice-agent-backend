@@ -4,8 +4,10 @@ import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowDefinitionResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowTypeResponse;
 
 import java.util.List;
 
@@ -54,6 +56,19 @@ public interface FlowService {
     );
 
     void delete(
+            String publicId
+    );
+
+    List<FlowTypeResponse> getFlowTypes();
+
+    /**
+     * Retrieves the complete Flow definition including
+     * Flow metadata, nodes and edges.
+     *
+     * @param publicId Flow public identifier
+     * @return complete Flow definition
+     */
+    FlowDefinitionResponse getDefinition(
             String publicId
     );
 }

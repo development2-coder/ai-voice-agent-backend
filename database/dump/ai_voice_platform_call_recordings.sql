@@ -39,10 +39,11 @@ CREATE TABLE `call_recordings` (
   `file_url` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
   `storage_provider` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `call_id` bigint NOT NULL,
+  `file_path` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_call_recording_url` (`file_url`),
   UNIQUE KEY `UKi85c6v4envhgv3xus2cphfgqg` (`public_id`),
-  KEY `FK8osu794v7f4f86d1to22bo52s` (`call_id`),
+  KEY `idx_call_recording_call` (`call_id`),
   CONSTRAINT `FK8osu794v7f4f86d1to22bo52s` FOREIGN KEY (`call_id`) REFERENCES `calls` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -65,4 +66,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 16:55:47
+-- Dump completed on 2026-08-29 13:01:28

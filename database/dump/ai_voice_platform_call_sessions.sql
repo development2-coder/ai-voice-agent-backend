@@ -51,7 +51,7 @@ CREATE TABLE `call_sessions` (
   KEY `idx_call_session_agent` (`agent_id`),
   KEY `idx_call_session_status` (`status`),
   KEY `idx_call_session_deleted` (`is_deleted`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -60,7 +60,7 @@ CREATE TABLE `call_sessions` (
 
 LOCK TABLES `call_sessions` WRITE;
 /*!40000 ALTER TABLE `call_sessions` DISABLE KEYS */;
-INSERT INTO `call_sessions` VALUES (1,'2026-08-21 15:38:30.749107',1,NULL,1,0,'4bfb9df8-1e0f-498e-a60c-4f62efa6bdf5','2026-08-21 16:08:22.967005',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'test-call-003','{\"customerName\":\"Kiran\"}','[{\"role\":\"USER\",\"text\":\"नमस्कार\",\"timestamp\":\"2026-08-21T10:29:17.323417100Z\"},{\"role\":\"ASSISTANT\",\"text\":\"नमस्कार! मी तुम्हाला कशी मदत करू शकतो?\",\"timestamp\":\"2026-08-21T10:30:59.090623300Z\"}]',NULL,'a6d40a2f-c356-4639-82ab-6e8499592653','mr-IN','ENDED','9977224e-92ea-11f1-8f21-004238be78e0',2,NULL),(2,'2026-08-22 10:18:37.738185',1,NULL,1,0,'5fe4e46f-936f-4ac1-8e47-5e98cc807a2c','2026-08-22 13:17:36.635088',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'test-call-004','{\"customerName\":\"Kiran\"}',NULL,NULL,'a6d40a2f-c356-4639-82ab-6e8499592653','mr-IN','ACTIVE','9977224e-92ea-11f1-8f21-004238be78e0',0,NULL);
+INSERT INTO `call_sessions` VALUES (1,'2026-08-21 15:38:30.749107',1,NULL,1,0,'4bfb9df8-1e0f-498e-a60c-4f62efa6bdf5','2026-08-21 16:08:22.967005',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'test-call-003','{\"customerName\":\"Kiran\"}','[{\"role\":\"USER\",\"text\":\"नमस्कार\",\"timestamp\":\"2026-08-21T10:29:17.323417100Z\"},{\"role\":\"ASSISTANT\",\"text\":\"नमस्कार! मी तुम्हाला कशी मदत करू शकतो?\",\"timestamp\":\"2026-08-21T10:30:59.090623300Z\"}]',NULL,'a6d40a2f-c356-4639-82ab-6e8499592653','mr-IN','ENDED','9977224e-92ea-11f1-8f21-004238be78e0',2,NULL),(2,'2026-08-22 10:18:37.738185',1,NULL,1,0,'5fe4e46f-936f-4ac1-8e47-5e98cc807a2c','2026-08-22 13:17:36.635088',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'test-call-004','{\"customerName\":\"Kiran\"}',NULL,NULL,'a6d40a2f-c356-4639-82ab-6e8499592653','mr-IN','ACTIVE','9977224e-92ea-11f1-8f21-004238be78e0',0,NULL),(4,'2026-08-27 14:44:21.344471',1,NULL,1,0,'ee6537e0-b9f3-4973-b4b9-5657bf1c85a2','2026-08-27 14:44:21.345443',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'2bf35676-f8fe-404b-997a-97d7c6fa0ea5','{}',NULL,NULL,NULL,'mr-IN','ACTIVE','9977224e-92ea-11f1-8f21-004238be78e0',0,NULL),(5,'2026-08-27 15:21:56.862265',1,NULL,1,0,'a1313995-74c9-4632-a154-15a5fcaea797','2026-08-27 15:21:56.862265',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'0a8d1362-6ea7-47a2-9353-6b92cf426d12','{}',NULL,NULL,NULL,'mr-IN','ACTIVE','9977224e-92ea-11f1-8f21-004238be78e0',0,NULL),(6,'2026-08-27 15:33:14.702357',1,NULL,1,0,'f234221c-c62a-4f30-8a00-f450380f6097','2026-08-27 15:33:14.702357',NULL,'70cef447-a1bf-4e48-956b-7743813acc5c',1,'412ee783-13e2-4993-9455-d73dd1b5aae3','{}',NULL,NULL,NULL,'mr-IN','ACTIVE','9977224e-92ea-11f1-8f21-004238be78e0',0,NULL);
 /*!40000 ALTER TABLE `call_sessions` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -73,4 +73,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-26 16:55:46
+-- Dump completed on 2026-08-29 13:01:23
