@@ -1,32 +1,44 @@
 package com.infinitio.aivoiceplatform.tts.provider;
 
 import java.util.Base64;
+import java.util.List;
 
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.infinitio.aivoiceplatform.tts.config.TtsProperties;
 import com.infinitio.aivoiceplatform.tts.constant.TtsMessages;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisRequest;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
+import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamListener;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 
 /**
  * Implements Sarvam text-to-speech provider integration.
  *
  * <p>
- * This provider communicates with the Sarvam Bulbul TTS streaming
- * endpoint and converts the returned binary audio stream into Base64
- * for the current runtime response contract.
+ * Provider endpoint, authentication, model, speaker, sample rate,
+ * output codec and other runtime values are loaded from external
+ * configuration through {@link TtsProperties}.
+ * </p>
+ *
+ * <p>
+ * The provider supports both synchronous and streaming TTS execution.
+ * During streaming execution, audio chunks received from Sarvam are
+ * immediately forwarded to the supplied listener while the complete
+ * audio is also collected for the existing storage and persistence flow.
  * </p>
  *
  * @author Infinitio Digital
@@ -40,29 +52,16 @@ public class SarvamTtsProvider implements TtsProvider {
     /**
      * Sarvam provider code.
      */
-    private static final String PROVIDER_CODE =
-            "sarvam";
+    private static final String PROVIDER_CODE = "sarvam";
 
     /**
-     * Sarvam streaming TTS endpoint.
+     * WebClient used for Sarvam requests.
      */
-    private static final String TTS_STREAM_PATH =
-            "/text-to-speech/stream";
-
-    /**
-     * Default output codec.
-     *
-     * <p>
-     * MP3 is suitable for the current JSON/Base64 runtime response.
-     * The value can later be made configurable when the streaming
-     * runtime is implemented.
-     * </p>
-     */
-    private static final String OUTPUT_AUDIO_CODEC =
-            "mp3";
-
     private final WebClient sarvamWebClient;
 
+    /**
+     * Runtime TTS configuration.
+     */
     private final TtsProperties ttsProperties;
 
     /**
@@ -81,40 +80,85 @@ public class SarvamTtsProvider implements TtsProvider {
     public TtsSynthesisResponse synthesize(
             TtsSynthesisRequest request) {
 
+        return synthesizeInternal(
+                request,
+                null
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>
+     * Audio chunks are forwarded immediately to the supplied
+     * listener while the complete response is collected for
+     * the existing TTS storage and persistence flow.
+     * </p>
+     */
+    @Override
+    public TtsSynthesisResponse synthesizeStreaming(
+            TtsSynthesisRequest request,
+            TtsAudioStreamListener listener) {
+
+        return synthesizeInternal(
+                request,
+                listener
+        );
+    }
+
+    /**
+     * Executes synchronous or streaming Sarvam TTS synthesis.
+     *
+     * @param request TTS synthesis request
+     * @param listener optional audio stream listener
+     * @return TTS synthesis response
+     */
+    private TtsSynthesisResponse synthesizeInternal(
+            TtsSynthesisRequest request,
+            TtsAudioStreamListener listener) {
+
         long startTime =
                 System.currentTimeMillis();
 
+        validateRequest(request);
+
+        String language =
+                request.getLanguage().trim();
+
+        String speaker =
+                request.getSpeaker() != null
+                        && !request.getSpeaker().isBlank()
+                        ? request.getSpeaker().trim()
+                        : resolveDefaultSpeaker();
+
+        Double pace =
+                request.getPace() != null
+                        ? request.getPace()
+                        : ttsProperties.getDefaultPace();
+
+        Integer speechSampleRate =
+                request.getSpeechSampleRate() != null
+                        ? request.getSpeechSampleRate()
+                        : ttsProperties.getDefaultSpeechSampleRate();
+
+        String outputAudioCodec =
+                resolveOutputAudioCodec();
+
         log.info(
-                "Starting Sarvam TTS synthesis. callId={}, language={}, speaker={}, textLength={}, finalResponse={}",
+                "Starting Sarvam TTS synthesis. " +
+                        "callId={}, language={}, speaker={}, " +
+                        "textLength={}, finalResponse={}, streaming={}",
                 request.getCallId(),
-                request.getLanguage(),
-                request.getSpeaker(),
+                language,
+                speaker,
                 request.getText() != null
                         ? request.getText().length()
                         : 0,
-                request.isFinalResponse()
+                request.isFinalResponse(),
+                listener != null
         );
 
         try {
-
-            String language =
-                    request.getLanguage().trim();
-
-            String speaker =
-                    request.getSpeaker().trim();
-
-            Double pace =
-                    request.getPace() != null
-                            ? request.getPace()
-                            : ttsProperties
-                            .getDefaultPace();
-
-            Integer speechSampleRate =
-                    request.getSpeechSampleRate() != null
-                            ? request
-                            .getSpeechSampleRate()
-                            : ttsProperties
-                            .getDefaultSpeechSampleRate();
 
             SarvamTtsRequest sarvamRequest =
                     SarvamTtsRequest.builder()
@@ -128,8 +172,7 @@ public class SarvamTtsProvider implements TtsProvider {
                                     speaker
                             )
                             .model(
-                                    ttsProperties
-                                            .getModel()
+                                    resolveModel()
                             )
                             .pace(
                                     pace
@@ -138,37 +181,39 @@ public class SarvamTtsProvider implements TtsProvider {
                                     speechSampleRate
                             )
                             .outputAudioCodec(
-                                    OUTPUT_AUDIO_CODEC
+                                    outputAudioCodec
                             )
                             .build();
 
             log.info(
-                    "Sending TTS request to Sarvam. callId={}, provider={}, model={}, language={}, speaker={}, pace={}, sampleRate={}, codec={}",
+                    "Sending TTS request to Sarvam. " +
+                            "callId={}, provider={}, model={}, " +
+                            "language={}, speaker={}, pace={}, " +
+                            "sampleRate={}, codec={}, streaming={}",
                     request.getCallId(),
                     PROVIDER_CODE,
-                    ttsProperties.getModel(),
+                    sarvamRequest.getModel(),
                     language,
                     speaker,
                     pace,
                     speechSampleRate,
-                    OUTPUT_AUDIO_CODEC
+                    outputAudioCodec,
+                    listener != null
             );
 
-            byte[] audioBytes =
+            Flux<DataBuffer> audioFlux =
                     sarvamWebClient
                             .post()
                             .uri(
-                                    TTS_STREAM_PATH
+                                    resolveStreamPath()
                             )
                             .header(
                                     HttpHeaders.CONTENT_TYPE,
                                     MediaType.APPLICATION_JSON_VALUE
                             )
                             .header(
-                                    ttsProperties
-                                            .getApiKeyHeader(),
-                                    ttsProperties
-                                            .getApiKey()
+                                    resolveApiKeyHeader(),
+                                    resolveApiKey()
                             )
                             .bodyValue(
                                     sarvamRequest
@@ -176,42 +221,74 @@ public class SarvamTtsProvider implements TtsProvider {
                             .retrieve()
                             .bodyToFlux(
                                     DataBuffer.class
-                            )
+                            );
+
+            /*
+             * Sarvam sends audio as a stream of DataBuffer chunks.
+             *
+             * Each chunk is copied into a byte array and immediately
+             * forwarded to the listener when streaming is enabled.
+             *
+             * The same chunks are also collected so that the complete
+             * audio can continue through the existing storage flow.
+             */
+            List<byte[]> audioChunks =
+                    audioFlux
                             .map(
                                     dataBuffer -> {
 
-                                        byte[] bytes =
-                                                new byte[
-                                                        dataBuffer
-                                                                .readableByteCount()
-                                                        ];
+                                        try {
 
-                                        dataBuffer.read(
-                                                bytes
-                                        );
+                                            byte[] bytes =
+                                                    new byte[
+                                                            dataBuffer
+                                                                    .readableByteCount()
+                                                            ];
 
-                                        /*
-                                         * Release the DataBuffer after
-                                         * copying the bytes to avoid
-                                         * memory leaks with Netty.
-                                         */
-                                        org.springframework.core.io.buffer
-                                                .DataBufferUtils
-                                                .release(
-                                                        dataBuffer
-                                                );
+                                            dataBuffer.read(
+                                                    bytes
+                                            );
 
-                                        return bytes;
+                                            return bytes;
+
+                                        } finally {
+
+                                            DataBufferUtils.release(
+                                                    dataBuffer
+                                            );
+                                        }
+                                    }
+                            )
+                            .doOnNext(
+                                    audioChunk -> {
+
+                                        if (listener != null
+                                                && audioChunk != null
+                                                && audioChunk.length > 0) {
+
+                                            listener.onAudioChunk(
+                                                    audioChunk,
+                                                    resolveContentType(
+                                                            outputAudioCodec
+                                                    )
+                                            );
+
+                                            log.debug(
+                                                    "Forwarded Sarvam TTS audio chunk. " +
+                                                            "callId={}, chunkSizeBytes={}",
+                                                    request.getCallId(),
+                                                    audioChunk.length
+                                            );
+                                        }
                                     }
                             )
                             .collectList()
-                            .map(
-                                    chunks ->
-                                            combineAudioChunks(
-                                                    chunks
-                                            )
-                            )
                             .block();
+
+            byte[] audioBytes =
+                    combineAudioChunks(
+                            audioChunks
+                    );
 
             long latencyMs =
                     System.currentTimeMillis()
@@ -221,7 +298,8 @@ public class SarvamTtsProvider implements TtsProvider {
                     || audioBytes.length == 0) {
 
                 log.error(
-                        "Sarvam TTS returned empty audio. callId={}, latencyMs={}",
+                        "Sarvam TTS returned empty audio. " +
+                                "callId={}, latencyMs={}",
                         request.getCallId(),
                         latencyMs
                 );
@@ -244,14 +322,18 @@ public class SarvamTtsProvider implements TtsProvider {
                             );
 
             log.info(
-                    "Sarvam TTS synthesis completed successfully. callId={}, provider={}, model={}, language={}, speaker={}, audioSizeBytes={}, latencyMs={}",
+                    "Sarvam TTS synthesis completed successfully. " +
+                            "callId={}, provider={}, model={}, " +
+                            "language={}, speaker={}, audioSizeBytes={}, " +
+                            "latencyMs={}, streaming={}",
                     request.getCallId(),
                     PROVIDER_CODE,
-                    ttsProperties.getModel(),
+                    sarvamRequest.getModel(),
                     language,
                     speaker,
                     audioBytes.length,
-                    latencyMs
+                    latencyMs,
+                    listener != null
             );
 
             return TtsSynthesisResponse.builder()
@@ -265,7 +347,9 @@ public class SarvamTtsProvider implements TtsProvider {
                             audioBytes
                     )
                     .contentType(
-                            resolveContentType()
+                            resolveContentType(
+                                    outputAudioCodec
+                            )
                     )
                     .language(
                             language
@@ -277,7 +361,7 @@ public class SarvamTtsProvider implements TtsProvider {
                             PROVIDER_CODE
                     )
                     .model(
-                            ttsProperties.getModel()
+                            sarvamRequest.getModel()
                     )
                     .finalResponse(
                             request.isFinalResponse()
@@ -287,8 +371,7 @@ public class SarvamTtsProvider implements TtsProvider {
                     )
                     .inputCharacters(
                             request.getText() != null
-                                    ? request.getText()
-                                    .length()
+                                    ? request.getText().length()
                                     : 0
                     )
                     .providerRequestId(
@@ -303,12 +386,15 @@ public class SarvamTtsProvider implements TtsProvider {
                             - startTime;
 
             log.error(
-                    "Sarvam TTS synthesis failed. callId={}, provider={}, language={}, speaker={}, latencyMs={}",
+                    "Sarvam TTS synthesis failed. " +
+                            "callId={}, provider={}, language={}, " +
+                            "speaker={}, latencyMs={}, streaming={}",
                     request.getCallId(),
                     PROVIDER_CODE,
-                    request.getLanguage(),
-                    request.getSpeaker(),
+                    language,
+                    speaker,
                     latencyMs,
+                    listener != null,
                     exception
             );
 
@@ -327,18 +413,24 @@ public class SarvamTtsProvider implements TtsProvider {
     public boolean isAvailable() {
 
         boolean available =
-                ttsProperties.getEndpoint() != null
-                        && !ttsProperties
-                        .getEndpoint()
-                        .isBlank()
-                        && ttsProperties.getApiKey() != null
-                        && !ttsProperties
-                        .getApiKey()
-                        .isBlank()
-                        && ttsProperties.getApiKeyHeader() != null
-                        && !ttsProperties
-                        .getApiKeyHeader()
-                        .isBlank();
+                isConfigured(
+                        ttsProperties.getEndpoint()
+                )
+                        && isConfigured(
+                        ttsProperties.getStreamPath()
+                )
+                        && isConfigured(
+                        ttsProperties.getApiKey()
+                )
+                        && isConfigured(
+                        ttsProperties.getApiKeyHeader()
+                )
+                        && isConfigured(
+                        ttsProperties.getModel()
+                )
+                        && isConfigured(
+                        ttsProperties.getOutputAudioCodec()
+                );
 
         if (!available) {
 
@@ -351,19 +443,191 @@ public class SarvamTtsProvider implements TtsProvider {
     }
 
     /**
+     * Validates the incoming synthesis request.
+     *
+     * @param request synthesis request
+     */
+    private void validateRequest(
+            TtsSynthesisRequest request) {
+
+        if (request == null) {
+
+            throw new IllegalArgumentException(
+                    TtsMessages.SYNTHESIS_REQUEST_REQUIRED
+            );
+        }
+
+        if (request.getText() == null
+                || request.getText().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    TtsMessages.TEXT_REQUIRED
+            );
+        }
+
+        if (request.getLanguage() == null
+                || request.getLanguage().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    TtsMessages.LANGUAGE_REQUIRED
+            );
+        }
+    }
+
+    /**
+     * Resolves the configured Sarvam stream path.
+     *
+     * @return provider stream path
+     */
+    private String resolveStreamPath() {
+
+        String streamPath =
+                ttsProperties.getStreamPath();
+
+        if (!isConfigured(streamPath)) {
+
+            throw new IllegalStateException(
+                    "TTS streaming path is not configured."
+            );
+        }
+
+        return streamPath.trim();
+    }
+
+    /**
+     * Resolves the configured output audio codec.
+     *
+     * @return configured output audio codec
+     */
+    private String resolveOutputAudioCodec() {
+
+        String outputAudioCodec =
+                ttsProperties.getOutputAudioCodec();
+
+        if (!isConfigured(outputAudioCodec)) {
+
+            throw new IllegalStateException(
+                    "TTS output audio codec is not configured."
+            );
+        }
+
+        return outputAudioCodec.trim();
+    }
+
+    /**
+     * Resolves the configured Sarvam model.
+     *
+     * @return configured model
+     */
+    private String resolveModel() {
+
+        String model =
+                ttsProperties.getModel();
+
+        if (!isConfigured(model)) {
+
+            throw new IllegalStateException(
+                    TtsMessages.MODEL_NOT_CONFIGURED
+            );
+        }
+
+        return model.trim();
+    }
+
+    /**
+     * Resolves the configured API key.
+     *
+     * @return API key
+     */
+    private String resolveApiKey() {
+
+        String apiKey =
+                ttsProperties.getApiKey();
+
+        if (!isConfigured(apiKey)) {
+
+            throw new IllegalStateException(
+                    TtsMessages.PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        return apiKey.trim();
+    }
+
+    /**
+     * Resolves the configured API key header.
+     *
+     * @return API key header
+     */
+    private String resolveApiKeyHeader() {
+
+        String apiKeyHeader =
+                ttsProperties.getApiKeyHeader();
+
+        if (!isConfigured(apiKeyHeader)) {
+
+            throw new IllegalStateException(
+                    TtsMessages.PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        return apiKeyHeader.trim();
+    }
+
+    /**
+     * Resolves the configured default speaker.
+     *
+     * @return default speaker
+     */
+    private String resolveDefaultSpeaker() {
+
+        String speaker =
+                ttsProperties.getDefaultSpeaker();
+
+        if (!isConfigured(speaker)) {
+
+            throw new IllegalStateException(
+                    "TTS default speaker is not configured."
+            );
+        }
+
+        return speaker.trim();
+    }
+
+    /**
+     * Checks whether a configuration value is present.
+     *
+     * @param value configuration value
+     * @return {@code true} when configured
+     */
+    private boolean isConfigured(
+            String value) {
+
+        return value != null
+                && !value.isBlank();
+    }
+
+    /**
      * Combines streamed audio chunks into a single byte array.
      *
      * @param chunks streamed audio chunks
      * @return combined audio
      */
     private byte[] combineAudioChunks(
-            java.util.List<byte[]> chunks) {
+            List<byte[]> chunks) {
+
+        if (chunks == null
+                || chunks.isEmpty()) {
+
+            return new byte[0];
+        }
 
         int totalLength = 0;
 
         for (byte[] chunk : chunks) {
 
             if (chunk != null) {
+
                 totalLength += chunk.length;
             }
         }
@@ -376,6 +640,7 @@ public class SarvamTtsProvider implements TtsProvider {
         for (byte[] chunk : chunks) {
 
             if (chunk == null) {
+
                 continue;
             }
 
@@ -395,18 +660,17 @@ public class SarvamTtsProvider implements TtsProvider {
     }
 
     /**
-     * Validates the generated audio size.
+     * Validates generated audio size.
      *
      * @param audioBytes generated audio
-     * @param callId call identifier
+     * @param callId application call identifier
      */
     private void validateAudioSize(
             byte[] audioBytes,
             String callId) {
 
         Long maxAudioSizeBytes =
-                ttsProperties
-                        .getMaxAudioSizeBytes();
+                ttsProperties.getMaxAudioSizeBytes();
 
         if (maxAudioSizeBytes == null) {
 
@@ -417,37 +681,45 @@ public class SarvamTtsProvider implements TtsProvider {
                 > maxAudioSizeBytes) {
 
             log.error(
-                    "Generated TTS audio exceeds configured limit. callId={}, audioSizeBytes={}, maxAudioSizeBytes={}",
+                    "Generated TTS audio exceeds configured limit. " +
+                            "callId={}, audioSizeBytes={}, " +
+                            "maxAudioSizeBytes={}",
                     callId,
                     audioBytes.length,
                     maxAudioSizeBytes
             );
 
             throw new IllegalStateException(
-                    TtsMessages
-                            .SYNTHESIS_FAILED
+                    TtsMessages.SYNTHESIS_FAILED
             );
         }
     }
 
     /**
-     * Returns the content type corresponding to the configured
-     * streaming output codec.
+     * Resolves the response content type from the configured codec.
      *
+     * @param outputAudioCodec configured output codec
      * @return audio content type
      */
-    private String resolveContentType() {
+    private String resolveContentType(
+            String outputAudioCodec) {
 
         if ("mp3".equalsIgnoreCase(
-                OUTPUT_AUDIO_CODEC)) {
+                outputAudioCodec)) {
 
             return "audio/mpeg";
         }
 
         if ("wav".equalsIgnoreCase(
-                OUTPUT_AUDIO_CODEC)) {
+                outputAudioCodec)) {
 
             return "audio/wav";
+        }
+
+        if ("linear16".equalsIgnoreCase(
+                outputAudioCodec)) {
+
+            return "audio/l16";
         }
 
         return MediaType
@@ -456,11 +728,6 @@ public class SarvamTtsProvider implements TtsProvider {
 
     /**
      * Request payload sent to Sarvam.
-     *
-     * <p>
-     * Jackson converts the Java property names to the exact
-     * snake-case fields expected by Sarvam.
-     * </p>
      */
     @Getter
     @Builder
@@ -468,27 +735,42 @@ public class SarvamTtsProvider implements TtsProvider {
     @AllArgsConstructor
     private static class SarvamTtsRequest {
 
+        /**
+         * Text to synthesize.
+         */
         private String text;
 
-        @com.fasterxml.jackson.annotation.JsonProperty(
-                "language_code"
-        )
+        /**
+         * Target language.
+         */
+        @JsonProperty("language_code")
         private String languageCode;
 
+        /**
+         * Requested speaker.
+         */
         private String speaker;
 
+        /**
+         * Sarvam TTS model.
+         */
         private String model;
 
+        /**
+         * Speech pace.
+         */
         private Double pace;
 
-        @com.fasterxml.jackson.annotation.JsonProperty(
-                "speech_sample_rate"
-        )
+        /**
+         * Speech sample rate.
+         */
+        @JsonProperty("speech_sample_rate")
         private Integer speechSampleRate;
 
-        @com.fasterxml.jackson.annotation.JsonProperty(
-                "output_audio_codec"
-        )
+        /**
+         * Output audio codec.
+         */
+        @JsonProperty("output_audio_codec")
         private String outputAudioCodec;
     }
 }

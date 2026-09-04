@@ -7,7 +7,8 @@ import com.infinitio.aivoiceplatform.telephony.dto.request.TransferCallRequestDt
 import com.infinitio.aivoiceplatform.telephony.dto.response.NormalizedCallEventDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NumberResponseDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
-
+import com.infinitio.aivoiceplatform.telephony.dto.request.NumberSearchRequestDto;
+import java.util.List;
 /**
  * Provides provider-independent telephony operations.
  *
@@ -72,5 +73,34 @@ public interface TelephonyService {
     void hangupCall(
             String providerCode,
             HangupCallRequestDto request
+    );
+
+    /**
+     * Retrieves numbers already owned by the provider account.
+     *
+     * @param providerCode provider identifier
+     * @return owned numbers
+     */
+    List<NumberResponseDto> getOwnedNumbers(
+            String providerCode
+    );
+
+    /**
+     * Retrieves numbers available for provisioning.
+     *
+     * @param providerCode provider identifier
+     * @param request number search criteria
+     * @return available numbers
+     */
+    /**
+     * Retrieves numbers available for provisioning.
+     *
+     * @param providerCode provider identifier
+     * @param request provider-independent number search criteria
+     * @return available numbers
+     */
+    List<NumberResponseDto> getAvailableNumbers(
+            String providerCode,
+            NumberSearchRequestDto request
     );
 }

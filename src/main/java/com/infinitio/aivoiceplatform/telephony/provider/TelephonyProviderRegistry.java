@@ -33,7 +33,10 @@ public class TelephonyProviderRegistry {
                                         provider ->
                                                 provider
                                                         .getProviderCode()
-                                                        .toLowerCase(),
+                                                        .trim()
+                                                        .toLowerCase(
+                                                                java.util.Locale.ROOT
+                                                        ),
                                         Function.identity()
                                 )
                         );
@@ -45,12 +48,35 @@ public class TelephonyProviderRegistry {
      * @param providerCode provider code
      * @return matching telephony provider
      */
+    /**
+     * Gets a telephony provider by provider code.
+     *
+     * @param providerCode provider code
+     * @return matching telephony provider
+     * @throws IllegalArgumentException when provider code is missing
+     *                                  or unsupported
+     */
     public TelephonyProvider getProvider(
             String providerCode) {
 
+        if (providerCode == null
+                || providerCode.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Telephony provider is required."
+            );
+        }
+
+        String normalizedProviderCode =
+                providerCode
+                        .trim()
+                        .toLowerCase(
+                                java.util.Locale.ROOT
+                        );
+
         TelephonyProvider provider =
                 providers.get(
-                        providerCode.toLowerCase()
+                        normalizedProviderCode
                 );
 
         if (provider == null) {

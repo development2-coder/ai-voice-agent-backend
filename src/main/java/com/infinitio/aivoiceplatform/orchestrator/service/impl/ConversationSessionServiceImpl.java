@@ -19,6 +19,7 @@ import com.infinitio.aivoiceplatform.orchestrator.constant.ConversationOrchestra
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.EndConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.StartConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationOrchestratorResponseDto;
+import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationRuntimeConfigurationResponseDto;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationResponseService;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationSessionService;
 import lombok.RequiredArgsConstructor;
@@ -59,11 +60,107 @@ import java.util.Map;
 public class ConversationSessionServiceImpl
         implements ConversationSessionService {
 
+    /**
+     * Runtime context key for Call ID.
+     */
     private static final String CALL_ID =
             "callId";
 
+    /**
+     * Runtime context key for conversation language.
+     */
     private static final String LANGUAGE =
             "language";
+
+    /**
+     * Runtime context key for tenant public ID.
+     */
+    private static final String TENANT_ID =
+            "tenantId";
+
+    /**
+     * Runtime context key for agent public ID.
+     */
+    private static final String AGENT_ID =
+            "agentId";
+
+    /**
+     * Runtime context key for Flow public ID.
+     */
+    private static final String FLOW_PUBLIC_ID =
+            "flowPublicId";
+
+    /**
+     * Runtime context key for resolved Agent configuration.
+     */
+    private static final String RUNTIME_CONFIGURATION =
+            "runtimeConfiguration";
+
+    /**
+     * Runtime configuration key for STT provider.
+     */
+    private static final String STT_PROVIDER =
+            "sttProvider";
+
+    /**
+     * Runtime configuration key for STT model.
+     */
+    private static final String STT_MODEL =
+            "sttModel";
+
+    /**
+     * Runtime configuration key for LLM provider.
+     */
+    private static final String LLM_PROVIDER =
+            "llmProvider";
+
+    /**
+     * Runtime configuration key for LLM model.
+     */
+    private static final String LLM_MODEL =
+            "llmModel";
+
+    /**
+     * Runtime configuration key for TTS provider.
+     */
+    private static final String TTS_PROVIDER =
+            "ttsProvider";
+
+    /**
+     * Runtime configuration key for TTS model.
+     */
+    private static final String TTS_MODEL =
+            "ttsModel";
+
+    /**
+     * Runtime configuration key for language.
+     */
+    private static final String CONFIGURATION_LANGUAGE =
+            "language";
+
+    /**
+     * Runtime configuration key for voice.
+     */
+    private static final String VOICE =
+            "voice";
+
+    /**
+     * Runtime configuration key for system prompt.
+     */
+    private static final String SYSTEM_PROMPT =
+            "systemPrompt";
+
+    /**
+     * Runtime configuration key for LLM temperature.
+     */
+    private static final String TEMPERATURE =
+            "temperature";
+
+    /**
+     * Runtime configuration key for maximum LLM tokens.
+     */
+    private static final String MAX_TOKENS =
+            "maxTokens";
 
     private final CallSessionRuntimeService
             callSessionRuntimeService;
@@ -94,7 +191,9 @@ public class ConversationSessionServiceImpl
      */
     @Override
     public ConversationOrchestratorResponseDto startConversation(
-            StartConversationRequestDto request) {
+            StartConversationRequestDto request,
+            ConversationRuntimeConfigurationResponseDto
+                    runtimeConfiguration) {
 
         validateStartRequest(
                 request
@@ -235,6 +334,10 @@ public class ConversationSessionServiceImpl
                 language
         );
 
+        /*
+         * Pass the trusted Agent runtime configuration into the
+         * Flow runtime context.
+         */
         CallSessionResponseDto flowSession =
                 callSessionFlowRuntimeService.startFlow(
                         request.getCallId(),
@@ -242,7 +345,8 @@ public class ConversationSessionServiceImpl
                         language,
                         buildInitialContext(
                                 request,
-                                session
+                                session,
+                                runtimeConfiguration
                         )
                 );
 
@@ -789,19 +893,39 @@ public class ConversationSessionServiceImpl
     // =========================================================
 
     /**
-     * Builds the initial Flow context.
+     * Builds the initial Flow runtime context.
+     *
+     * <p>
+     * The context contains trusted Call Session information and
+     * the resolved Agent Configuration required by Flow nodes.
+     * </p>
+     *
+     * <p>
+     * Caller-provided context is accepted for additional runtime
+     * variables, but trusted runtime configuration values are
+     * written afterwards so that external input cannot override
+     * the Agent configuration resolved by the backend.
+     * </p>
      *
      * @param request conversation start request
      * @param session Call Session
+     * @param runtimeConfiguration resolved Agent runtime configuration
      * @return initial Flow context
      */
     private Map<String, Object> buildInitialContext(
             StartConversationRequestDto request,
-            CallSessionResponseDto session) {
+            CallSessionResponseDto session,
+            ConversationRuntimeConfigurationResponseDto
+                    runtimeConfiguration) {
 
         Map<String, Object> context =
                 new HashMap<>();
 
+        /*
+         * Preserve caller-provided custom context.
+         *
+         * Trusted runtime values are added after this block.
+         */
         if (request.getContext() != null) {
 
             context.putAll(
@@ -809,11 +933,20 @@ public class ConversationSessionServiceImpl
             );
         }
 
+        /*
+         * Call information.
+         */
         context.put(
                 CALL_ID,
                 request.getCallId()
         );
 
+        /*
+         * Language is taken from the persisted Call Session.
+         *
+         * The Call Session is the runtime source of truth for the
+         * active conversation.
+         */
         context.put(
                 LANGUAGE,
                 resolveLanguage(
@@ -822,34 +955,147 @@ public class ConversationSessionServiceImpl
         );
 
         /*
-         * Preserve the Flow bound to the Call Session in the
-         * runtime context.
+         * Flow information.
          */
         if (session.getFlowPublicId() != null
                 && !session.getFlowPublicId().isBlank()) {
 
             context.put(
-                    "flowPublicId",
+                    FLOW_PUBLIC_ID,
                     session.getFlowPublicId()
             );
         }
 
         /*
-         * Preserve tenant and agent runtime context.
+         * Tenant information.
          */
         if (session.getTenantId() != null) {
 
             context.put(
-                    "tenantId",
+                    TENANT_ID,
                     session.getTenantId()
             );
         }
 
+        /*
+         * Agent information.
+         */
         if (session.getAgentId() != null) {
 
             context.put(
-                    "agentId",
+                    AGENT_ID,
                     session.getAgentId()
+            );
+        }
+
+        /*
+         * Add the resolved Agent Configuration.
+         *
+         * This configuration was resolved by the backend before
+         * the conversation reached this service.
+         */
+        if (runtimeConfiguration != null) {
+
+            Map<String, Object> configuration =
+                    new HashMap<>();
+
+            configuration.put(
+                    STT_PROVIDER,
+                    runtimeConfiguration.getSttProvider()
+            );
+
+            configuration.put(
+                    STT_MODEL,
+                    runtimeConfiguration.getSttModel()
+            );
+
+            configuration.put(
+                    LLM_PROVIDER,
+                    runtimeConfiguration.getLlmProvider()
+            );
+
+            configuration.put(
+                    LLM_MODEL,
+                    runtimeConfiguration.getLlmModel()
+            );
+
+            configuration.put(
+                    TTS_PROVIDER,
+                    runtimeConfiguration.getTtsProvider()
+            );
+
+            configuration.put(
+                    TTS_MODEL,
+                    runtimeConfiguration.getTtsModel()
+            );
+
+            configuration.put(
+                    CONFIGURATION_LANGUAGE,
+                    runtimeConfiguration.getLanguage()
+            );
+
+            configuration.put(
+                    VOICE,
+                    runtimeConfiguration.getVoice()
+            );
+
+            configuration.put(
+                    SYSTEM_PROMPT,
+                    runtimeConfiguration.getSystemPrompt()
+            );
+
+            configuration.put(
+                    TEMPERATURE,
+                    runtimeConfiguration.getTemperature()
+            );
+
+            configuration.put(
+                    MAX_TOKENS,
+                    runtimeConfiguration.getMaxTokens()
+            );
+
+            /*
+             * The complete resolved configuration is stored under
+             * one runtime context object.
+             */
+            context.put(
+                    RUNTIME_CONFIGURATION,
+                    configuration
+            );
+
+            log.debug(
+                    "Agent runtime configuration added to Flow context. " +
+                            "callId={}, tenantId={}, agentId={}, " +
+                            "flowPublicId={}, sttProvider={}, sttModel={}, " +
+                            "llmProvider={}, llmModel={}, ttsProvider={}, " +
+                            "ttsModel={}, language={}, voice={}",
+                    request.getCallId(),
+                    runtimeConfiguration.getTenantId(),
+                    runtimeConfiguration.getAgentId(),
+                    runtimeConfiguration.getFlowPublicId(),
+                    runtimeConfiguration.getSttProvider(),
+                    runtimeConfiguration.getSttModel(),
+                    runtimeConfiguration.getLlmProvider(),
+                    runtimeConfiguration.getLlmModel(),
+                    runtimeConfiguration.getTtsProvider(),
+                    runtimeConfiguration.getTtsModel(),
+                    runtimeConfiguration.getLanguage(),
+                    runtimeConfiguration.getVoice()
+            );
+        } else {
+
+            /*
+             * This should normally not happen because the
+             * Conversation Orchestrator resolves the configuration
+             * before starting the conversation.
+             */
+            log.warn(
+                    "No Agent runtime configuration was provided " +
+                            "while building Flow context. callId={}, " +
+                            "agentId={}, flowPublicId={}",
+                    request.getCallId(),
+                    request.getAgentId(),
+                    request.getFlowPublicId()
             );
         }
 

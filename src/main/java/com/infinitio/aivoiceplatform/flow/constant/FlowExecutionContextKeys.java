@@ -64,4 +64,75 @@ public final class FlowExecutionContextKeys {
      */
     public static final String WAIT_NODE_PUBLIC_ID =
             "_waitNodePublicId";
+
+    /**
+     * Tenant public identifier available to the Flow runtime.
+     */
+    public static final String TENANT_ID =
+            "tenantId";
+
+    /**
+     * Agent public identifier available to the Flow runtime.
+     */
+    public static final String AGENT_ID =
+            "agentId";
+
+    /**
+     * Flow public identifier available to the Flow runtime.
+     */
+    public static final String FLOW_PUBLIC_ID =
+            "flowPublicId";
+
+    /**
+     * Call public identifier available to the Flow runtime.
+     */
+    public static final String CALL_ID =
+            "callId";
+
+    /**
+     * Conversation public identifier available to the Flow runtime.
+     */
+    public static final String CONVERSATION_PUBLIC_ID =
+            "conversationPublicId";
+
+    /**
+     * Conversation language available to the Flow runtime.
+     */
+    public static final String LANGUAGE =
+            "language";
+
+    /**
+     * Resolved Agent runtime configuration.
+     *
+     * <p>
+     * This value is populated by the Conversation Orchestrator
+     * and must not be supplied by the external telephony provider.
+     * </p>
+     */
+    public static final String RUNTIME_CONFIGURATION =
+            "runtimeConfiguration";
+
+    /**
+     * Provider-specific call identifier.
+     */
+    public static final String PROVIDER_CALL_ID =
+            "providerCallId";
+
+    /**
+     * Telephony provider code.
+     */
+    public static final String TELEPHONY_PROVIDER =
+            "telephonyProvider";
+
+    /**
+     * Destination requested by a TRANSFER node.
+     */
+    public static final String TRANSFER_DESTINATION =
+            "transferDestination";
+
+    /**
+     * Optional message associated with a TRANSFER node.
+     */
+    public static final String TRANSFER_MESSAGE =
+            "transferMessage";
 }

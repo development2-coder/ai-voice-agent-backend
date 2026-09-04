@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.master.role.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.master.role.dto.request.CreateRoleRequest;
 import com.infinitio.aivoiceplatform.master.role.dto.request.UpdateRoleRequest;
@@ -16,6 +17,15 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Role Service Implementation.
+ *
+ * Handles role creation, update, retrieval, deletion,
+ * activation and deactivation operations.
+ *
+ * @author Infinitio Digital
+ * @version 1.0.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -23,9 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RoleServiceImpl implements RoleService {
 
     private static final Integer ACTIVE = 1;
-    private static final Integer INACTIVE = 0;
     private static final Integer NOT_DELETED = 0;
-    private static final Integer DELETED = 1;
 
     private final RoleRepository roleRepository;
 
@@ -33,11 +41,19 @@ public class RoleServiceImpl implements RoleService {
 
     private final RoleValidator roleValidator;
 
+    private final CurrentUserService currentUserService;
+
 
     // =========================================================
     // CREATE
     // =========================================================
 
+    /**
+     * Creates a new role.
+     *
+     * @param request role creation request
+     * @return created role response
+     */
     @Override
     public RoleResponse create(
             CreateRoleRequest request) {
@@ -55,6 +71,20 @@ public class RoleServiceImpl implements RoleService {
                 roleMapper.toEntity(
                         request
                 );
+
+        /*
+         * Get the authenticated user who is creating
+         * the role.
+         *
+         * createdBy is mandatory in BaseEntity/database,
+         * therefore it must be populated before save.
+         */
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        role.setCreatedBy(
+                currentUserId
+        );
 
         /*
          * Defaults for a newly created role.
@@ -85,8 +115,9 @@ public class RoleServiceImpl implements RoleService {
                 );
 
         log.info(
-                "Role created successfully : {}",
-                savedRole.getPublicId()
+                "Role created successfully : publicId={}, createdBy={}",
+                savedRole.getPublicId(),
+                currentUserId
         );
 
         return roleMapper.toResponse(
@@ -99,6 +130,12 @@ public class RoleServiceImpl implements RoleService {
     // UPDATE
     // =========================================================
 
+    /**
+     * Updates an existing role.
+     *
+     * @param request role update request
+     * @return updated role response
+     */
     @Override
     public RoleResponse update(
             UpdateRoleRequest request) {
@@ -125,10 +162,24 @@ public class RoleServiceImpl implements RoleService {
 
         /*
          * Update only allowed request fields.
+         *
+         * RoleMapper intentionally ignores createdBy
+         * so the original creator is preserved.
          */
         roleMapper.updateEntity(
                 request,
                 existingRole
+        );
+
+        /*
+         * Store the authenticated user who performed
+         * the update.
+         */
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        existingRole.setUpdatedBy(
+                currentUserId
         );
 
         Role updatedRole =
@@ -137,8 +188,9 @@ public class RoleServiceImpl implements RoleService {
                 );
 
         log.info(
-                "Role updated successfully : {}",
-                updatedRole.getPublicId()
+                "Role updated successfully : publicId={}, updatedBy={}",
+                updatedRole.getPublicId(),
+                currentUserId
         );
 
         return roleMapper.toResponse(
@@ -151,6 +203,12 @@ public class RoleServiceImpl implements RoleService {
     // GET BY PUBLIC ID
     // =========================================================
 
+    /**
+     * Retrieves a role by public ID.
+     *
+     * @param publicId role public ID
+     * @return role response
+     */
     @Override
     @Transactional(readOnly = true)
     public RoleResponse getByPublicId(
@@ -176,6 +234,13 @@ public class RoleServiceImpl implements RoleService {
     // GET ALL
     // =========================================================
 
+    /**
+     * Retrieves all non-deleted roles.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated role response
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<RoleResponse> getAll(
@@ -233,6 +298,11 @@ public class RoleServiceImpl implements RoleService {
     // DELETE
     // =========================================================
 
+    /**
+     * Soft deletes a role.
+     *
+     * @param publicId role public ID
+     */
     @Override
     public void delete(
             String publicId) {
@@ -258,8 +328,11 @@ public class RoleServiceImpl implements RoleService {
             );
         }
 
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
         role.markAsDeleted(
-                1L
+                currentUserId
         );
 
         roleRepository.save(
@@ -267,8 +340,9 @@ public class RoleServiceImpl implements RoleService {
         );
 
         log.info(
-                "Role deleted successfully : {}",
-                publicId
+                "Role deleted successfully : publicId={}, deletedBy={}",
+                publicId,
+                currentUserId
         );
     }
 
@@ -277,6 +351,11 @@ public class RoleServiceImpl implements RoleService {
     // ACTIVATE
     // =========================================================
 
+    /**
+     * Activates a role.
+     *
+     * @param publicId role public ID
+     */
     @Override
     public void activate(
             String publicId) {
@@ -291,8 +370,11 @@ public class RoleServiceImpl implements RoleService {
                         publicId
                 );
 
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
         role.activate(
-                1L
+                currentUserId
         );
 
         roleRepository.save(
@@ -300,8 +382,9 @@ public class RoleServiceImpl implements RoleService {
         );
 
         log.info(
-                "Role activated successfully : {}",
-                publicId
+                "Role activated successfully : publicId={}, updatedBy={}",
+                publicId,
+                currentUserId
         );
     }
 
@@ -310,6 +393,11 @@ public class RoleServiceImpl implements RoleService {
     // DEACTIVATE
     // =========================================================
 
+    /**
+     * Deactivates a role.
+     *
+     * @param publicId role public ID
+     */
     @Override
     public void deactivate(
             String publicId) {
@@ -336,8 +424,11 @@ public class RoleServiceImpl implements RoleService {
             );
         }
 
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
         role.deactivate(
-                1L
+                currentUserId
         );
 
         roleRepository.save(
@@ -345,8 +436,9 @@ public class RoleServiceImpl implements RoleService {
         );
 
         log.info(
-                "Role deactivated successfully : {}",
-                publicId
+                "Role deactivated successfully : publicId={}, updatedBy={}",
+                publicId,
+                currentUserId
         );
     }
 }

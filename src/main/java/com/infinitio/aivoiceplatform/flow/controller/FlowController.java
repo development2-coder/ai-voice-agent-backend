@@ -1,6 +1,7 @@
 package com.infinitio.aivoiceplatform.flow.controller;
 
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
+import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
@@ -9,7 +10,7 @@ import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
 import com.infinitio.aivoiceplatform.flow.dto.response.*;
 import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
-
+import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowWorkspaceRequest;
 import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -300,6 +301,59 @@ public class FlowController {
                 flowService.getDefinition(
                         publicId
                 )
+        );
+    }
+
+    /**
+     * Saves the complete visual Flow Builder workspace.
+     *
+     * @param publicId Flow public identifier
+     * @param request complete workspace
+     * @return updated Flow definition
+     */
+    @PutMapping("/{publicId}/workspace")
+    public ResponseEntity<FlowDefinitionResponse>
+    saveWorkspace(
+            @PathVariable String publicId,
+            @Valid @RequestBody
+            SaveFlowWorkspaceRequest request) {
+
+        log.info(
+                "Save Flow workspace request received. flowPublicId={}",
+                publicId
+        );
+
+        return ResponseEntity.ok(
+                flowService.saveWorkspace(
+                        publicId,
+                        request
+                )
+        );
+    }
+
+    /**
+     * Gets the latest Flow belonging to an Agent.
+     *
+     * @param agentPublicId Agent public ID
+     * @return latest Flow
+     */
+    @GetMapping("/agent/{agentPublicId}")
+    public ResponseEntity<ApiResponse<FlowResponse>> getLatestByAgent(
+            @PathVariable String agentPublicId) {
+
+        log.info(
+                "Fetching latest Flow for agent. agentPublicId={}",
+                agentPublicId
+        );
+
+        FlowResponse response =
+                flowService.getLatestByAgentPublicId(
+                        agentPublicId
+                );
+
+        return ResponseBuilder.success(
+                response,
+                "Flow fetched successfully."
         );
     }
 }

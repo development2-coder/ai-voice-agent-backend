@@ -3,6 +3,7 @@ package com.infinitio.aivoiceplatform.orchestrator.service;
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.EndConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.StartConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationOrchestratorResponseDto;
+import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationRuntimeConfigurationResponseDto;
 
 /**
  * Handles Call Session lifecycle operations for the
@@ -23,10 +24,13 @@ public interface ConversationSessionService {
      * and starting the configured Flow.
      *
      * @param request conversation start request
+     * @param runtimeConfiguration resolved trusted Agent runtime configuration
      * @return conversation runtime response
      */
     ConversationOrchestratorResponseDto startConversation(
-            StartConversationRequestDto request
+            StartConversationRequestDto request,
+            ConversationRuntimeConfigurationResponseDto
+                    runtimeConfiguration
     );
 
     /**

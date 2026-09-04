@@ -1,10 +1,11 @@
 package com.infinitio.aivoiceplatform.call.repository;
 
 import com.infinitio.aivoiceplatform.call.entity.Call;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -51,11 +52,6 @@ public interface CallRepository
      * Checks whether a provider call identifier exists
      * for another call.
      *
-     * <p>
-     * Used during call update validation to prevent duplicate
-     * provider call identifiers.
-     * </p>
-     *
      * @param providerCallId provider call identifier
      * @param id current call database identifier
      * @return true when another call has the provider call identifier
@@ -78,28 +74,6 @@ public interface CallRepository
     );
 
     /**
-     * Finds calls belonging to a tenant.
-     *
-     * @param tenantId tenant database identifier
-     * @param pageable pagination information
-     * @return paginated calls
-     */
-//    Page<Call> findByTenantId(
-//            Long tenantId,
-//            Pageable pageable
-//    );
-
-    /**
-     * Finds the latest flow execution associated with a call.
-     *
-     * <p>
-     * NOTE:
-     * This method does NOT belong to CallRepository.
-     * It should remain in FlowExecutionRepository.
-     * </p>
-     */
-
-    /**
      * Finds calls by deleted status.
      *
      * @param isDeleted deleted flag
@@ -117,6 +91,7 @@ public interface CallRepository
      *
      * @param campaignContactId campaign contact database identifier
      * @param isDeleted deleted flag
+     * @param pageable pagination information
      * @return matching calls
      */
     Page<Call> findByCampaignContactIdAndIsDeleted(
@@ -128,10 +103,45 @@ public interface CallRepository
     /**
      * Finds a call using its provider call identifier.
      *
-     * @param providerCallId provider call identifier
+     * <p>
+     * The explicit JPQL query is used so the provider identifier
+     * mapping is unambiguous during Voice Gateway call resolution.
+     * </p>
+     *
+     * @param providerCallId provider supplied call identifier
      * @return matching call
      */
+    @Query("""
+            SELECT call
+            FROM Call call
+            WHERE call.providerCallId = :providerCallId
+            """)
     Optional<Call> findByProviderCallId(
-            String providerCallId
+            @Param("providerCallId") String providerCallId
+    );
+
+    /**
+     * Finds a call using a native database comparison.
+     *
+     * <p>
+     * This method is intended for Voice Gateway diagnostics and
+     * can be used to verify that the application datasource can
+     * directly resolve the provider identifier from the calls table.
+     * </p>
+     *
+     * @param providerCallId provider supplied call identifier
+     * @return matching call
+     */
+    @Query(
+            value = """
+                    SELECT *
+                    FROM calls
+                    WHERE provider_call_id = :providerCallId
+                    LIMIT 1
+                    """,
+            nativeQuery = true
+    )
+    Optional<Call> findByProviderCallIdNative(
+            @Param("providerCallId") String providerCallId
     );
 }

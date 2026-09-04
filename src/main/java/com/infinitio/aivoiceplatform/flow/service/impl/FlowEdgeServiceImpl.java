@@ -16,7 +16,7 @@ import com.infinitio.aivoiceplatform.flow.repository.FlowNodeRepository;
 import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodePortDefinitionService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
-
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowEdgeRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -238,6 +238,175 @@ public class FlowEdgeServiceImpl
 
         return edgeMapper.toResponse(
                 saved
+        );
+    }
+
+    // =========================================================
+// UPDATE EDGE
+// =========================================================
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public FlowEdgeResponse updateEdge(
+            UpdateFlowEdgeRequest request) {
+
+        log.info(
+                "Updating Flow edge. edgePublicId={}, " +
+                        "sourceNode={}, sourcePort={}, " +
+                        "targetNode={}, targetPort={}",
+                request.getPublicId(),
+                request.getSourceNodeKey(),
+                request.getSourcePort(),
+                request.getTargetNodeKey(),
+                request.getTargetPort()
+        );
+
+        FlowEdge edge =
+                edgeRepository
+                        .findByPublicIdAndIsDeleted(
+                                request.getPublicId(),
+                                NOT_DELETED
+                        )
+                        .orElseThrow(() -> {
+
+                            log.warn(
+                                    "Flow edge not found for update. " +
+                                            "edgePublicId={}",
+                                    request.getPublicId()
+                            );
+
+                            return new ResourceNotFoundException(
+                                    FlowMessages.EDGE_NOT_FOUND
+                            );
+                        });
+
+        Flow flow =
+                edge.getFlow();
+
+        /*
+         * Resolve the requested source and target nodes
+         * within the same Flow.
+         */
+        FlowNode sourceNode =
+                findNode(
+                        flow,
+                        request.getSourceNodeKey(),
+                        true
+                );
+
+        FlowNode targetNode =
+                findNode(
+                        flow,
+                        request.getTargetNodeKey(),
+                        false
+                );
+
+        validateDifferentNodes(
+                sourceNode,
+                targetNode
+        );
+
+        validateSourcePort(
+                sourceNode,
+                request.getSourcePort()
+        );
+
+        validateTargetPort(
+                targetNode,
+                request.getTargetPort()
+        );
+
+        /*
+         * Check duplicate connection while excluding
+         * the edge currently being updated.
+         */
+        boolean duplicate =
+                edgeRepository
+                        .findBySourceNodeIdAndSourcePortAndTargetNodeIdAndTargetPortAndIsDeleted(
+                                sourceNode.getId(),
+                                request.getSourcePort(),
+                                targetNode.getId(),
+                                request.getTargetPort(),
+                                NOT_DELETED
+                        )
+                        .filter(
+                                existingEdge ->
+                                        !existingEdge
+                                                .getId()
+                                                .equals(edge.getId())
+                        )
+                        .isPresent();
+
+        if (duplicate) {
+
+            log.warn(
+                    "Duplicate Flow edge rejected during update. " +
+                            "flowPublicId={}, sourceNode={}, sourcePort={}, " +
+                            "targetNode={}, targetPort={}",
+                    flow.getPublicId(),
+                    request.getSourceNodeKey(),
+                    request.getSourcePort(),
+                    request.getTargetNodeKey(),
+                    request.getTargetPort()
+            );
+
+            throw new ConflictException(
+                    FlowMessages.DUPLICATE_EDGE
+            );
+        }
+
+        /*
+         * Update the existing entity instead of creating
+         * a new edge. This preserves the edge public ID.
+         */
+        edge.setSourceNode(
+                sourceNode
+        );
+
+        edge.setSourcePort(
+                request.getSourcePort()
+        );
+
+        edge.setTargetNode(
+                targetNode
+        );
+
+        edge.setTargetPort(
+                request.getTargetPort()
+        );
+
+        edge.setLabel(
+                request.getLabel()
+        );
+
+        edge.setConditionExpression(
+                request.getConditionExpression()
+        );
+
+        edge.setPriority(
+                request.getPriority()
+        );
+
+        edge.setUpdatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
+        FlowEdge updatedEdge =
+                edgeRepository.save(
+                        edge
+                );
+
+        log.info(
+                "Flow edge updated successfully. " +
+                        "edgePublicId={}, flowPublicId={}",
+                updatedEdge.getPublicId(),
+                flow.getPublicId()
+        );
+
+        return edgeMapper.toResponse(
+                updatedEdge
         );
     }
 

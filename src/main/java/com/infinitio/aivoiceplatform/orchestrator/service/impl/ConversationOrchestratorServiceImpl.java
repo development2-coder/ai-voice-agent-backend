@@ -154,7 +154,8 @@ public class ConversationOrchestratorServiceImpl
         ConversationOrchestratorResponseDto response =
                 conversationSessionService
                         .startConversation(
-                                request
+                                request,
+                                runtimeConfiguration
                         );
 
         log.info(

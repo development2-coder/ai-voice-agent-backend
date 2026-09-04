@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.call.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.call.dto.request.CreateCallRequest;
 import com.infinitio.aivoiceplatform.call.dto.request.UpdateCallRequest;
 import com.infinitio.aivoiceplatform.call.dto.response.CallResponse;
@@ -42,6 +43,8 @@ public class CallServiceImpl
     private final CampaignContactValidator
             campaignContactValidator;
 
+    private final CurrentUserService currentUserService;
+
 
     // =========================================================
     // CREATE
@@ -70,6 +73,10 @@ public class CallServiceImpl
                 callMapper.toEntity(
                         request
                 );
+
+        call.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
 
         call.setCampaignContact(
                 campaignContact

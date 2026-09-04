@@ -2,14 +2,10 @@ package com.infinitio.aivoiceplatform.tts.service;
 
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisRequest;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
+import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamListener;
 
 /**
- * Defines runtime text-to-speech business operations.
- *
- * <p>
- * The runtime service is responsible for processing TTS synthesis requests
- * independently of the configured TTS provider.
- * </p>
+ * Runtime service for Text-to-Speech execution.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -17,11 +13,27 @@ import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
 public interface TtsRuntimeService {
 
     /**
-     * Synthesizes speech from the supplied text.
+     * Performs synchronous TTS synthesis.
      *
      * @param request TTS synthesis request
      * @return TTS synthesis response
      */
     TtsSynthesisResponse synthesize(
             TtsSynthesisRequest request);
+
+    /**
+     * Performs streaming TTS synthesis.
+     *
+     * <p>
+     * Generated audio chunks are forwarded to the supplied listener
+     * while synthesis is in progress.
+     * </p>
+     *
+     * @param request TTS synthesis request
+     * @param listener audio chunk listener
+     * @return TTS synthesis response
+     */
+    TtsSynthesisResponse synthesizeStreaming(
+            TtsSynthesisRequest request,
+            TtsAudioStreamListener listener);
 }

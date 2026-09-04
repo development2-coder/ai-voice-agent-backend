@@ -7,7 +7,8 @@ import com.infinitio.aivoiceplatform.telephony.dto.request.TransferCallRequestDt
 import com.infinitio.aivoiceplatform.telephony.dto.response.NormalizedCallEventDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NumberResponseDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
-
+import com.infinitio.aivoiceplatform.telephony.dto.request.NumberSearchRequestDto;
+import java.util.List;
 /**
  * Provider abstraction for telephony operations.
  *
@@ -69,5 +70,31 @@ public interface TelephonyProvider {
      */
     NormalizedCallEventDto normalizeCallEvent(
             String payload
+    );
+
+    /**
+     * Retrieves phone numbers already owned by
+     * the configured telephony provider account.
+     *
+     * @return numbers owned by the provider account
+     */
+    List<NumberResponseDto> getOwnedNumbers();
+
+    /**
+     * Retrieves phone numbers currently available for
+     * provisioning from the provider.
+     *
+     * @param request number search criteria
+     * @return available numbers
+     */
+    /**
+     * Retrieves phone numbers currently available for
+     * provisioning from the provider.
+     *
+     * @param request provider-independent number search criteria
+     * @return available numbers
+     */
+    List<NumberResponseDto> getAvailableNumbers(
+            NumberSearchRequestDto request
     );
 }

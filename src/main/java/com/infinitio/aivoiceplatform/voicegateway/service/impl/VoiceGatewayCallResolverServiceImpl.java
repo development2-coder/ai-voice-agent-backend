@@ -9,6 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
 /**
  * Default implementation of
  * {@link VoiceGatewayCallResolverService}.
@@ -47,34 +50,68 @@ public class VoiceGatewayCallResolverServiceImpl
     public String resolveCallId(
             String providerCallId) {
 
-        validateProviderCallId(
-                providerCallId
+        log.info(
+                "Resolving provider call. providerCallId=[{}], length={}, hex={}",
+                providerCallId,
+                providerCallId == null
+                        ? null
+                        : providerCallId.length(),
+                providerCallId == null
+                        ? null
+                        : java.util.HexFormat.of().formatHex(
+                        providerCallId.getBytes(
+                                StandardCharsets.UTF_8
+                        )
+                )
         );
+
+        validateProviderCallId(providerCallId);
 
         log.debug(
-                "Resolving application call. " +
-                        "providerCallId={}",
+                "Searching application call using providerCallId={}",
                 providerCallId
         );
 
+        Optional<Call> callOptional =
+                callRepository.findByProviderCallId(
+                        providerCallId
+                );
+
+        if (callOptional.isEmpty()) {
+
+            log.warn(
+                    "JPQL provider call lookup returned no result. " +
+                            "Trying native database lookup. " +
+                            "providerCallId={}",
+                    providerCallId
+            );
+
+            callOptional =
+                    callRepository.findByProviderCallIdNative(
+                            providerCallId
+                    );
+        }
+
         Call call =
-                callRepository
-                        .findByProviderCallId(
-                                providerCallId
-                        )
-                        .orElseThrow(() -> {
+                callOptional.orElseThrow(() -> {
 
-                            log.warn(
-                                    "No application call found for " +
-                                            "provider call. " +
-                                            "providerCallId={}",
-                                    providerCallId
-                            );
+                    log.error(
+                            "Unable to resolve application call. " +
+                                    "providerCallId={}, length={}, hex={}",
+                            providerCallId,
+                            providerCallId.length(),
+                            java.util.HexFormat.of().formatHex(
+                                    providerCallId.getBytes(
+                                            StandardCharsets.UTF_8
+                                    )
+                            )
+                    );
 
-                            return new IllegalArgumentException(
-                                    VoiceGatewayMessages.CALL_ID_REQUIRED
-                            );
-                        });
+                    return new IllegalArgumentException(
+                            "No application call found for provider call ID: "
+                                    + providerCallId
+                    );
+                });
 
         if (call.getPublicId() == null
                 || call.getPublicId().isBlank()) {
@@ -93,8 +130,9 @@ public class VoiceGatewayCallResolverServiceImpl
 
         log.info(
                 "Application call resolved successfully. " +
-                        "providerCallId={}, callPublicId={}",
+                        "providerCallId={}, databaseId={}, callPublicId={}",
                 providerCallId,
+                call.getId(),
                 call.getPublicId()
         );
 

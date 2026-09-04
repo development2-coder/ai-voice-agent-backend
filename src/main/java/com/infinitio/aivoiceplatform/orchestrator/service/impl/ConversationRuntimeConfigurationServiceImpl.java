@@ -187,6 +187,12 @@ public class ConversationRuntimeConfigurationServiceImpl
                         .systemPrompt(
                                 agentConfig.getSystemPrompt()
                         )
+                        .temperature(
+                                agentConfig.getTemperature()
+                        )
+                        .maxTokens(
+                                agentConfig.getMaxTokens()
+                        )
                         .build();
 
         log.info(

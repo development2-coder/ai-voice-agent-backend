@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 /**
  * Resolved runtime configuration for a conversation.
  *
@@ -31,68 +33,33 @@ import lombok.Setter;
 @AllArgsConstructor
 public class ConversationRuntimeConfigurationResponseDto {
 
-    /**
-     * Tenant public identifier.
-     */
     private String tenantId;
 
-    /**
-     * Agent public identifier.
-     */
     private String agentId;
 
-    /**
-     * Resolved agent version.
-     */
     private Integer agentVersion;
 
-    /**
-     * Flow public identifier selected for runtime.
-     */
     private String flowPublicId;
 
-    /**
-     * Runtime conversation language.
-     */
     private String language;
 
-    /**
-     * Configured STT provider.
-     */
     private String sttProvider;
 
-    /**
-     * Configured STT model.
-     */
     private String sttModel;
 
-    /**
-     * Configured LLM provider.
-     */
     private String llmProvider;
 
-    /**
-     * Configured LLM model.
-     */
     private String llmModel;
 
-    /**
-     * Configured TTS provider.
-     */
     private String ttsProvider;
 
-    /**
-     * Configured TTS model.
-     */
     private String ttsModel;
 
-    /**
-     * Configured voice/speaker.
-     */
     private String voice;
 
-    /**
-     * System prompt configured for the Agent.
-     */
     private String systemPrompt;
+
+    private BigDecimal temperature;
+
+    private Integer maxTokens;
 }

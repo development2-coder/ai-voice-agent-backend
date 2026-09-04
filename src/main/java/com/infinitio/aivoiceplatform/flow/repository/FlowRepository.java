@@ -4,7 +4,7 @@ import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-
+import java.util.*;
 import java.util.Optional;
 
 public interface FlowRepository
@@ -31,5 +31,22 @@ public interface FlowRepository
             String name,
             Integer isDeleted,
             String publicId
+    );
+
+    /**
+     * Finds the active Flow belonging to an Agent.
+     *
+     * @param agentId Agent database identifier
+     * @param isDeleted soft-delete flag
+     * @return active Flow
+     */
+    Optional<Flow> findFirstByAgentIdAndIsDeletedOrderByVersionDesc(
+            Long agentId,
+            Integer isDeleted
+    );
+
+    List<Flow> findAllByAgentIdAndIsDeleted(
+            Long agentId,
+            Integer isDeleted
     );
 }

@@ -47,6 +47,9 @@ public class VoiceGatewayWebSocketHandler
     private final VoiceGatewayCallResolverService
             callResolverService;
 
+    private final VoiceGatewayWebSocketSessionRegistry
+            sessionRegistry;
+
     /**
      * Handles a newly established WebSocket connection.
      *
@@ -424,6 +427,17 @@ public class VoiceGatewayWebSocketHandler
      * @param session WebSocket session
      * @param event start event
      */
+    /**
+     * Handles provider START event.
+     *
+     * <p>
+     * Provider call ID is resolved to the application's Call
+     * public ID before entering the runtime.
+     * </p>
+     *
+     * @param session WebSocket session
+     * @param event start event
+     */
     private void handleStart(
             WebSocketSession session,
             VoiceGatewayEventRequestDto event) {
@@ -432,6 +446,11 @@ public class VoiceGatewayWebSocketHandler
                 resolveCallId(
                         event
                 );
+
+        sessionRegistry.register(
+                callId,
+                session
+        );
 
         log.info(
                 "Starting Voice Gateway call. " +
@@ -459,16 +478,25 @@ public class VoiceGatewayWebSocketHandler
                         request
                 );
 
-        sendResponse(
-                session,
-                response
-        );
+        if (response != null) {
+
+            sendResponse(
+                    session,
+                    response
+            );
+        }
     }
 
     // =========================================================
     // MEDIA
     // =========================================================
 
+    /**
+     * Handles incoming caller media.
+     *
+     * @param session WebSocket session
+     * @param event media event
+     */
     /**
      * Handles incoming caller media.
      *
@@ -580,10 +608,13 @@ public class VoiceGatewayWebSocketHandler
                         request
                 );
 
-        sendResponse(
-                session,
-                response
-        );
+        if (response != null) {
+
+            sendResponse(
+                    session,
+                    response
+            );
+        }
     }
 
     // =========================================================

@@ -113,6 +113,15 @@ public class SecurityConfig {
                         ).permitAll()
 
                         // -------------------------------------------------
+                        // VOICE GATEWAY WEBSOCKET
+                        // -------------------------------------------------
+
+                                .requestMatchers(
+                                "/voice-gateway/ws",
+                                        "/voice-gateway/ws/**"
+                                ).permitAll()
+
+                        // -------------------------------------------------
                         // FIRST USER CREATION
                         // -------------------------------------------------
 

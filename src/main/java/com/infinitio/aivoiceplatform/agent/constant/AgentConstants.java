@@ -23,4 +23,25 @@ public final class AgentConstants {
 
     public static final int STATUS_MAX_LENGTH = 30;
 
+    public static final String INITIAL_FLOW_NAME =
+            "Main Flow";
+
+    public static final String INITIAL_FLOW_DESCRIPTION =
+            "Default draft flow for the agent.";
+
+    public static final String INITIAL_START_NODE_KEY =
+            "start";
+
+    public static final String INITIAL_START_NODE_NAME =
+            "Start";
+
+    public static final String INITIAL_END_NODE_KEY =
+            "end";
+
+    public static final String INITIAL_END_NODE_NAME =
+            "End";
+
+    public static final String MAIN_PORT =
+            "main";
+
 }

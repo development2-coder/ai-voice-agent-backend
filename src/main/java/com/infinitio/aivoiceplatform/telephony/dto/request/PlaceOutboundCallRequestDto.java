@@ -12,6 +12,12 @@ import lombok.Setter;
  * Request for placing an outbound call through
  * a telephony provider.
  *
+ * <p>
+ * This DTO contains provider-neutral outbound call
+ * capabilities. Provider-specific mapping is handled
+ * by the selected {@code TelephonyProvider} implementation.
+ * </p>
+ *
  * @author Infinitio Digital
  * @version 1.0.0
  */
@@ -22,52 +28,56 @@ import lombok.Setter;
 @AllArgsConstructor
 public class PlaceOutboundCallRequestDto {
 
+    /**
+     * Application call public ID used for call correlation.
+     */
     @NotBlank
     private String callPublicId;
 
+    /**
+     * Number from which the outbound call is initiated.
+     */
     @NotBlank
     private String fromNumber;
 
+    /**
+     * Destination number.
+     */
     @NotBlank
     private String toNumber;
 
     /**
-     * Provider status callback URL.
+     * Optional status callback URL.
+     *
+     * <p>
+     * When not supplied, the selected telephony provider
+     * may use its configured callback URL.
+     * </p>
      */
     private String callbackUrl;
 
     /**
-     * Bidirectional WebSocket URL.
-     *
-     * Example:
-     *
-     * wss://abc.ngrok-free.app/ws/telephony/exotel/media
+     * Application-owned real-time media streaming URL.
      */
     private String streamUrl;
 
     /**
-     * Stream type.
-     *
-     * Expected value:
-     *
-     * bidirectional
+     * Requested media streaming type.
      */
     private String streamType;
 
     /**
-     * Whether Exotel should record the call.
+     * Whether call recording is requested.
      */
     private Boolean record;
 
     /**
-     * Recording channel mode.
-     *
-     * single / dual
+     * Requested recording channel mode.
      */
     private String recordingChannels;
 
     /**
-     * Optional maximum call duration.
+     * Optional maximum call duration in seconds.
      */
     private Integer timeLimit;
 }

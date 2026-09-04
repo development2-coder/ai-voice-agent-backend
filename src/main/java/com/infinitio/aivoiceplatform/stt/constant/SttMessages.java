@@ -67,4 +67,61 @@ public final class SttMessages {
 
     public static final String SARVAM_TRANSCRIPTION_FAILED =
             "Sarvam speech-to-text transcription failed.";
+
+    public static final String MODEL_NOT_CONFIGURED =
+            "STT model is not configured.";
+
+    /**
+     * Streaming STT sample rate is required.
+     */
+    public static final String STREAMING_SAMPLE_RATE_REQUIRED =
+            "STT streaming sample rate is required.";
+
+    /**
+     * Streaming STT sample rate must be positive.
+     */
+    public static final String STREAMING_SAMPLE_RATE_INVALID =
+            "STT streaming sample rate must be greater than zero.";
+
+    /**
+     * Streaming STT listener is required.
+     */
+    public static final String STREAMING_LISTENER_REQUIRED =
+            "STT streaming listener is required.";
+
+    /**
+     * Streaming STT audio encoding is required.
+     */
+    public static final String STREAMING_AUDIO_ENCODING_REQUIRED =
+            "STT streaming audio encoding is required.";
+
+    /**
+     * Streaming STT session could not be opened.
+     */
+    public static final String STREAMING_SESSION_NOT_OPEN =
+            "STT streaming session could not be opened.";
+
+    /**
+     * Streaming STT session is not active.
+     */
+    public static final String STREAMING_SESSION_NOT_ACTIVE =
+            "No active streaming STT session for call.";
+
+    /**
+     * Streaming STT session is closed.
+     */
+    public static final String STREAMING_SESSION_CLOSED =
+            "Streaming STT session is closed.";
+
+    /**
+     * Unable to start streaming STT.
+     */
+    public static final String STREAMING_START_FAILED =
+            "Unable to start streaming STT.";
+
+    /**
+     * Unable to stream audio to STT provider.
+     */
+    public static final String STREAMING_AUDIO_FAILED =
+            "Unable to stream audio to STT provider.";
 }

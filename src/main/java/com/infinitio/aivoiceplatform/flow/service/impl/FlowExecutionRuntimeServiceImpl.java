@@ -11,7 +11,8 @@ import com.infinitio.aivoiceplatform.flow.service.FlowExecutionRuntimeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeExecutionService;
 import com.infinitio.aivoiceplatform.flow.service.FlowResultService;
 import com.infinitio.aivoiceplatform.flow.service.FlowTransitionService;
-
+import com.infinitio.aivoiceplatform.telephony.dto.request.TransferCallRequestDto;
+import com.infinitio.aivoiceplatform.telephony.service.TelephonyTransferExecutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,6 +56,9 @@ public class FlowExecutionRuntimeServiceImpl
     private final FlowTransitionService transitionService;
 
     private final FlowResultService resultService;
+
+    private final TelephonyTransferExecutionService
+            telephonyTransferExecutionService;
 
     /**
      * {@inheritDoc}
@@ -110,6 +114,12 @@ public class FlowExecutionRuntimeServiceImpl
                             currentNode,
                             context
                     );
+
+            executeTransferIfRequired(
+                    nodeResult,
+                    context,
+                    execution
+            );
 
             validateNodeResult(
                     nodeResult,
@@ -298,5 +308,112 @@ public class FlowExecutionRuntimeServiceImpl
                 FlowExecutionContextKeys
                         .SELECTED_OUTPUT_PORT
         );
+    }
+
+    /**
+     * Executes the provider-level transfer when the current Flow
+     * node has produced a transfer result.
+     *
+     * <p>
+     * The Flow node remains responsible for generating the
+     * provider-neutral transfer instruction. This method converts
+     * that instruction into a provider request and delegates the
+     * actual telephony operation to the provider execution service.
+     * </p>
+     *
+     * @param nodeResult Flow node execution result
+     * @param context Flow runtime context
+     * @param execution current Flow execution
+     */
+    private void executeTransferIfRequired(
+            FlowNodeExecutionResult nodeResult,
+            Map<String, Object> context,
+            FlowExecution execution) {
+
+        if (nodeResult == null
+                || !nodeResult.isTransferred()) {
+
+            return;
+        }
+
+        String providerCode =
+                resolveContextValue(
+                        context,
+                        FlowExecutionContextKeys.TELEPHONY_PROVIDER
+                );
+
+        String providerCallId =
+                resolveContextValue(
+                        context,
+                        FlowExecutionContextKeys.PROVIDER_CALL_ID
+                );
+
+        String destination =
+                resolveContextValue(
+                        context,
+                        FlowExecutionContextKeys.TRANSFER_DESTINATION
+                );
+
+        log.info(
+                "Flow requested telephony transfer. "
+                        + "executionPublicId={}, provider={}, "
+                        + "providerCallId={}, destination={}",
+                execution.getPublicId(),
+                providerCode,
+                providerCallId,
+                destination
+        );
+
+        TransferCallRequestDto request =
+                TransferCallRequestDto.builder()
+                        .providerCallId(
+                                providerCallId
+                        )
+                        .destination(
+                                destination
+                        )
+                        .build();
+
+        telephonyTransferExecutionService.executeTransfer(
+                providerCode,
+                request
+        );
+
+        log.info(
+                "Flow transfer delegated to telephony provider. "
+                        + "executionPublicId={}, provider={}",
+                execution.getPublicId(),
+                providerCode
+        );
+    }
+
+    /**
+     * Resolves a string value from the Flow runtime context.
+     *
+     * @param context Flow runtime context
+     * @param key context key
+     * @return resolved value or {@code null}
+     */
+    private String resolveContextValue(
+            Map<String, Object> context,
+            String key) {
+
+        Object value =
+                context.get(
+                        key
+                );
+
+        if (value == null) {
+            return null;
+        }
+
+        String resolved =
+                String.valueOf(
+                        value
+                ).trim();
+
+        return resolved.isBlank()
+                ? null
+                : resolved;
     }
 }

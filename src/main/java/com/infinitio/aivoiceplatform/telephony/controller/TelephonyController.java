@@ -10,13 +10,16 @@ import com.infinitio.aivoiceplatform.telephony.service.AgentOutboundCallService;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceAgentOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.AgentOutboundCallResponseDto;
-
+import com.infinitio.aivoiceplatform.telephony.dto.request.NumberSearchRequestDto;
 import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Provides REST APIs for provider-independent telephony operations.
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
  * @author Infinitio Digital
  * @version 1.0.0
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/telephony")
 @RequiredArgsConstructor
@@ -134,18 +138,94 @@ public class TelephonyController {
                 .build();
     }
 
-    @PostMapping("/exotel/agent-calls")
+    /**
+     * Places a direct outbound call using an Agent Flow.
+     *
+     * <p>
+     * The telephony provider is resolved from the phone number
+     * assigned to the Agent. The controller therefore remains
+     * independent of any specific CPaaS provider.
+     * </p>
+     *
+     * @param request Agent outbound call request
+     * @return outbound call response
+     */
+    @PostMapping("/agent-calls")
     public ResponseEntity<AgentOutboundCallResponseDto>
     placeAgentOutboundCall(
             @Valid
             @RequestBody
             PlaceAgentOutboundCallRequestDto request) {
 
-        return ResponseEntity.ok(
+        log.info(
+                "REST Request : Place Agent Outbound Call. "
+                        + "flowPublicId={}, phoneNumberPublicId={}, "
+                        + "toNumber={}",
+                request.getFlowPublicId(),
+                request.getPhoneNumberPublicId(),
+                request.getToNumber()
+        );
+
+        AgentOutboundCallResponseDto response =
                 agentOutboundCallService
                         .placeAgentOutboundCall(
                                 request
-                        )
+                        );
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Retrieves phone numbers already owned by the provider.
+     *
+     * @param providerCode provider code
+     * @return owned provider numbers
+     */
+    @GetMapping("/{provider}/numbers")
+    public ResponseEntity<List<NumberResponseDto>>
+    getOwnedNumbers(
+            @PathVariable("provider")
+            String providerCode) {
+
+        log.info(
+                "REST Request : Get Provider Owned Numbers. provider={}",
+                providerCode
+        );
+
+        return ResponseEntity.ok(
+                telephonyService.getOwnedNumbers(
+                        providerCode
+                )
+        );
+    }
+
+    /**
+     * Retrieves phone numbers available for provisioning.
+     *
+     * @param providerCode provider code
+     * @param request number search criteria
+     * @return available provider numbers
+     */
+    @PostMapping("/{provider}/numbers/available")
+    public ResponseEntity<List<NumberResponseDto>>
+    getAvailableNumbers(
+            @PathVariable("provider")
+            String providerCode,
+
+            @Valid
+            @RequestBody
+            NumberSearchRequestDto request) {
+
+        log.info(
+                "REST Request : Get Available Provider Numbers. provider={}",
+                providerCode
+        );
+
+        return ResponseEntity.ok(
+                telephonyService.getAvailableNumbers(
+                        providerCode,
+                        request
+                )
         );
     }
 }

@@ -72,6 +72,22 @@ public class TtsProperties {
     private Integer defaultSpeechSampleRate;
 
     /**
+     * Default output audio codec.
+     *
+     * <p>
+     * The codec is loaded from external configuration so that
+     * telephony-specific audio requirements can be changed without
+     * modifying application source code.
+     * </p>
+     */
+    private String outputAudioCodec;
+
+    /**
+     * TTS provider streaming endpoint path.
+     */
+    private String streamPath;
+
+    /**
      * Maximum number of characters allowed in one synthesis request.
      */
     private Integer maxTextCharacters;

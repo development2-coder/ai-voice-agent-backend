@@ -290,53 +290,60 @@ public class FlowNodeConfigurationSchemaServiceImpl
      *
      * @return JSON schema
      */
+    /**
+     * Returns API configuration schema.
+     *
+     * @return JSON schema
+     */
     private String apiSchema() {
 
         return """
+            {
+              "fields": [
                 {
-                  "fields": [
-                    {
-                      "name": "method",
-                      "label": "HTTP Method",
-                      "type": "SELECT",
-                      "options": [
-                        "GET",
-                        "POST",
-                        "PUT",
-                        "PATCH",
-                        "DELETE"
-                      ],
-                      "required": true
-                    },
-                    {
-                      "name": "url",
-                      "label": "URL",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "headers",
-                      "label": "Headers",
-                      "type": "JSON",
-                      "required": false
-                    },
-                    {
-                      "name": "body",
-                      "label": "Request Body",
-                      "type": "JSON",
-                      "required": false,
-                      "supportsExpression": true
-                    },
-                    {
-                      "name": "outputVariable",
-                      "label": "Output Variable",
-                      "type": "TEXT",
-                      "required": false
-                    }
-                  ]
+                  "name": "method",
+                  "label": "HTTP Method",
+                  "type": "SELECT",
+                  "options": [
+                    "GET",
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE"
+                  ],
+                  "required": true
+                },
+                {
+                  "name": "url",
+                  "label": "URL",
+                  "type": "TEXT",
+                  "required": true,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "headers",
+                  "label": "Headers",
+                  "type": "JSON",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "body",
+                  "label": "Request Body",
+                  "type": "JSON",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "responseVariable",
+                  "label": "Response Variable",
+                  "type": "TEXT",
+                  "required": false,
+                  "supportsExpression": false
                 }
-                """;
+              ]
+            }
+            """;
     }
 
     // =========================================================
@@ -523,21 +530,33 @@ public class FlowNodeConfigurationSchemaServiceImpl
      *
      * @return JSON schema
      */
+    /**
+     * Returns transfer configuration schema.
+     *
+     * @return JSON schema
+     */
     private String transferSchema() {
 
         return """
+            {
+              "fields": [
                 {
-                  "fields": [
-                    {
-                      "name": "destination",
-                      "label": "Transfer Destination",
-                      "type": "TEXT",
-                      "required": true,
-                      "supportsExpression": true
-                    }
-                  ]
+                  "name": "destination",
+                  "label": "Transfer Destination",
+                  "type": "TEXT",
+                  "required": true,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "message",
+                  "label": "Transfer Message",
+                  "type": "TEXTAREA",
+                  "required": false,
+                  "supportsExpression": true
                 }
-                """;
+              ]
+            }
+            """;
     }
 
     // =========================================================
@@ -579,28 +598,32 @@ public class FlowNodeConfigurationSchemaServiceImpl
      *
      * @return JSON schema
      */
+    /**
+     * Returns Speech-to-Text configuration schema.
+     *
+     * @return JSON schema
+     */
     private String sttSchema() {
 
         return """
+            {
+              "fields": [
                 {
-                  "fields": [
-                    {
-                      "name": "language",
-                      "label": "Language",
-                      "type": "TEXT",
-                      "required": false,
-                      "defaultValue": "en-IN"
-                    },
-                    {
-                      "name": "finalTranscript",
-                      "label": "Final Transcript",
-                      "type": "BOOLEAN",
-                      "required": false,
-                      "defaultValue": true
-                    }
-                  ]
+                  "name": "language",
+                  "label": "Language",
+                  "type": "TEXT",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "finalTranscript",
+                  "label": "Final Transcript",
+                  "type": "BOOLEAN",
+                  "required": false
                 }
-                """;
+              ]
+            }
+            """;
     }
 
     // =========================================================
@@ -617,28 +640,44 @@ public class FlowNodeConfigurationSchemaServiceImpl
      *
      * @return JSON schema
      */
+    /**
+     * Returns LLM configuration schema.
+     *
+     * @return JSON schema
+     */
+    /**
+     * Returns LLM configuration schema.
+     *
+     * @return JSON schema
+     */
     private String llmSchema() {
 
         return """
+            {
+              "fields": [
                 {
-                  "fields": [
-                    {
-                      "name": "language",
-                      "label": "Language",
-                      "type": "TEXT",
-                      "required": false,
-                      "defaultValue": "en-IN"
-                    },
-                    {
-                      "name": "finalResponse",
-                      "label": "Final Response",
-                      "type": "BOOLEAN",
-                      "required": false,
-                      "defaultValue": true
-                    }
-                  ]
+                  "name": "prompt",
+                  "label": "Initial Prompt",
+                  "type": "TEXTAREA",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "language",
+                  "label": "Language",
+                  "type": "TEXT",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "finalResponse",
+                  "label": "Final Response",
+                  "type": "BOOLEAN",
+                  "required": false
                 }
-                """;
+              ]
+            }
+            """;
     }
 
     // =========================================================
@@ -655,48 +694,57 @@ public class FlowNodeConfigurationSchemaServiceImpl
      *
      * @return JSON schema
      */
+    /**
+     * Returns Text-to-Speech configuration schema.
+     *
+     * @return JSON schema
+     */
     private String ttsSchema() {
 
         return """
+            {
+              "fields": [
                 {
-                  "fields": [
-                    {
-                      "name": "language",
-                      "label": "Language",
-                      "type": "TEXT",
-                      "required": false,
-                      "defaultValue": "en-IN"
-                    },
-                    {
-                      "name": "speaker",
-                      "label": "Speaker",
-                      "type": "TEXT",
-                      "required": false,
-                      "defaultValue": "shubh"
-                    },
-                    {
-                      "name": "pace",
-                      "label": "Speech Pace",
-                      "type": "NUMBER",
-                      "required": false,
-                      "defaultValue": 1.0
-                    },
-                    {
-                      "name": "speechSampleRate",
-                      "label": "Speech Sample Rate",
-                      "type": "NUMBER",
-                      "required": false,
-                      "defaultValue": 22050
-                    },
-                    {
-                      "name": "finalResponse",
-                      "label": "Final Response",
-                      "type": "BOOLEAN",
-                      "required": false,
-                      "defaultValue": true
-                    }
-                  ]
+                  "name": "text",
+                  "label": "Text",
+                  "type": "TEXTAREA",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "language",
+                  "label": "Language",
+                  "type": "TEXT",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "speaker",
+                  "label": "Speaker",
+                  "type": "TEXT",
+                  "required": false,
+                  "supportsExpression": true
+                },
+                {
+                  "name": "pace",
+                  "label": "Speech Pace",
+                  "type": "NUMBER",
+                  "required": false
+                },
+                {
+                  "name": "speechSampleRate",
+                  "label": "Speech Sample Rate",
+                  "type": "NUMBER",
+                  "required": false
+                },
+                {
+                  "name": "finalResponse",
+                  "label": "Final Response",
+                  "type": "BOOLEAN",
+                  "required": false
                 }
-                """;
+              ]
+            }
+            """;
     }
 }

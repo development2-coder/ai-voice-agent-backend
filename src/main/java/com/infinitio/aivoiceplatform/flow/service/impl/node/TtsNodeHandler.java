@@ -1,58 +1,84 @@
 package com.infinitio.aivoiceplatform.flow.service.impl.node;
 
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.stereotype.Component;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeExecutionResult;
 import com.infinitio.aivoiceplatform.flow.entity.FlowExecution;
 import com.infinitio.aivoiceplatform.flow.entity.FlowNode;
+import com.infinitio.aivoiceplatform.flow.service.FlowContextService;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisRequest;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
 import com.infinitio.aivoiceplatform.tts.service.TtsRuntimeService;
+import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamListener;
+import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamRegistry;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import org.springframework.stereotype.Component;
-
-import java.util.Map;
 
 /**
  * Flow node handler for Text-to-Speech processing.
  *
  * <p>
  * The handler delegates speech synthesis to the existing
- * TtsRuntimeService. Provider-specific implementation remains
- * outside the Flow module.
+ * {@link TtsRuntimeService}. Provider-specific implementation
+ * remains outside the Flow module.
  * </p>
  *
  * <p>
- * Expected Flow context:
+ * The TTS configuration is defined by the client while building
+ * the Flow. Runtime values such as language, speaker, pace and
+ * sample rate are therefore read from the node configuration
+ * or the existing Flow context.
+ * </p>
+ *
+ * <p>
+ * The node supports different text sources so that it can be
+ * used in both user-first and AI-first client-defined flows.
+ * </p>
+ *
+ * <p>
+ * Text resolution order:
+ * </p>
+ *
+ * <ol>
+ *     <li>Text explicitly configured on the TTS node</li>
+ *     <li>ttsText from Flow context</li>
+ *     <li>llmResponse from Flow context</li>
+ *     <li>response from Flow context</li>
+ * </ol>
+ *
+ * <p>
+ * Supported node configuration values:
  * </p>
  *
  * <pre>
- * {
- *     "callId": "...",
- *     "language": "en-IN",
- *     "llmResponse": "Hello, how can I help you?",
- *     "ttsSpeaker": "shubh",
- *     "ttsPace": 1.0,
- *     "ttsSpeechSampleRate": 22050,
- *     "finalResponse": true
- * }
+ * text
+ * language
+ * speaker
+ * pace
+ * speechSampleRate
+ * finalResponse
  * </pre>
  *
  * <p>
- * The generated response is stored in:
+ * Generated response values are stored in Flow context:
  * </p>
  *
  * <pre>
  * ttsResponse
+ * lastTtsResponse
  * ttsAudioBase64
  * ttsAudioUrl
  * ttsAudioFileName
  * ttsAudioContentType
- * lastTtsResponse
+ * language
  * </pre>
  *
  * @author Infinitio Digital
@@ -64,67 +90,133 @@ import java.util.Map;
 public class TtsNodeHandler
         implements FlowNodeHandler {
 
+    /**
+     * Call identifier context key.
+     */
     private static final String CALL_ID =
             "callId";
 
+    /**
+     * Language configuration/context key.
+     */
     private static final String LANGUAGE =
             "language";
 
+    /**
+     * Explicit TTS text configuration key.
+     */
+    private static final String TEXT =
+            "text";
+
+    /**
+     * LLM response context key.
+     */
     private static final String LLM_RESPONSE =
             "llmResponse";
 
+    /**
+     * Generic response context key.
+     */
     private static final String RESPONSE =
             "response";
 
+    /**
+     * Runtime TTS text context key.
+     */
     private static final String TTS_TEXT =
             "ttsText";
 
-    private static final String TTS_SPEAKER =
-            "ttsSpeaker";
-
+    /**
+     * TTS speaker configuration key.
+     */
     private static final String SPEAKER =
             "speaker";
 
-    private static final String TTS_PACE =
-            "ttsPace";
+    /**
+     * TTS pace configuration key.
+     */
+    private static final String PACE =
+            "pace";
 
-    private static final String TTS_SAMPLE_RATE =
-            "ttsSpeechSampleRate";
+    /**
+     * TTS speech sample-rate configuration key.
+     */
+    private static final String SPEECH_SAMPLE_RATE =
+            "speechSampleRate";
 
+    /**
+     * Final-response configuration key.
+     */
     private static final String FINAL_RESPONSE =
             "finalResponse";
 
+    /**
+     * TTS response context key.
+     */
     private static final String TTS_RESPONSE =
             "ttsResponse";
 
+    /**
+     * Last TTS response context key.
+     */
     private static final String LAST_TTS_RESPONSE =
             "lastTtsResponse";
 
+    /**
+     * TTS audio Base64 context key.
+     */
     private static final String TTS_AUDIO_BASE64 =
             "ttsAudioBase64";
 
+    /**
+     * TTS audio URL context key.
+     */
     private static final String TTS_AUDIO_URL =
             "ttsAudioUrl";
 
+    /**
+     * TTS audio file-name context key.
+     */
     private static final String TTS_AUDIO_FILE_NAME =
             "ttsAudioFileName";
 
+    /**
+     * TTS audio content-type context key.
+     */
     private static final String TTS_AUDIO_CONTENT_TYPE =
             "ttsAudioContentType";
 
+    /**
+     * Flow node action.
+     */
     private static final String ACTION =
             "TTS";
 
-    private static final String DEFAULT_LANGUAGE =
-            "en-IN";
+    /**
+     * JSON role used for configuration parsing.
+     */
+    private static final String CONFIGURATION =
+            "configuration";
 
-    private static final String DEFAULT_SPEAKER =
-            "shubh";
+    /**
+     * JSON mapper.
+     */
+    private final ObjectMapper objectMapper;
+
+    /**
+     * Flow context service used for expression resolution.
+     */
+    private final FlowContextService flowContextService;
 
     /**
      * Existing provider-independent TTS runtime service.
      */
     private final TtsRuntimeService ttsRuntimeService;
+
+    /**
+     * Registry containing active TTS audio stream listeners.
+     */
+    private final TtsAudioStreamRegistry ttsAudioStreamRegistry;
 
     /**
      * {@inheritDoc}
@@ -137,6 +229,18 @@ public class TtsNodeHandler
 
     /**
      * Executes the TTS Flow node.
+     *
+     * <p>
+     * The node does not assume that an LLM node must execute before
+     * it. It can synthesize explicitly configured text, runtime
+     * TTS text, an LLM response, or another Flow response.
+     * </p>
+     *
+     * <p>
+     * When the current call has an active TTS stream listener,
+     * generated audio is forwarded incrementally to the listener.
+     * Otherwise the existing synchronous TTS execution path is used.
+     * </p>
      *
      * @param execution current Flow execution
      * @param node current Flow node
@@ -168,48 +272,50 @@ public class TtsNodeHandler
                 node.getNodeKey()
         );
 
+        Map<String, Object> configuration =
+                readConfiguration(
+                        node.getConfiguration()
+                );
+
         String callId =
-                getRequiredString(
+                getRequiredContextString(
                         context,
                         CALL_ID
                 );
 
         String language =
-                getStringOrDefault(
-                        context,
-                        LANGUAGE,
-                        null,
-                        DEFAULT_LANGUAGE
+                resolveLanguage(
+                        configuration,
+                        context
                 );
 
         String text =
                 resolveText(
+                        configuration,
                         context
                 );
 
         String speaker =
-                getStringOrDefault(
-                        context,
-                        TTS_SPEAKER,
-                        SPEAKER,
-                        DEFAULT_SPEAKER
+                resolveSpeaker(
+                        configuration,
+                        context
                 );
 
         Double pace =
-                getDoubleValue(
-                        context,
-                        TTS_PACE
+                resolveDouble(
+                        configuration,
+                        PACE
                 );
 
         Integer speechSampleRate =
-                getIntegerValue(
-                        context,
-                        TTS_SAMPLE_RATE
+                resolveInteger(
+                        configuration,
+                        SPEECH_SAMPLE_RATE
                 );
 
         boolean finalResponse =
-                getBooleanValue(
-                        context,
+                getBooleanConfigurationValue(
+                        configuration,
                         FINAL_RESPONSE,
                         true
                 );
@@ -243,8 +349,8 @@ public class TtsNodeHandler
                 "Calling TTS runtime service. " +
                         "executionPublicId={}, nodeKey={}, " +
                         "callId={}, language={}, speaker={}, " +
-                        "pace={}, speechSampleRate={}, finalResponse={}, " +
-                        "textLength={}",
+                        "pace={}, speechSampleRate={}, " +
+                        "finalResponse={}, textLength={}",
                 execution.getPublicId(),
                 node.getNodeKey(),
                 callId,
@@ -256,24 +362,101 @@ public class TtsNodeHandler
                 text.length()
         );
 
-        TtsSynthesisResponse response =
-                ttsRuntimeService.synthesize(
-                        request
+        /*
+         * Check whether the current live call has a registered
+         * TTS audio listener.
+         *
+         * If present, audio is streamed directly to the listener
+         * while the provider is producing it.
+         */
+        TtsAudioStreamListener streamListener =
+                ttsAudioStreamRegistry.getListener(
+                        callId
                 );
 
-        if (response == null) {
+        TtsSynthesisResponse response;
 
-            log.error(
-                    "TTS runtime returned null response. " +
-                            "executionPublicId={}, nodeKey={}",
+        if (streamListener != null) {
+
+            log.info(
+                    "Starting streaming TTS execution for Flow node. " +
+                            "executionPublicId={}, nodeKey={}, callId={}",
                     execution.getPublicId(),
-                    node.getNodeKey()
+                    node.getNodeKey(),
+                    callId
             );
 
-            throw new IllegalStateException(
-                    FlowMessages.EXECUTION_FAILED
+            /*
+             * A new TTS response starts with a clean interruption
+             * state. This is important after a previous caller
+             * barge-in.
+             */
+            ttsAudioStreamRegistry.resetInterruption(
+                    callId
             );
+
+            /*
+             * Protect the active stream from sending audio after
+             * a caller has interrupted the TTS response.
+             */
+            TtsAudioStreamListener guardedListener =
+                    (audioBytes, contentType) -> {
+
+                        if (ttsAudioStreamRegistry
+                                .isInterrupted(callId)) {
+
+                            log.debug(
+                                    "Ignoring interrupted TTS audio chunk. " +
+                                            "callId={}, chunkSizeBytes={}",
+                                    callId,
+                                    audioBytes != null
+                                            ? audioBytes.length
+                                            : 0
+                            );
+
+                            return;
+                        }
+
+                        if (audioBytes == null
+                                || audioBytes.length == 0) {
+
+                            log.debug(
+                                    "Ignoring empty TTS audio chunk. callId={}",
+                                    callId
+                            );
+
+                            return;
+                        }
+
+                        streamListener.onAudioChunk(
+                                audioBytes,
+                                contentType
+                        );
+                    };
+
+            response =
+                    ttsRuntimeService.synthesizeStreaming(
+                            request,
+                            guardedListener
+                    );
+
+        } else {
+
+            log.debug(
+                    "No active TTS stream listener found. " +
+                            "Using synchronous TTS execution. callId={}",
+                    callId
+            );
+
+            response =
+                    ttsRuntimeService.synthesize(
+                            request
+                    );
         }
+
+        validateResponse(
+                response
+        );
 
         storeResponse(
                 context,
@@ -285,7 +468,7 @@ public class TtsNodeHandler
                         "executionPublicId={}, nodeKey={}, " +
                         "provider={}, model={}, speaker={}, " +
                         "contentType={}, latencyMs={}, " +
-                        "audioUrlPresent={}, audioBase64Present={}",
+                        "audioUrlPresent={}, audioBase64Present={}, streaming={}",
                 execution.getPublicId(),
                 node.getNodeKey(),
                 response.getProvider(),
@@ -294,9 +477,19 @@ public class TtsNodeHandler
                 response.getContentType(),
                 response.getLatencyMs(),
                 response.getAudioUrl() != null,
-                response.getAudioBase64() != null
+                response.getAudioBase64() != null,
+                streamListener != null
         );
 
+        /*
+         * outputText is intentionally not populated with the audio
+         * URL. The audio data is already available in Flow context
+         * and is consumed by ConversationResponseService.
+         *
+         * Keeping outputText null prevents an audio URL from being
+         * interpreted as text that should be spoken by the
+         * ConversationResponseService.
+         */
         return FlowNodeExecutionResult.builder()
                 .status(
                         FlowExecutionStatus.RUNNING
@@ -305,7 +498,7 @@ public class TtsNodeHandler
                         ACTION
                 )
                 .outputText(
-                        response.getAudioUrl()
+                        null
                 )
                 .waiting(false)
                 .completed(false)
@@ -317,6 +510,47 @@ public class TtsNodeHandler
     }
 
     // =========================================================
+    // LANGUAGE
+    // =========================================================
+
+    /**
+     * Resolves the TTS language.
+     *
+     * <p>
+     * The node configuration takes precedence. If it is not
+     * configured, the language already established in the Flow
+     * context is used.
+     * </p>
+     *
+     * @param configuration TTS node configuration
+     * @param context Flow context
+     * @return language or null
+     */
+    private String resolveLanguage(
+            Map<String, Object> configuration,
+            Map<String, Object> context) {
+
+        String configuredLanguage =
+                getConfigurationString(
+                        configuration,
+                        LANGUAGE
+                );
+
+        if (configuredLanguage != null) {
+
+            return flowContextService.replaceVariables(
+                    configuredLanguage,
+                    context
+            );
+        }
+
+        return getOptionalContextString(
+                context,
+                LANGUAGE
+        );
+    }
+
+    // =========================================================
     // TEXT
     // =========================================================
 
@@ -324,63 +558,74 @@ public class TtsNodeHandler
      * Resolves the text that should be synthesized.
      *
      * <p>
-     * llmResponse is the primary source because the normal
-     * voice-agent flow is STT -> LLM -> TTS.
+     * The client can explicitly configure text on the node.
+     * If no text is configured, runtime values are checked.
      * </p>
+     *
+     * @param configuration TTS node configuration
+     * @param context Flow context
+     * @return text to synthesize
      */
     private String resolveText(
+            Map<String, Object> configuration,
             Map<String, Object> context) {
 
-        Object ttsText =
-                context.get(
+        String configuredText =
+                getConfigurationString(
+                        configuration,
+                        TEXT
+                );
+
+        if (configuredText != null) {
+
+            String resolvedText =
+                    flowContextService.replaceVariables(
+                            configuredText,
+                            context
+                    );
+
+            if (resolvedText != null
+                    && !resolvedText.isBlank()) {
+
+                return resolvedText.trim();
+            }
+        }
+
+        String ttsText =
+                getOptionalContextString(
+                        context,
                         TTS_TEXT
                 );
 
         if (ttsText != null) {
-
-            String value =
-                    String.valueOf(
-                            ttsText
-                    ).trim();
-
-            if (!value.isBlank()) {
-                return value;
-            }
+            return ttsText;
         }
 
-        Object llmResponse =
-                context.get(
+        String llmResponse =
+                getOptionalContextString(
+                        context,
                         LLM_RESPONSE
                 );
 
         if (llmResponse != null) {
-
-            String value =
-                    String.valueOf(
-                            llmResponse
-                    ).trim();
-
-            if (!value.isBlank()) {
-                return value;
-            }
+            return llmResponse;
         }
 
-        Object response =
-                context.get(
+        String response =
+                getOptionalContextString(
+                        context,
                         RESPONSE
                 );
 
         if (response != null) {
-
-            String value =
-                    String.valueOf(
-                            response
-                    ).trim();
-
-            if (!value.isBlank()) {
-                return value;
-            }
+            return response;
         }
+
+        log.warn(
+                "No text available for TTS Flow node. " +
+                        "executionContextKeys={}",
+                context.keySet()
+        );
 
         throw new IllegalArgumentException(
                 FlowMessages.INVALID_CONFIGURATION
@@ -388,9 +633,50 @@ public class TtsNodeHandler
     }
 
     // =========================================================
+    // SPEAKER
+    // =========================================================
+
+    /**
+     * Resolves the configured TTS speaker.
+     *
+     * @param configuration TTS node configuration
+     * @param context Flow context
+     * @return speaker or null
+     */
+    private String resolveSpeaker(
+            Map<String, Object> configuration,
+            Map<String, Object> context) {
+
+        String configuredSpeaker =
+                getConfigurationString(
+                        configuration,
+                        SPEAKER
+                );
+
+        if (configuredSpeaker != null) {
+
+            return flowContextService.replaceVariables(
+                    configuredSpeaker,
+                    context
+            );
+        }
+
+        return getOptionalContextString(
+                context,
+                SPEAKER
+        );
+    }
+
+    // =========================================================
     // RESPONSE
     // =========================================================
 
+    /**
+     * Stores the TTS response in Flow context.
+     *
+     * @param context Flow context
+     * @param response TTS response
+     */
     private void storeResponse(
             Map<String, Object> context,
             TtsSynthesisResponse response) {
@@ -426,7 +712,8 @@ public class TtsNodeHandler
         );
 
         /*
-         * Preserve the language returned by the TTS runtime.
+         * Preserve the effective language returned by the TTS
+         * runtime for downstream nodes.
          */
         if (response.getLanguage() != null
                 && !response.getLanguage().isBlank()) {
@@ -439,23 +726,64 @@ public class TtsNodeHandler
     }
 
     // =========================================================
-    // CONTEXT HELPERS
+    // CONFIGURATION
     // =========================================================
 
-    private String getRequiredString(
-            Map<String, Object> context,
+    /**
+     * Reads the TTS node JSON configuration.
+     *
+     * @param configuration JSON configuration
+     * @return configuration map
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readConfiguration(
+            String configuration) {
+
+        if (configuration == null
+                || configuration.isBlank()) {
+
+            return new HashMap<>();
+        }
+
+        try {
+
+            return objectMapper.readValue(
+                    configuration,
+                    Map.class
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to parse TTS node configuration.",
+                    exception
+            );
+
+            throw new IllegalArgumentException(
+                    FlowMessages.INVALID_CONFIGURATION,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Gets a configuration string.
+     *
+     * @param configuration node configuration
+     * @param key configuration key
+     * @return value or null
+     */
+    private String getConfigurationString(
+            Map<String, Object> configuration,
             String key) {
 
         Object value =
-                context.get(
+                configuration.get(
                         key
                 );
 
         if (value == null) {
-
-            throw new IllegalArgumentException(
-                    FlowMessages.INVALID_CONFIGURATION
-            );
+            return null;
         }
 
         String result =
@@ -463,68 +791,24 @@ public class TtsNodeHandler
                         value
                 ).trim();
 
-        if (result.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    FlowMessages.INVALID_CONFIGURATION
-            );
-        }
-
-        return result;
+        return result.isBlank()
+                ? null
+                : result;
     }
 
-    private String getStringOrDefault(
-            Map<String, Object> context,
-            String primaryKey,
-            String secondaryKey,
-            String defaultValue) {
-
-        Object primary =
-                context.get(
-                        primaryKey
-                );
-
-        if (primary != null) {
-
-            String result =
-                    String.valueOf(
-                            primary
-                    ).trim();
-
-            if (!result.isBlank()) {
-                return result;
-            }
-        }
-
-        if (secondaryKey != null) {
-
-            Object secondary =
-                    context.get(
-                            secondaryKey
-                    );
-
-            if (secondary != null) {
-
-                String result =
-                        String.valueOf(
-                                secondary
-                        ).trim();
-
-                if (!result.isBlank()) {
-                    return result;
-                }
-            }
-        }
-
-        return defaultValue;
-    }
-
-    private Double getDoubleValue(
-            Map<String, Object> context,
+    /**
+     * Resolves a Double configuration value.
+     *
+     * @param configuration node configuration
+     * @param key configuration key
+     * @return Double value or null
+     */
+    private Double resolveDouble(
+            Map<String, Object> configuration,
             String key) {
 
         Object value =
-                context.get(
+                configuration.get(
                         key
                 );
 
@@ -533,21 +817,30 @@ public class TtsNodeHandler
         }
 
         if (value instanceof Number number) {
+
             return number.doubleValue();
+        }
+
+        String stringValue =
+                String.valueOf(
+                        value
+                ).trim();
+
+        if (stringValue.isBlank()) {
+            return null;
         }
 
         try {
 
             return Double.parseDouble(
-                    String.valueOf(
-                            value
-                    )
+                    stringValue
             );
 
         } catch (NumberFormatException exception) {
 
             log.warn(
-                    "Invalid TTS numeric value. key={}, value={}",
+                    "Invalid TTS numeric configuration. " +
+                            "key={}, value={}",
                     key,
                     value
             );
@@ -559,12 +852,19 @@ public class TtsNodeHandler
         }
     }
 
-    private Integer getIntegerValue(
-            Map<String, Object> context,
+    /**
+     * Resolves an Integer configuration value.
+     *
+     * @param configuration node configuration
+     * @param key configuration key
+     * @return Integer value or null
+     */
+    private Integer resolveInteger(
+            Map<String, Object> configuration,
             String key) {
 
         Object value =
-                context.get(
+                configuration.get(
                         key
                 );
 
@@ -573,21 +873,30 @@ public class TtsNodeHandler
         }
 
         if (value instanceof Number number) {
+
             return number.intValue();
+        }
+
+        String stringValue =
+                String.valueOf(
+                        value
+                ).trim();
+
+        if (stringValue.isBlank()) {
+            return null;
         }
 
         try {
 
             return Integer.parseInt(
-                    String.valueOf(
-                            value
-                    )
+                    stringValue
             );
 
         } catch (NumberFormatException exception) {
 
             log.warn(
-                    "Invalid TTS sample rate. key={}, value={}",
+                    "Invalid TTS integer configuration. " +
+                            "key={}, value={}",
                     key,
                     value
             );
@@ -599,13 +908,21 @@ public class TtsNodeHandler
         }
     }
 
-    private boolean getBooleanValue(
-            Map<String, Object> context,
+    /**
+     * Reads a Boolean configuration value.
+     *
+     * @param configuration node configuration
+     * @param key configuration key
+     * @param defaultValue default value
+     * @return Boolean value
+     */
+    private boolean getBooleanConfigurationValue(
+            Map<String, Object> configuration,
             String key,
             boolean defaultValue) {
 
         Object value =
-                context.get(
+                configuration.get(
                         key
                 );
 
@@ -614,20 +931,95 @@ public class TtsNodeHandler
         }
 
         if (value instanceof Boolean booleanValue) {
+
             return booleanValue;
         }
 
-        return Boolean.parseBoolean(
+        String stringValue =
                 String.valueOf(
                         value
-                )
+                ).trim();
+
+        if (stringValue.isBlank()) {
+
+            return defaultValue;
+        }
+
+        return Boolean.parseBoolean(
+                stringValue
         );
+    }
+
+    // =========================================================
+    // CONTEXT
+    // =========================================================
+
+    /**
+     * Gets a required context string.
+     *
+     * @param context Flow context
+     * @param key context key
+     * @return context value
+     */
+    private String getRequiredContextString(
+            Map<String, Object> context,
+            String key) {
+
+        String value =
+                getOptionalContextString(
+                        context,
+                        key
+                );
+
+        if (value == null) {
+
+            throw new IllegalArgumentException(
+                    FlowMessages.INVALID_CONFIGURATION
+            );
+        }
+
+        return value;
+    }
+
+    /**
+     * Gets an optional context string.
+     *
+     * @param context Flow context
+     * @param key context key
+     * @return context value or null
+     */
+    private String getOptionalContextString(
+            Map<String, Object> context,
+            String key) {
+
+        Object value =
+                context.get(
+                        key
+                );
+
+        if (value == null) {
+            return null;
+        }
+
+        String result =
+                String.valueOf(
+                        value
+                ).trim();
+
+        return result.isBlank()
+                ? null
+                : result;
     }
 
     // =========================================================
     // VALIDATION
     // =========================================================
 
+    /**
+     * Validates Flow execution.
+     *
+     * @param execution Flow execution
+     */
     private void validateExecution(
             FlowExecution execution) {
 
@@ -636,10 +1028,15 @@ public class TtsNodeHandler
         }
 
         throw new IllegalArgumentException(
-                "Flow execution cannot be null."
+                FlowMessages.INVALID_CONFIGURATION
         );
     }
 
+    /**
+     * Validates Flow node.
+     *
+     * @param node Flow node
+     */
     private void validateNode(
             FlowNode node) {
 
@@ -648,10 +1045,15 @@ public class TtsNodeHandler
         }
 
         throw new IllegalArgumentException(
-                "Flow node cannot be null."
+                FlowMessages.INVALID_CONFIGURATION
         );
     }
 
+    /**
+     * Validates Flow context.
+     *
+     * @param context Flow context
+     */
     private void validateContext(
             Map<String, Object> context) {
 
@@ -660,7 +1062,28 @@ public class TtsNodeHandler
         }
 
         throw new IllegalArgumentException(
-                "Flow execution context cannot be null."
+                FlowMessages.INVALID_CONFIGURATION
+        );
+    }
+
+    /**
+     * Validates TTS runtime response.
+     *
+     * @param response TTS response
+     */
+    private void validateResponse(
+            TtsSynthesisResponse response) {
+
+        if (response != null) {
+            return;
+        }
+
+        log.error(
+                "TTS runtime returned null response."
+        );
+
+        throw new IllegalStateException(
+                FlowMessages.EXECUTION_FAILED
         );
     }
 }

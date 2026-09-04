@@ -66,4 +66,8 @@ public class ExotelProperties {
      * Secret used to protect the public WebSocket endpoint.
      */
     private String streamSecret;
+
+    private String availablePhoneNumbersPath;
+
+    private String incomingPhoneNumbersPath;
 }

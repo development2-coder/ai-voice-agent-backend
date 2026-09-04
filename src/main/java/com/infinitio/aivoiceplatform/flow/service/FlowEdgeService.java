@@ -2,7 +2,7 @@ package com.infinitio.aivoiceplatform.flow.service;
 
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowEdgeResponse;
-
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowEdgeRequest;
 import java.util.List;
 
 /**
@@ -45,5 +45,15 @@ public interface FlowEdgeService {
      */
     void deleteEdge(
             String edgePublicId
+    );
+
+    /**
+     * Updates an existing Flow edge.
+     *
+     * @param request edge update request
+     * @return updated edge
+     */
+    FlowEdgeResponse updateEdge(
+            UpdateFlowEdgeRequest request
     );
 }

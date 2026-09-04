@@ -26,4 +26,6 @@ public class NumberResponseDto {
     private String type;
 
     private String status;
+
+    private String providerNumberId;
 }

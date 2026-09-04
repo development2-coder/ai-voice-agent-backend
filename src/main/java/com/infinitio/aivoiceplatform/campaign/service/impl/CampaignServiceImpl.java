@@ -19,6 +19,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 
 /**
  * Service implementation for Campaign.
@@ -42,6 +43,8 @@ public class CampaignServiceImpl
     private final AgentValidator agentValidator;
 
     private final PhoneNumberValidator phoneNumberValidator;
+
+    private final CurrentUserService currentUserService;
 
     @Override
     public CampaignResponse create(
@@ -67,6 +70,10 @@ public class CampaignServiceImpl
 
         Campaign campaign =
                 campaignMapper.toEntity(request);
+
+        campaign.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
 
         campaign.setAgent(agent);
 

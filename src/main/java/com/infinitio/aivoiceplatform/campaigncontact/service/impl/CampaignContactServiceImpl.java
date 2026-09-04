@@ -14,6 +14,7 @@ import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExce
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactService;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -49,6 +50,8 @@ public class CampaignContactServiceImpl
     private final CampaignContactExcelService
             campaignContactExcelService;
 
+    private final CurrentUserService currentUserService;
+
     @Override
     public CampaignContactResponse create(
             CreateCampaignContactRequest request) {
@@ -74,6 +77,10 @@ public class CampaignContactServiceImpl
                 campaignContactMapper.toEntity(
                         request
                 );
+
+        contact.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
 
         contact.setCampaign(
                 campaign

@@ -118,4 +118,34 @@ public final class FlowMessages {
      */
     public static final String START_NODE_CANNOT_BE_DELETED =
             "START node cannot be deleted.";
+
+    /**
+     * API node URL is required.
+     */
+    public static final String API_URL_REQUIRED =
+            "API node URL is required.";
+
+    /**
+     * API node HTTP method is invalid.
+     */
+    public static final String API_METHOD_INVALID =
+            "API node HTTP method is invalid.";
+
+    /**
+     * API request execution failed.
+     */
+    public static final String API_REQUEST_FAILED =
+            "Flow API request failed.";
+
+    /**
+     * API response variable is invalid.
+     */
+    public static final String API_RESPONSE_VARIABLE_INVALID =
+            "API response variable is invalid.";
+
+    /**
+     * Transfer destination is required.
+     */
+    public static final String TRANSFER_DESTINATION_REQUIRED =
+            "Transfer destination is required.";
 }

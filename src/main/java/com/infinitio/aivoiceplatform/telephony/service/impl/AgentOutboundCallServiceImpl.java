@@ -10,7 +10,7 @@ import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import com.infinitio.aivoiceplatform.flow.repository.FlowRepository;
 import com.infinitio.aivoiceplatform.phonenumber.entity.PhoneNumber;
 import com.infinitio.aivoiceplatform.phonenumber.repository.PhoneNumberRepository;
-import com.infinitio.aivoiceplatform.telephony.config.ExotelProperties;
+import com.infinitio.aivoiceplatform.telephony.config.TelephonyMediaProperties;
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceAgentOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.AgentOutboundCallResponseDto;
@@ -23,10 +23,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * Starts a direct outbound call for an Agent Flow.
+ *
+ * <p>
+ * The service is intentionally provider-independent.
+ * The telephony provider is resolved from the phone number
+ * assigned to the Agent.
+ * </p>
+ *
+ * <p>
+ * This service does not contain provider-specific configuration
+ * or provider-specific implementation details. Provider-specific
+ * behavior is handled by the telephony provider adapter layer.
+ * </p>
  *
  * <p>
  * Campaign and CampaignContact are deliberately not involved.
@@ -46,8 +57,6 @@ public class AgentOutboundCallServiceImpl
 
     private static final Integer ACTIVE = 1;
 
-    private static final String EXOTEL = "EXOTEL";
-
     private static final String OUTBOUND = "OUTBOUND";
 
     private static final String INITIATED = "INITIATED";
@@ -63,11 +72,23 @@ public class AgentOutboundCallServiceImpl
 
     private final TelephonyService telephonyService;
 
-    private final CurrentUserService
-            currentUserService;
+    private final CurrentUserService currentUserService;
 
-    private final ExotelProperties exotelProperties;
+    private final TelephonyMediaProperties
+            telephonyMediaProperties;
 
+    /**
+     * Places a direct outbound call for an Agent Flow.
+     *
+     * <p>
+     * The provider is determined from the selected phone number.
+     * This allows the same Agent outbound-call flow to work with
+     * different CPaaS providers without changing the Agent layer.
+     * </p>
+     *
+     * @param request agent outbound call request
+     * @return outbound call response
+     */
     @Override
     public AgentOutboundCallResponseDto
     placeAgentOutboundCall(
@@ -120,8 +141,7 @@ public class AgentOutboundCallServiceImpl
         PhoneNumber phoneNumber =
                 phoneNumberRepository
                         .findByPublicId(
-                                request
-                                        .getPhoneNumberPublicId()
+                                request.getPhoneNumberPublicId()
                         )
                         .orElseThrow(() ->
                                 new IllegalArgumentException(
@@ -147,14 +167,43 @@ public class AgentOutboundCallServiceImpl
             );
         }
 
-        if (!EXOTEL.equalsIgnoreCase(
-                phoneNumber.getProvider()
-        )) {
+        /*
+         * ---------------------------------------------------------
+         * PROVIDER
+         * ---------------------------------------------------------
+         *
+         * Provider is taken from the selected phone number.
+         *
+         * Example:
+         *
+         * EXOTEL
+         * OTHER_PROVIDER
+         *
+         * No provider is hardcoded here.
+         */
+
+        String providerCode =
+                phoneNumber.getProvider();
+
+        if (providerCode == null
+                || providerCode.isBlank()) {
 
             throw new IllegalStateException(
-                    "Phone number provider must be EXOTEL."
+                    "Phone number provider is not configured."
             );
         }
+
+        providerCode =
+                providerCode.trim();
+
+        log.info(
+                "Preparing Agent outbound call. "
+                        + "flowPublicId={}, phoneNumberPublicId={}, "
+                        + "provider={}",
+                flow.getPublicId(),
+                phoneNumber.getPublicId(),
+                providerCode
+        );
 
         /*
          * ---------------------------------------------------------
@@ -183,11 +232,15 @@ public class AgentOutboundCallServiceImpl
          * ---------------------------------------------------------
          *
          * CampaignContact is intentionally NULL.
+         *
+         * Provider is stored dynamically from the selected
+         * phone number.
          */
+
         Call call =
                 Call.builder()
                         .campaignContact(null)
-                        .provider(EXOTEL)
+                        .provider(providerCode)
                         .fromNumber(
                                 phoneNumber
                                         .getPhoneNumber()
@@ -213,6 +266,13 @@ public class AgentOutboundCallServiceImpl
                 callRepository.save(
                         call
                 );
+
+        log.info(
+                "Outbound Call created. "
+                        + "callPublicId={}, provider={}",
+                savedCall.getPublicId(),
+                providerCode
+        );
 
         /*
          * ---------------------------------------------------------
@@ -258,7 +318,7 @@ public class AgentOutboundCallServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * BUILD REALTIME STREAM URL
+         * BUILD APPLICATION-OWNED STREAM URL
          * ---------------------------------------------------------
          */
 
@@ -269,8 +329,14 @@ public class AgentOutboundCallServiceImpl
 
         /*
          * ---------------------------------------------------------
-         * PLACE EXOTEL CALL
+         * BUILD GENERIC PROVIDER REQUEST
          * ---------------------------------------------------------
+         *
+         * The Agent service only supplies generic telephony
+         * information.
+         *
+         * Provider-specific mapping is handled inside the
+         * selected TelephonyProvider implementation.
          */
 
         PlaceOutboundCallRequestDto
@@ -288,28 +354,8 @@ public class AgentOutboundCallServiceImpl
                         .toNumber(
                                 request.getToNumber()
                         )
-                        .callbackUrl(
-                                exotelProperties
-                                        .getStatusCallbackUrl()
-                        )
                         .streamUrl(
                                 streamUrl
-                        )
-                        .streamType(
-                                exotelProperties
-                                        .getStreamType()
-                        )
-                        .record(
-                                exotelProperties
-                                        .getRecord()
-                        )
-                        .recordingChannels(
-                                exotelProperties
-                                        .getRecordingChannels()
-                        )
-                        .timeLimit(
-                                exotelProperties
-                                        .getTimeLimit()
                         )
                         .build();
 
@@ -321,16 +367,17 @@ public class AgentOutboundCallServiceImpl
             providerResponse =
                     telephonyService
                             .placeOutboundCall(
-                                    EXOTEL,
+                                    providerCode,
                                     providerRequest
                             );
 
         } catch (Exception exception) {
 
             log.error(
-                    "Failed to place direct Agent outbound "
-                            + "call. callPublicId={}",
+                    "Failed to place Agent outbound call. "
+                            + "callPublicId={}, provider={}",
                     savedCall.getPublicId(),
+                    providerCode,
                     exception
             );
 
@@ -338,12 +385,13 @@ public class AgentOutboundCallServiceImpl
         }
 
         log.info(
-                "Direct Agent outbound call initiated. "
+                "Agent outbound call initiated successfully. "
                         + "callPublicId={}, providerCallId={}, "
-                        + "flowPublicId={}, agentPublicId={}",
+                        + "provider={}, flowPublicId={}, "
+                        + "agentPublicId={}",
                 savedCall.getPublicId(),
-                providerResponse
-                        .getProviderCallId(),
+                providerResponse.getProviderCallId(),
+                providerCode,
                 flow.getPublicId(),
                 flow.getAgent()
                         .getPublicId()
@@ -391,18 +439,30 @@ public class AgentOutboundCallServiceImpl
                 .build();
     }
 
+    /**
+     * Builds the application-owned media streaming URL.
+     *
+     * <p>
+     * The URL is configured independently of the CPaaS provider.
+     * The call public ID is appended only for application-level
+     * call correlation.
+     * </p>
+     *
+     * @param callPublicId application call public ID
+     * @return media streaming URL
+     */
     private String buildStreamUrl(
             String callPublicId) {
 
         String configuredUrl =
-                exotelProperties
+                telephonyMediaProperties
                         .getStreamUrl();
 
         if (configuredUrl == null
                 || configuredUrl.isBlank()) {
 
             throw new IllegalStateException(
-                    "EXOTEL_STREAM_URL is not configured."
+                    "Telephony media stream URL is not configured."
             );
         }
 
@@ -412,6 +472,7 @@ public class AgentOutboundCallServiceImpl
          * The callPublicId is useful for correlating the
          * WebSocket connection with our Call record.
          */
+
         String separator =
                 configuredUrl.contains("?")
                         ? "&"
@@ -423,6 +484,11 @@ public class AgentOutboundCallServiceImpl
                 + callPublicId;
     }
 
+    /**
+     * Validates the Agent outbound call request.
+     *
+     * @param request agent outbound call request
+     */
     private void validateRequest(
             PlaceAgentOutboundCallRequestDto request) {
 

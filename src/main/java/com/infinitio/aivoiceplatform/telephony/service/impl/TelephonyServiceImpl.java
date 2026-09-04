@@ -15,10 +15,13 @@ import com.infinitio.aivoiceplatform.telephony.service.TelephonyCallEventService
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyCallStateService;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
 import com.infinitio.aivoiceplatform.aidialer.service.DialerCallWebhookService;
+import com.infinitio.aivoiceplatform.telephony.dto.request.NumberSearchRequestDto;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -426,5 +429,42 @@ public class TelephonyServiceImpl
                     "To number is required."
             );
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NumberResponseDto> getOwnedNumbers(
+            String providerCode) {
+
+        log.info(
+                "Fetching provider-owned phone numbers. provider={}",
+                providerCode
+        );
+
+        TelephonyProvider provider =
+                getProvider(providerCode);
+
+        return provider.getOwnedNumbers();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<NumberResponseDto> getAvailableNumbers(
+            String providerCode,
+            NumberSearchRequestDto request) {
+
+        log.info(
+                "Fetching available phone numbers. provider={}, "
+                        + "countryCode={}, region={}, numberType={}",
+                providerCode,
+                request != null ? request.getCountryCode() : null,
+                request != null ? request.getRegion() : null,
+                request != null ? request.getNumberType() : null
+        );
+
+        TelephonyProvider provider =
+                getProvider(providerCode);
+
+        return provider.getAvailableNumbers(request);
     }
 }

@@ -10,14 +10,32 @@ import com.infinitio.aivoiceplatform.agent.service.AgentService;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeDefinitionResponse;
+import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
 import com.infinitio.aivoiceplatform.organization.tenant.entity.Tenant;
 import com.infinitio.aivoiceplatform.organization.tenant.validator.TenantValidator;
+import com.infinitio.aivoiceplatform.agent.constant.AgentConstants;
+import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
+import com.infinitio.aivoiceplatform.flow.constant.FlowType;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.service.FlowService;
+import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
+import com.infinitio.aivoiceplatform.agent.dto.response.AgentWorkspaceResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowDefinitionResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
+import com.infinitio.aivoiceplatform.flow.service.FlowService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * Service implementation for Agent.
@@ -44,11 +62,30 @@ public class AgentServiceImpl implements AgentService {
 
     private final CurrentUserService currentUserService;
 
+    private final FlowService flowService;
+
+    private final FlowEdgeService flowEdgeService;
+
+    private final FlowNodeDefinitionService
+            flowNodeDefinitionService;
 
     // =========================================================
     // CREATE
     // =========================================================
 
+    /**
+     * Creates an Agent and initializes its default Draft Flow.
+     *
+     * <p>
+     * A newly created Agent receives an empty visual workflow
+     * containing only START and END nodes. The conversation
+     * sequence is intentionally not predefined so that the
+     * frontend Flow Builder can construct a client-defined flow.
+     * </p>
+     *
+     * @param request Agent creation request
+     * @return created Agent response
+     */
     @Override
     public AgentResponse create(
             CreateAgentRequest request) {
@@ -90,9 +127,13 @@ public class AgentServiceImpl implements AgentService {
                 tenant.getOrganization()
         );
 
-        agent.setIsActive(ACTIVE);
+        agent.setIsActive(
+                ACTIVE
+        );
 
-        agent.setIsDeleted(NOT_DELETED);
+        agent.setIsDeleted(
+                NOT_DELETED
+        );
 
         Agent savedAgent =
                 agentRepository.save(agent);
@@ -102,7 +143,25 @@ public class AgentServiceImpl implements AgentService {
                 savedAgent.getPublicId()
         );
 
-        return agentMapper.toResponse(savedAgent);
+        /*
+         * Initialize the visual Flow Builder workspace.
+         *
+         * Only START and END nodes are created.
+         * No STT -> LLM -> TTS sequence is hardcoded.
+         */
+//        initializeDefaultFlow(
+//                savedAgent
+//        );
+
+        log.info(
+                "Agent workspace initialized successfully. " +
+                        "agentPublicId={}",
+                savedAgent.getPublicId()
+        );
+
+        return agentMapper.toResponse(
+                savedAgent
+        );
     }
 
 
@@ -342,5 +401,183 @@ public class AgentServiceImpl implements AgentService {
                 "Agent deactivated successfully. Public Id : {}",
                 publicId
         );
+    }
+
+    /**
+     * Initializes the default Draft Flow for a newly created Agent.
+     *
+     * <p>
+     * The initial Flow contains only START and END nodes connected
+     * through the main output/input ports. The actual conversation
+     * behavior is intentionally left to the user through the visual
+     * Flow Builder.
+     * </p>
+     *
+     * @param agent newly created Agent
+     */
+//    private void initializeDefaultFlow(
+//            Agent agent) {
+//
+//        log.info(
+//                "Initializing default Flow. agentPublicId={}",
+//                agent.getPublicId()
+//        );
+//
+//        CreateFlowRequest flowRequest =
+//                CreateFlowRequest.builder()
+//                        .agentPublicId(
+//                                agent.getPublicId()
+//                        )
+//                        .name(
+//                                AgentConstants.INITIAL_FLOW_NAME
+//                        )
+//                        .description(
+//                                AgentConstants.INITIAL_FLOW_DESCRIPTION
+//                        )
+//                        .flowType(
+//                                FlowType.BOTH
+//                        )
+//                        .build();
+//
+//        FlowResponse flow =
+//                flowService.create(
+//                        flowRequest
+//                );
+//
+//        log.debug(
+//                "Default Flow created. flowPublicId={}, agentPublicId={}",
+//                flow.getPublicId(),
+//                agent.getPublicId()
+//        );
+//
+//        AddFlowNodeRequest startNodeRequest =
+//                AddFlowNodeRequest.builder()
+//                        .flowPublicId(
+//                                flow.getPublicId()
+//                        )
+//                        .nodeKey(
+//                                AgentConstants.INITIAL_START_NODE_KEY
+//                        )
+//                        .name(
+//                                AgentConstants.INITIAL_START_NODE_NAME
+//                        )
+//                        .nodeType(
+//                                FlowNodeType.START
+//                        )
+//                        .configuration("{}")
+//                        .positionX(100.0)
+//                        .positionY(200.0)
+//                        .build();
+//
+//        flowService.addNode(
+//                startNodeRequest
+//        );
+//
+//        AddFlowNodeRequest endNodeRequest =
+//                AddFlowNodeRequest.builder()
+//                        .flowPublicId(
+//                                flow.getPublicId()
+//                        )
+//                        .nodeKey(
+//                                AgentConstants.INITIAL_END_NODE_KEY
+//                        )
+//                        .name(
+//                                AgentConstants.INITIAL_END_NODE_NAME
+//                        )
+//                        .nodeType(
+//                                FlowNodeType.END
+//                        )
+//                        .configuration("{}")
+//                        .positionX(500.0)
+//                        .positionY(200.0)
+//                        .build();
+//
+//        flowService.addNode(
+//                endNodeRequest
+//        );
+//
+//        AddFlowEdgeRequest edgeRequest =
+//                AddFlowEdgeRequest.builder()
+//                        .flowPublicId(
+//                                flow.getPublicId()
+//                        )
+//                        .sourceNodeKey(
+//                                AgentConstants.INITIAL_START_NODE_KEY
+//                        )
+//                        .sourcePort(
+//                                AgentConstants.MAIN_PORT
+//                        )
+//                        .targetNodeKey(
+//                                AgentConstants.INITIAL_END_NODE_KEY
+//                        )
+//                        .targetPort(
+//                                AgentConstants.MAIN_PORT
+//                        )
+//                        .priority(0)
+//                        .build();
+//
+//        flowEdgeService.addEdge(
+//                edgeRequest
+//        );
+//
+//        log.info(
+//                "Default Flow nodes initialized. " +
+//                        "flowPublicId={}, startNode={}, endNode={}",
+//                flow.getPublicId(),
+//                AgentConstants.INITIAL_START_NODE_KEY,
+//                AgentConstants.INITIAL_END_NODE_KEY
+//        );
+//    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public AgentWorkspaceResponse getWorkspace(
+            String publicId) {
+
+        log.info(
+                "Fetching Agent workspace. publicId={}",
+                publicId
+        );
+
+        Agent agent =
+                agentValidator.validateAndGet(
+                        publicId
+                );
+
+        AgentResponse agentResponse =
+                agentMapper.toResponse(
+                        agent
+                );
+
+//        FlowResponse flowResponse =
+//                flowService.getLatestByAgentPublicId(
+//                        publicId
+//                );
+//
+//        FlowDefinitionResponse flowDefinition =
+//                flowService.getDefinition(
+//                        flowResponse.getPublicId()
+//                );
+
+        List<FlowNodeDefinitionResponse> nodeTypes =
+                flowNodeDefinitionService.getAll();
+
+        log.info(
+                "Agent workspace fetched successfully. " +
+                        "agentPublicId={}, nodeTypeCount={}",
+                publicId,
+//                flowResponse.getPublicId(),
+//                flowDefinition.getNodes().size(),
+                nodeTypes.size()
+        );
+
+        return AgentWorkspaceResponse.builder()
+                .agent(agentResponse)
+//                .flow(flowDefinition)
+                .nodeTypes(nodeTypes)
+                .build();
     }
 }

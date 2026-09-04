@@ -1,9 +1,6 @@
 package com.infinitio.aivoiceplatform.flow.service;
 
-import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
-import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
-import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
-import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.*;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowDefinitionResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
@@ -71,4 +68,34 @@ public interface FlowService {
     FlowDefinitionResponse getDefinition(
             String publicId
     );
+
+    /**
+     * Retrieves the latest active Flow belonging to an Agent.
+     *
+     * @param agentPublicId Agent public identifier
+     * @return Flow response
+     */
+    FlowResponse getLatestByAgentPublicId(
+            String agentPublicId
+    );
+
+    /**
+     * Saves the complete Flow Builder workspace.
+     *
+     * <p>
+     * The submitted workspace represents the complete current
+     * state of the visual Flow Builder. Existing nodes and edges
+     * are updated or removed as required, while new nodes and
+     * edges are created.
+     * </p>
+     *
+     * @param publicId Flow public identifier
+     * @param request complete workspace request
+     * @return updated Flow definition
+     */
+    FlowDefinitionResponse saveWorkspace(
+            String publicId,
+            SaveFlowWorkspaceRequest request
+    );
+
 }

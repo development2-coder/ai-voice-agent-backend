@@ -1,4 +1,6 @@
 package com.infinitio.aivoiceplatform.flow.service.impl;
+import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
+import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
 import com.infinitio.aivoiceplatform.flow.dto.response.*;
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
@@ -17,7 +19,13 @@ import com.infinitio.aivoiceplatform.flow.service.FlowService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowGraphValidator;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
 import com.infinitio.aivoiceplatform.flow.constant.FlowType;
-
+import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowEdgeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowNodeRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowWorkspaceRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -577,5 +585,375 @@ public class FlowServiceImpl
             case OUTBOUND -> "Flow for outgoing calls";
             case BOTH -> "Flow usable for inbound and outbound calls";
         };
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public FlowResponse getLatestByAgentPublicId(
+            String agentPublicId) {
+
+        log.debug(
+                "Fetching latest Flow for Agent. agentPublicId={}",
+                agentPublicId
+        );
+
+        Agent agent =
+                agentValidator.validateAndGet(
+                        agentPublicId
+                );
+
+        Flow flow =
+                flowRepository
+                        .findFirstByAgentIdAndIsDeletedOrderByVersionDesc(
+                                agent.getId(),
+                                0
+                        )
+                        .orElseThrow(() -> {
+
+                            log.warn(
+                                    "No Flow found for Agent. agentPublicId={}",
+                                    agentPublicId
+                            );
+
+                            return new ResourceNotFoundException(
+                                    FlowMessages.NOT_FOUND
+                            );
+                        });
+
+        log.debug(
+                "Latest Flow found. agentPublicId={}, flowPublicId={}",
+                agentPublicId,
+                flow.getPublicId()
+        );
+
+        return flowMapper.toResponse(
+                flow
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional
+    public FlowDefinitionResponse saveWorkspace(
+            String publicId,
+            SaveFlowWorkspaceRequest request) {
+
+        log.info(
+                "Saving complete Flow workspace. flowPublicId={}",
+                publicId
+        );
+
+        Flow flow =
+                flowValidator.validateAndGet(
+                        publicId
+                );
+
+        /*
+         * ---------------------------------------------------------
+         * 1. Update Flow metadata
+         * ---------------------------------------------------------
+         */
+        UpdateFlowRequest flowUpdateRequest =
+                UpdateFlowRequest.builder()
+                        .publicId(
+                                flow.getPublicId()
+                        )
+                        .agentPublicId(
+                                flow.getAgent().getPublicId()
+                        )
+                        .name(
+                                request.getName()
+                        )
+                        .description(
+                                request.getDescription()
+                        )
+                        .flowType(
+                                request.getFlowType()
+                        )
+                        .build();
+
+        update(flowUpdateRequest);
+
+        /*
+         * ---------------------------------------------------------
+         * 2. Read existing nodes
+         * ---------------------------------------------------------
+         */
+        List<FlowNodeResponse> existingNodes =
+                flowNodeService.getNodes(
+                        publicId
+                );
+
+        /*
+         * ---------------------------------------------------------
+         * 3. Update existing nodes
+         * ---------------------------------------------------------
+         */
+        for (SaveFlowNodeRequest nodeRequest :
+                request.getNodes()) {
+
+            if (nodeRequest.getPublicId() == null
+                    || nodeRequest.getPublicId().isBlank()) {
+
+                continue;
+            }
+
+            boolean existingNode =
+                    existingNodes.stream()
+                            .anyMatch(
+                                    node ->
+                                            node.getPublicId()
+                                                    .equals(
+                                                            nodeRequest
+                                                                    .getPublicId()
+                                                    )
+                            );
+
+            if (!existingNode) {
+
+                log.warn(
+                        "Flow node does not belong to Flow. " +
+                                "flowPublicId={}, nodePublicId={}",
+                        publicId,
+                        nodeRequest.getPublicId()
+                );
+
+                throw new ResourceNotFoundException(
+                        FlowMessages.NODE_NOT_FOUND
+                );
+            }
+
+            UpdateFlowNodeRequest updateNodeRequest =
+                    UpdateFlowNodeRequest.builder()
+                            .publicId(
+                                    nodeRequest.getPublicId()
+                            )
+                            .nodeKey(
+                                    nodeRequest.getNodeKey()
+                            )
+                            .name(
+                                    nodeRequest.getName()
+                            )
+                            .nodeType(
+                                    nodeRequest.getNodeType()
+                            )
+                            .configuration(
+                                    nodeRequest.getConfiguration()
+                            )
+                            .positionX(
+                                    nodeRequest.getPositionX()
+                            )
+                            .positionY(
+                                    nodeRequest.getPositionY()
+                            )
+                            .build();
+
+            flowNodeService.updateNode(
+                    updateNodeRequest
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 4. Delete nodes removed from the canvas
+         * ---------------------------------------------------------
+         */
+        for (FlowNodeResponse existingNode :
+                existingNodes) {
+
+            boolean stillExists =
+                    request.getNodes()
+                            .stream()
+                            .anyMatch(
+                                    node ->
+                                            existingNode
+                                                    .getPublicId()
+                                                    .equals(
+                                                            node.getPublicId()
+                                                    )
+                            );
+
+            if (!stillExists) {
+
+                /*
+                 * Edges are removed before nodes so that
+                 * deleted nodes cannot leave invalid connections.
+                 */
+                flowEdgeService
+                        .getEdges(publicId)
+                        .stream()
+                        .filter(
+                                edge ->
+                                        existingNode
+                                                .getNodeKey()
+                                                .equals(
+                                                        edge.getSourceNodeKey()
+                                                )
+                                                || existingNode
+                                                .getNodeKey()
+                                                .equals(
+                                                        edge.getTargetNodeKey()
+                                                )
+                        )
+                        .forEach(
+                                edge ->
+                                        flowEdgeService.deleteEdge(
+                                                edge.getPublicId()
+                                        )
+                        );
+
+                flowNodeService.deleteNode(
+                        existingNode.getPublicId()
+                );
+            }
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 5. Create new nodes
+         * ---------------------------------------------------------
+         */
+        for (SaveFlowNodeRequest nodeRequest :
+                request.getNodes()) {
+
+            if (nodeRequest.getPublicId() != null
+                    && !nodeRequest.getPublicId().isBlank()) {
+
+                continue;
+            }
+
+            AddFlowNodeRequest addNodeRequest =
+                    AddFlowNodeRequest.builder()
+                            .flowPublicId(
+                                    publicId
+                            )
+                            .nodeKey(
+                                    nodeRequest.getNodeKey()
+                            )
+                            .name(
+                                    nodeRequest.getName()
+                            )
+                            .nodeType(
+                                    nodeRequest.getNodeType()
+                            )
+                            .configuration(
+                                    nodeRequest.getConfiguration()
+                            )
+                            .positionX(
+                                    nodeRequest.getPositionX()
+                            )
+                            .positionY(
+                                    nodeRequest.getPositionY()
+                            )
+                            .build();
+
+            flowNodeService.addNode(
+                    addNodeRequest
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 6. Replace existing edges with submitted edges
+         * ---------------------------------------------------------
+         *
+         * Edge update is not currently exposed by FlowEdgeService.
+         * Therefore the safest implementation is:
+         *
+         * delete current active edges
+         * create edges exactly as submitted by the Builder
+         */
+        List<FlowEdgeResponse> existingEdges =
+                flowEdgeService.getEdges(
+                        publicId
+                );
+
+        for (FlowEdgeResponse edge :
+                existingEdges) {
+
+            flowEdgeService.deleteEdge(
+                    edge.getPublicId()
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 7. Create submitted edges
+         * ---------------------------------------------------------
+         */
+        if (request.getEdges() != null) {
+
+            for (SaveFlowEdgeRequest edgeRequest :
+                    request.getEdges()) {
+
+                AddFlowEdgeRequest addEdgeRequest =
+                        AddFlowEdgeRequest.builder()
+                                .flowPublicId(
+                                        publicId
+                                )
+                                .sourceNodeKey(
+                                        edgeRequest
+                                                .getSourceNodeKey()
+                                )
+                                .sourcePort(
+                                        edgeRequest
+                                                .getSourcePort()
+                                )
+                                .targetNodeKey(
+                                        edgeRequest
+                                                .getTargetNodeKey()
+                                )
+                                .targetPort(
+                                        edgeRequest
+                                                .getTargetPort()
+                                )
+                                .label(
+                                        edgeRequest.getLabel()
+                                )
+                                .conditionExpression(
+                                        edgeRequest
+                                                .getConditionExpression()
+                                )
+                                .priority(
+                                        edgeRequest.getPriority()
+                                )
+                                .build();
+
+                flowEdgeService.addEdge(
+                        addEdgeRequest
+                );
+            }
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * 8. Validate complete graph
+         * ---------------------------------------------------------
+         */
+        Flow updatedFlow =
+                flowValidator.validateAndGet(
+                        publicId
+                );
+
+        flowGraphValidator.validateForActivation(
+                updatedFlow
+        );
+
+        log.info(
+                "Flow workspace saved successfully. " +
+                        "flowPublicId={}, nodeCount={}, edgeCount={}",
+                publicId,
+                flowNodeService.getNodes(publicId).size(),
+                flowEdgeService.getEdges(publicId).size()
+        );
+
+        return getDefinition(
+                publicId
+        );
     }
 }
