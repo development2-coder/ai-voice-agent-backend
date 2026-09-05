@@ -46,7 +46,7 @@ CREATE TABLE `phone_numbers` (
   UNIQUE KEY `UKdr178sv421qj7ayvl6udacctd` (`public_id`),
   KEY `FK2ej5dumnxg720n6dwptyni3a1` (`agent_id`),
   CONSTRAINT `FK2ej5dumnxg720n6dwptyni3a1` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -55,7 +55,7 @@ CREATE TABLE `phone_numbers` (
 
 LOCK TABLES `phone_numbers` WRITE;
 /*!40000 ALTER TABLE `phone_numbers` DISABLE KEYS */;
-INSERT INTO `phone_numbers` VALUES (1,'2026-08-27 12:28:45.229873',1,NULL,1,0,'dd5896c8-7cb6-4387-b429-24cce3fd95ea','2026-08-27 12:28:45.229873',NULL,'India','+91','Exotel number for outbound AI voice agent calls','OUTBOUND','Exotel Outbound Number','9513886363','EXOTEL','9513886363',1);
+INSERT INTO `phone_numbers` VALUES (1,'2026-08-27 12:28:45.229873',1,NULL,1,0,'dd5896c8-7cb6-4387-b429-24cce3fd95ea','2026-08-31 16:45:00.622828',1,'INDIA','91','Exotel number for outbound AI voice agent calls','OUTBOUND','Exotel Outbound Number','513886363','EXOTEL','953883663',2),(2,'2026-09-04 15:31:00.531821',1,NULL,1,0,'47824b11-378c-434d-873f-54132e753ceb','2026-09-04 15:31:00.531821',NULL,'INDIA','91','Exotel number for outbound AI voice agent calls','OUTBOUND','Exotel Outbound Number','+912048565979','EXOTEL','a8fb8d2d625196b24daa15a7c5d05c0c',3);
 /*!40000 ALTER TABLE `phone_numbers` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -68,4 +68,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:18
+-- Dump completed on 2026-09-05 10:15:14

@@ -50,7 +50,7 @@ CREATE TABLE `agent_configs` (
   UNIQUE KEY `uk_agent_config_agent` (`agent_id`),
   UNIQUE KEY `UK5n7wnwy7gawmgjn0htq0qxhrw` (`public_id`),
   CONSTRAINT `FKkgalx36qav7qrxcddun9qq73i` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -59,7 +59,7 @@ CREATE TABLE `agent_configs` (
 
 LOCK TABLES `agent_configs` WRITE;
 /*!40000 ALTER TABLE `agent_configs` DISABLE KEYS */;
-INSERT INTO `agent_configs` VALUES (1,'2026-08-29 17:00:15.771750',1,NULL,1,0,'47eee268-48aa-48b3-8a65-8b3f14857aa0','2026-08-29 17:00:15.772706',NULL,'Hello! How can I help you today?','en-IN','sarvam-105b-conversations','sarvam',2000,'DRAFT','saaras:v4','sarvam','You are a helpful AI voice assistant. At the beginning of every conversation, detect the language used by the user from their first meaningful utterance. Respond in the same language as the user. Supported languages are English, Hindi, Marathi, Tamil, Telugu, Kannada, Malayalam, Gujarati, Bengali, and Punjabi. Continue using the detected language throughout the conversation. If the user changes to another supported language, automatically switch to that language. If the user mixes multiple languages, respond primarily in the language used most by the user in the current message. Never translate the user\'s message unless explicitly asked. Do not mention that you detected the language. Keep responses natural, short, clear, and suitable for a real-time voice conversation. Do not use markdown, tables, or long explanations. If the user\'s language cannot be determined confidently, respond in English.',0.20,'bulbul:v3','sarvam','shubh',2);
+INSERT INTO `agent_configs` VALUES (1,'2026-08-29 17:00:15.771750',1,NULL,1,0,'47eee268-48aa-48b3-8a65-8b3f14857aa0','2026-08-29 17:00:15.772706',NULL,'Hello! How can I help you today?','mr-IN','sarvam-105b-conversations','sarvam',2000,'DRAFT','saaras:v4','sarvam','You are a helpful AI voice assistant. At the beginning of every conversation, detect the language used by the user from their first meaningful utterance. Respond in the same language as the user. Supported languages are English, Hindi, Marathi, Tamil, Telugu, Kannada, Malayalam, Gujarati, Bengali, and Punjabi. Continue using the detected language throughout the conversation. If the user changes to another supported language, automatically switch to that language. If the user mixes multiple languages, respond primarily in the language used most by the user in the current message. Never translate the user\'s message unless explicitly asked. Do not mention that you detected the language. Keep responses natural, short, clear, and suitable for a real-time voice conversation. Do not use markdown, tables, or long explanations. If the user\'s language cannot be determined confidently, respond in English.',0.20,'bulbul:v3','sarvam','shubh',1),(2,'2026-09-03 15:19:34.764390',1,NULL,1,0,'8a37241a-8468-460c-acf8-b6aaee6e0e0b','2026-09-03 15:19:34.764390',NULL,'Hello! How can I help you today?','en-IN','sarvam-105b-conversations','sarvam',2000,'DRAFT','saaras:v4','sarvam','You are a helpful AI voice assistant.',0.20,'bulbul:v3','sarvam','shubh',3),(3,'2026-09-03 16:32:52.040953',1,NULL,1,0,'2ad09b9a-f52c-4b3b-8b91-b1b400b52e61','2026-09-03 16:32:52.040953',NULL,'Hello! How can I help you today?','en-IN','sarvam-105b-conversations','sarvam',2000,'DRAFT','saaras:v4','sarvam','You are a helpful AI voice assistant. At the beginning of every conversation, detect the language used by the user from their first meaningful utterance.',0.20,'bulbul:v3','sarvam','shubh',4);
 /*!40000 ALTER TABLE `agent_configs` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -72,4 +72,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:20
+-- Dump completed on 2026-09-05 10:15:14

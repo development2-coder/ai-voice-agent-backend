@@ -46,7 +46,7 @@ CREATE TABLE `agents` (
   KEY `FKgopbr37oyxrxp1m7fsf3u6x47` (`tenant_id`),
   CONSTRAINT `FKgopbr37oyxrxp1m7fsf3u6x47` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`id`),
   CONSTRAINT `FKi0rmdabap917umgdqvg9r36m5` FOREIGN KEY (`organization_id`) REFERENCES `organizations` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -55,7 +55,7 @@ CREATE TABLE `agents` (
 
 LOCK TABLES `agents` WRITE;
 /*!40000 ALTER TABLE `agents` DISABLE KEYS */;
-INSERT INTO `agents` VALUES (1,'2026-08-21 13:26:09.935925',1,NULL,1,0,'70cef447-a1bf-4e48-956b-7743813acc5c','2026-08-21 13:26:09.935925',NULL,'TEST-AGENT-001','Test Banking Agent','Test agent for call session runtime testing','mr-IN','नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.',1,1),(2,'2026-08-29 16:35:34.076962',1,NULL,1,0,'6e257223-dbf9-4359-99af-667e17c63952','2026-08-29 16:35:34.076962',NULL,'TEST_AGENT_001','Test Voice Agent','Phase 1 voice agent testing','en','Hello, how can I help you?',1,1);
+INSERT INTO `agents` VALUES (1,'2026-08-21 13:26:09.935925',1,NULL,1,0,'70cef447-a1bf-4e48-956b-7743813acc5c','2026-08-21 13:26:09.935925',NULL,'TEST-AGENT-001','Test Banking Agent','Test agent for call session runtime testing','mr-IN','नमस्कार! मी तुमची मदत करण्यासाठी येथे आहे.',1,1),(2,'2026-08-29 16:35:34.076962',1,NULL,1,0,'6e257223-dbf9-4359-99af-667e17c63952','2026-08-29 16:35:34.076962',NULL,'TEST_AGENT_001','Test Voice Agent','Phase 1 voice agent testing','en','Hello, how can I help you?',1,1),(3,'2026-09-03 15:16:27.081919',1,NULL,1,0,'d14e2b94-76e4-4c1d-843d-4715e6c63c6d','2026-09-03 15:16:27.081919',NULL,'TEST_AGENT_002','Test Agent','Phase 1 voice agent testing','en','Hello, how can I help you?',1,1),(4,'2026-09-03 16:31:28.633829',1,NULL,1,0,'7604fb03-bcc0-4006-b6ce-f823fc83a1d1','2026-09-03 16:31:28.633829',NULL,'TEST_AGENT_003','Test Agent new','Phase 1 voice agent testing new','en','Hello, how can I help you?. You can ask anything',1,1),(5,'2026-09-03 17:16:12.216988',1,NULL,1,0,'f2a1c602-fb08-41bc-bdec-232c30e82a8d','2026-09-03 17:16:12.216988',NULL,'TEST_AGENT_004','Test Voice Agent 1','Phase 1 voice agent for testing','en','Hello, how can I help you?...',1,1);
 /*!40000 ALTER TABLE `agents` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -68,4 +68,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:15
+-- Dump completed on 2026-09-05 10:15:17

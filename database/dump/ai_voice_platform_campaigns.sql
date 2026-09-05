@@ -47,7 +47,7 @@ CREATE TABLE `campaigns` (
   KEY `FK348v3b9k0ks8xm6hftj8ygr6x` (`phone_number_id`),
   CONSTRAINT `FK348v3b9k0ks8xm6hftj8ygr6x` FOREIGN KEY (`phone_number_id`) REFERENCES `phone_numbers` (`id`),
   CONSTRAINT `FKorycxagx9g77pnhrqmnux2068` FOREIGN KEY (`agent_id`) REFERENCES `agents` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -56,6 +56,7 @@ CREATE TABLE `campaigns` (
 
 LOCK TABLES `campaigns` WRITE;
 /*!40000 ALTER TABLE `campaigns` DISABLE KEYS */;
+INSERT INTO `campaigns` VALUES (1,'2026-09-04 15:45:18.613653',1,NULL,1,0,'61d74031-c835-4de5-bb29-47838551c468','2026-09-04 15:45:18.613653',NULL,'TEST_OUTBOUND_001','Phase 1 Outbound Test','OUTBOUND','Phase 1 outbound AI voice agent test','DRAFT',3,2,NULL);
 /*!40000 ALTER TABLE `campaigns` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -68,4 +69,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:18
+-- Dump completed on 2026-09-05 10:15:20

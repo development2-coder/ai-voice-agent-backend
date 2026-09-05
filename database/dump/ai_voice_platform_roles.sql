@@ -47,7 +47,7 @@ CREATE TABLE `roles` (
   KEY `ix_roles_active` (`is_active`),
   KEY `ix_roles_deleted` (`is_deleted`),
   KEY `ix_roles_display_order` (`display_order`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -56,7 +56,7 @@ CREATE TABLE `roles` (
 
 LOCK TABLES `roles` WRITE;
 /*!40000 ALTER TABLE `roles` DISABLE KEYS */;
-INSERT INTO `roles` VALUES (1,'dd5c229e-9171-11f1-8f21-004238be78e0','SUPER_ADMIN','Super Administrator','Complete Platform Access',1,1,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(2,'dd5f7ef6-9171-11f1-8f21-004238be78e0','ADMIN','Administrator','Organization Administrator',2,1,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(3,'dd5fa9c8-9171-11f1-8f21-004238be78e0','SUPERVISOR','Supervisor','Supervisor Role',3,0,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(4,'dd5fc293-9171-11f1-8f21-004238be78e0','AGENT','Agent','AI Voice Agent',4,0,1,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL);
+INSERT INTO `roles` VALUES (1,'dd5c229e-9171-11f1-8f21-004238be78e0','SUPER_ADMIN','Super Administrator','Complete Platform Access',1,1,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(2,'dd5f7ef6-9171-11f1-8f21-004238be78e0','ADMIN','Administrator','Organization Administrator',2,1,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(3,'dd5fa9c8-9171-11f1-8f21-004238be78e0','SUPERVISOR','Supervisor','Supervisor Role',3,0,0,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(4,'dd5fc293-9171-11f1-8f21-004238be78e0','AGENT','Agent','AI Voice Agent',4,0,1,1,'2026-08-06 14:06:05',1,NULL,NULL,0,NULL),(5,'7a83cfc1-6e67-438c-a292-10c5c770f5f1','AGENT_TEST','AGENT test','Agent role',1,0,0,1,'2026-09-01 17:24:01',1,'2026-09-01 17:24:01',NULL,0,NULL);
 /*!40000 ALTER TABLE `roles` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -69,4 +69,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:11
+-- Dump completed on 2026-09-05 10:15:15

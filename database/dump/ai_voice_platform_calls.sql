@@ -47,12 +47,14 @@ CREATE TABLE `calls` (
   `to_number` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL,
   `campaign_contact_id` bigint DEFAULT NULL,
   `transcript_file_path` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `transfer_destination` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `transfer_requested` bit(1) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `UKkntuujntby7wkh32iad03b5t8` (`public_id`),
   UNIQUE KEY `uk_call_provider_call_id` (`provider_call_id`),
   KEY `FK4422n70yko5makme361d7arvx` (`campaign_contact_id`),
   CONSTRAINT `FK4422n70yko5makme361d7arvx` FOREIGN KEY (`campaign_contact_id`) REFERENCES `campaign_contacts` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -61,7 +63,7 @@ CREATE TABLE `calls` (
 
 LOCK TABLES `calls` WRITE;
 /*!40000 ALTER TABLE `calls` DISABLE KEYS */;
-INSERT INTO `calls` VALUES (2,'2026-08-27 14:44:21.051930',1,NULL,1,0,'2bf35676-f8fe-404b-997a-97d7c6fa0ea5','2026-08-27 14:44:22.889410',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','c3b957d3054c35e5eba23210516d1a8r',NULL,'2026-08-27 14:44:21.389953','in-progress','8010853917',NULL,NULL),(3,'2026-08-27 15:21:56.766744',1,NULL,1,0,'0a8d1362-6ea7-47a2-9353-6b92cf426d12','2026-08-27 15:21:58.269635',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','277a0050319c4fa8fed7a9eb23bc1a8r',NULL,'2026-08-27 15:21:56.890969','in-progress','8010853917',NULL,NULL),(4,'2026-08-27 15:33:06.183514',1,NULL,1,0,'412ee783-13e2-4993-9455-d73dd1b5aae3','2026-08-27 15:33:16.650482',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','dd719ab9a9aaef0d441b36e633071a8r',NULL,'2026-08-27 15:33:14.764534','in-progress','8010853917',NULL,NULL);
+INSERT INTO `calls` VALUES (2,'2026-08-27 14:44:21.051930',1,NULL,1,0,'2bf35676-f8fe-404b-997a-97d7c6fa0ea5','2026-08-27 14:44:22.889410',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','c3b957d3054c35e5eba23210516d1a8r',NULL,'2026-08-27 14:44:21.389953','in-progress','8010853917',NULL,NULL,NULL,_binary '\0'),(3,'2026-08-27 15:21:56.766744',1,NULL,1,0,'0a8d1362-6ea7-47a2-9353-6b92cf426d12','2026-08-27 15:21:58.269635',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','277a0050319c4fa8fed7a9eb23bc1a8r',NULL,'2026-08-27 15:21:56.890969','in-progress','8010853917',NULL,NULL,NULL,_binary '\0'),(4,'2026-08-27 15:33:06.183514',1,NULL,1,0,'412ee783-13e2-4993-9455-d73dd1b5aae3','2026-08-27 15:33:16.650482',NULL,NULL,'Direct Agent outbound call.','OUTBOUND',NULL,NULL,NULL,'9513886363','EXOTEL','dd719ab9a9aaef0d441b36e633071a8r',NULL,'2026-08-27 15:33:14.764534','in-progress','8010853917',NULL,NULL,NULL,_binary '\0'),(7,'2026-09-04 15:57:23.562757',1,NULL,1,0,'d562a359-58ca-4b25-90a9-6020a56e3c35','2026-09-04 16:07:08.912808',NULL,NULL,'Phase 1 outbound call test','OUTBOUND',3,'2026-09-04 16:07:08.910808','Exotel outbound call failed. Your account is not yet KYC compliant. This is mandatory before making outbound calls.','+912048565979','EXOTEL',NULL,NULL,'2026-09-04 16:07:05.908028','FAILED','+918010853917',1,NULL,NULL,_binary '\0');
 /*!40000 ALTER TABLE `calls` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -74,4 +76,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:13
+-- Dump completed on 2026-09-05 10:15:16

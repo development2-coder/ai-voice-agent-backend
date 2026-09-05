@@ -46,7 +46,7 @@ CREATE TABLE `campaign_contacts` (
   UNIQUE KEY `uk_campaign_contact_phone` (`campaign_id`,`phone_number`),
   UNIQUE KEY `UKsg61yix5axj58twg0adpqiqtn` (`public_id`),
   CONSTRAINT `FKrgyfd4mf13lehtih8e2ka1w7k` FOREIGN KEY (`campaign_id`) REFERENCES `campaigns` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -55,6 +55,7 @@ CREATE TABLE `campaign_contacts` (
 
 LOCK TABLES `campaign_contacts` WRITE;
 /*!40000 ALTER TABLE `campaign_contacts` DISABLE KEYS */;
+INSERT INTO `campaign_contacts` VALUES (1,'2026-09-04 15:52:22.341247',1,NULL,1,0,'89e6a10f-506a-432f-b8e6-b683369bf103','2026-09-04 15:52:22.342999',NULL,0,'Phase 1 outbound call test','PHASE1_TEST_001',NULL,'Outbound Test Customer','+918010853917',1,'PENDING',1,'{\"test\":true}');
 /*!40000 ALTER TABLE `campaign_contacts` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -67,4 +68,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-08-31 15:47:12
+-- Dump completed on 2026-09-05 10:15:14
