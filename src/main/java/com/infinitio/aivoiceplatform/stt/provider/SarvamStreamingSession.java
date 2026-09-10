@@ -4,7 +4,7 @@ import java.net.http.WebSocket;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
-
+import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infinitio.aivoiceplatform.stt.constant.SarvamStreamingConstants;
@@ -83,6 +83,17 @@ public class SarvamStreamingSession
     private volatile boolean closing;
 
     /**
+     * Indicates that the provider WebSocket connection failed
+     * during initialization.
+     */
+    private volatile boolean connectionFailed;
+
+    /**
+     * Callback invoked when the Sarvam WebSocket becomes ready.
+     */
+    private volatile Runnable readyListener;
+
+    /**
      * Creates a Sarvam streaming session.
      *
      * @param callId application call identifier
@@ -143,6 +154,16 @@ public class SarvamStreamingSession
      *
      * @param webSocket provider WebSocket
      */
+    /**
+     * Handles successful provider WebSocket connection establishment.
+     *
+     * @param webSocket provider WebSocket
+     */
+    /**
+     * Handles successful provider WebSocket connection establishment.
+     *
+     * @param webSocket provider WebSocket
+     */
     @Override
     public void onOpen(
             WebSocket webSocket) {
@@ -156,15 +177,27 @@ public class SarvamStreamingSession
         this.closing =
                 false;
 
+        this.connectionFailed =
+                false;
+
         log.info(
                 "Sarvam realtime STT WebSocket connected. " +
-                        "callId={}, sampleRate={}, language={}",
+                        "callId={}, language={}, sampleRate={}",
                 callId,
-                sampleRate,
-                language
+                language,
+                sampleRate
         );
 
         webSocket.request(1);
+
+        /*
+         * Notify the runtime that audio can now be forwarded.
+         *
+         * The STT runtime uses this callback to flush audio
+         * packets that arrived while the Sarvam connection
+         * was being established.
+         */
+        onReady();
     }
 
     /**
@@ -210,6 +243,37 @@ public class SarvamStreamingSession
         webSocket.request(1);
 
         return null;
+    }
+
+    /**
+     * Marks the provider connection as failed.
+     *
+     * <p>
+     * This method is called by the provider connection future when
+     * the WebSocket handshake cannot be established.
+     * </p>
+     *
+     * @param error provider connection error
+     */
+    public void markConnectionFailure(
+            Throwable error) {
+
+        this.connectionFailed =
+                true;
+
+        this.open =
+                false;
+
+        log.error(
+                "Sarvam realtime STT connection failed. callId={}",
+                callId,
+                error
+        );
+
+        listener.onError(
+                callId,
+                error
+        );
     }
 
     /**
@@ -279,19 +343,38 @@ public class SarvamStreamingSession
      *
      * @param audio audio bytes
      */
+    /**
+     * Sends an audio chunk to Sarvam.
+     *
+     * <p>
+     * The provider WebSocket must be open before audio can be
+     * transmitted. Runtime-level buffering prevents normal Exotel
+     * startup races from reaching this method, but this validation
+     * remains as a final provider-level safety check.
+     * </p>
+     *
+     * @param audio audio bytes
+     */
+    /**
+     * Sends an audio chunk to Sarvam realtime STT.
+     *
+     * @param audio audio bytes
+     */
     @Override
-    public void sendAudio(
+    public synchronized void sendAudio(
             byte[] audio) {
 
         if (audio == null
                 || audio.length == 0) {
 
-            log.debug(
-                    "Ignoring empty STT audio chunk. callId={}",
-                    callId
-            );
-
             return;
+        }
+
+        if (connectionFailed) {
+
+            throw new IllegalStateException(
+                    SttMessages.SARVAM_TRANSCRIPTION_FAILED
+            );
         }
 
         WebSocket currentSocket =
@@ -300,13 +383,6 @@ public class SarvamStreamingSession
         if (!isOpen()
                 || currentSocket == null) {
 
-            log.warn(
-                    "Cannot send STT audio because WebSocket " +
-                            "is not open. callId={}, audioBytes={}",
-                    callId,
-                    audio.length
-            );
-
             throw new IllegalStateException(
                     SttMessages.STREAMING_SESSION_NOT_OPEN
             );
@@ -314,9 +390,7 @@ public class SarvamStreamingSession
 
         String encodedAudio =
                 Base64.getEncoder()
-                        .encodeToString(
-                                audio
-                        );
+                        .encodeToString(audio);
 
         String payload =
                 buildAudioPayload(
@@ -325,14 +399,16 @@ public class SarvamStreamingSession
 
         try {
 
-            currentSocket.sendText(
-                    payload,
-                    true
-            );
+            currentSocket
+                    .sendText(
+                            payload,
+                            true
+                    )
+                    .join();
 
             log.debug(
-                    "STT audio chunk sent to Sarvam. " +
-                            "callId={}, audioBytes={}",
+                    "Audio sent to Sarvam realtime STT. " +
+                            "callId={}, audioSizeBytes={}",
                     callId,
                     audio.length
             );
@@ -340,15 +416,10 @@ public class SarvamStreamingSession
         } catch (Exception exception) {
 
             log.error(
-                    "Unable to send STT audio to Sarvam. " +
-                            "callId={}, audioBytes={}",
+                    "Unable to send audio to Sarvam realtime STT. " +
+                            "callId={}, audioSizeBytes={}",
                     callId,
                     audio.length,
-                    exception
-            );
-
-            listener.onError(
-                    callId,
                     exception
             );
 
@@ -458,14 +529,10 @@ public class SarvamStreamingSession
     @Override
     public boolean isOpen() {
 
-        WebSocket currentSocket =
-                webSocket;
-
         return open
                 && !closing
-                && currentSocket != null
-                && !currentSocket.isInputClosed()
-                && !currentSocket.isOutputClosed();
+                && !connectionFailed
+                && webSocket != null;
     }
 
     /**
@@ -564,9 +631,10 @@ public class SarvamStreamingSession
 
             log.debug(
                     "Sarvam realtime STT event received. " +
-                            "callId={}, event={}",
+                            "callId={}, event={}, payload={}",
                     callId,
-                    event
+                    event,
+                    message
             );
 
             switch (event) {
@@ -700,6 +768,17 @@ public class SarvamStreamingSession
      *
      * @param root provider event
      */
+    /**
+     * Processes a final Sarvam transcript event.
+     *
+     * <p>
+     * The detected language is preserved together with the
+     * transcript so that downstream conversation and Flow
+     * execution can dynamically switch the response language.
+     * </p>
+     *
+     * @param root provider JSON response
+     */
     private void processFinalTranscript(
             JsonNode root) {
 
@@ -732,9 +811,27 @@ public class SarvamStreamingSession
                 transcript
         );
 
+        SttTranscriptionResponse response =
+                SttTranscriptionResponse.builder()
+                        .callId(
+                                callId
+                        )
+                        .transcript(
+                                transcript
+                        )
+                        .language(
+                                transcriptLanguage
+                        )
+                        .finalTranscript(
+                                true
+                        )
+                        .provider(
+                                "SARVAM"
+                        )
+                        .build();
+
         listener.onFinalTranscript(
-                callId,
-                transcript
+                response
         );
     }
 
@@ -839,8 +936,33 @@ public class SarvamStreamingSession
      * @param root provider JSON
      * @return language code
      */
+    /**
+     * Extracts the detected transcript language.
+     *
+     * <p>
+     * Realtime Sarvam STT returns the detected language in the
+     * {@code language} field when automatic language detection is enabled.
+     * The connection language code is retained as a fallback.
+     * </p>
+     *
+     * @param root provider JSON
+     * @return detected language code
+     */
     private String extractLanguage(
             JsonNode root) {
+
+        JsonNode languageNode =
+                root.get(
+                        SarvamStreamingConstants
+                                .FIELD_LANGUAGE
+                );
+
+        if (languageNode != null
+                && !languageNode.isNull()
+                && !languageNode.asText().isBlank()) {
+
+            return languageNode.asText();
+        }
 
         JsonNode languageCodeNode =
                 root.get(
@@ -850,11 +972,120 @@ public class SarvamStreamingSession
 
         if (languageCodeNode != null
                 && !languageCodeNode.isNull()
-                && !languageCodeNode.asText().isBlank()) {
+                && !languageCodeNode.asText().isBlank()
+                && !"auto".equalsIgnoreCase(
+                languageCodeNode.asText().trim()
+        )) {
 
             return languageCodeNode.asText();
         }
 
         return language;
+    }
+
+    /**
+     * Notifies the runtime that the provider WebSocket is ready.
+     */
+    /**
+     * Notifies the runtime that the provider WebSocket is ready.
+     */
+    @Override
+    public void onReady() {
+
+        log.info(
+                "Sarvam realtime STT session is ready. callId={}",
+                callId
+        );
+
+        Runnable listener =
+                readyListener;
+
+        if (listener == null) {
+
+            log.debug(
+                    "No STT ready listener is registered. " +
+                            "callId={}",
+                    callId
+            );
+
+            return;
+        }
+
+        try {
+
+            listener.run();
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to execute STT ready listener. " +
+                            "callId={}",
+                    callId,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Registers a callback that is invoked when the Sarvam
+     * WebSocket becomes ready.
+     *
+     * @param readyListener callback to execute after connection
+     */
+    /**
+     * Registers a callback that is invoked when the Sarvam
+     * WebSocket becomes ready.
+     *
+     * <p>
+     * If the provider connection is already open when the listener
+     * is registered, the listener is invoked immediately. This
+     * prevents a startup race where the WebSocket becomes ready
+     * before the runtime registers its callback.
+     * </p>
+     *
+     * @param readyListener callback to execute after connection
+     */
+    @Override
+    public void setReadyListener(
+            Runnable readyListener) {
+
+        this.readyListener =
+                readyListener;
+
+        log.debug(
+                "Sarvam STT ready listener registered. " +
+                        "callId={}, providerSocketOpen={}",
+                callId,
+                open
+        );
+
+        /*
+         * Handle the race where the provider WebSocket became ready
+         * before the runtime registered the listener.
+         */
+        if (open
+                && readyListener != null) {
+
+            log.debug(
+                    "Sarvam STT WebSocket was already ready. " +
+                            "Executing ready listener immediately. " +
+                            "callId={}",
+                    callId
+            );
+
+            try {
+
+                readyListener.run();
+
+            } catch (Exception exception) {
+
+                log.error(
+                        "Unable to execute immediate STT ready listener. " +
+                                "callId={}",
+                        callId,
+                        exception
+                );
+            }
+        }
     }
 }

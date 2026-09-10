@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -49,22 +50,12 @@ public class SarvamSttProvider
 
     /**
      * Sarvam provider code.
-     *
-     * <p>
-     * This identifies the provider implementation and is not
-     * an environment-specific runtime configuration value.
-     * </p>
      */
     private static final String PROVIDER_CODE =
             "sarvam";
 
     /**
      * Sarvam API authentication header.
-     *
-     * <p>
-     * This is a provider protocol header name. The actual
-     * API key is always loaded from external configuration.
-     * </p>
      */
     private static final String API_KEY_HEADER =
             "api-subscription-key";
@@ -153,12 +144,14 @@ public class SarvamSttProvider
         log.info(
                 "Sarvam STT provider initialized. " +
                         "provider={}, model={}, mode={}, " +
-                        "streamingModel={}, timeout={}",
+                        "streamingModel={}, timeout={}, " +
+                        "apiKeyConfigured={}",
                 PROVIDER_CODE,
                 sttProperties.getModel(),
                 sttProperties.getMode(),
                 sttProperties.getStreamingModel(),
-                sttProperties.getTimeout()
+                sttProperties.getTimeout(),
+                !isBlank(sttProperties.getApiKey())
         );
     }
 
@@ -196,6 +189,9 @@ public class SarvamSttProvider
 
         validateSynchronousConfiguration();
 
+        String apiKey =
+                resolveApiKey();
+
         log.info(
                 "Starting Sarvam STT transcription. " +
                         "callId={}, model={}, language={}, " +
@@ -222,7 +218,7 @@ public class SarvamSttProvider
                             )
                             .header(
                                     API_KEY_HEADER,
-                                    sttProperties.getApiKey()
+                                    apiKey
                             )
                             .contentType(
                                     MediaType.MULTIPART_FORM_DATA
@@ -368,24 +364,34 @@ public class SarvamSttProvider
                         audioEncoding
                 );
 
+        String streamingLanguage =
+                resolveStreamingLanguage();
+
         String streamingUri =
                 buildStreamingUri(
                         sttProperties.getStreamingEndpoint(),
                         model,
-                        language.trim(),
+                        streamingLanguage,
                         sampleRate,
                         resolvedEncoding
                 );
 
+        String apiKey =
+                resolveApiKey();
+
         log.info(
-                "Opening Sarvam realtime STT session. " +
+                "Opening Sarvam realtime STT WebSocket. " +
                         "callId={}, model={}, language={}, " +
-                        "sampleRate={}, encoding={}",
+                        "sampleRate={}, encoding={}, " +
+                        "apiKeyConfigured={}, streamingLanguage={}, apiKeyFingerprint={}",
                 callId,
                 model,
                 language,
                 sampleRate,
-                resolvedEncoding
+                resolvedEncoding,
+                !isBlank(apiKey),
+                streamingLanguage,
+                createApiKeyFingerprint(apiKey)
         );
 
         SarvamStreamingSession streamingSession =
@@ -399,29 +405,68 @@ public class SarvamSttProvider
 
         try {
 
+            /*
+             * Sarvam requires the API subscription key in the
+             * WebSocket handshake header.
+             *
+             * The actual key is never logged.
+             */
             httpClient
                     .newWebSocketBuilder()
                     .header(
                             API_KEY_HEADER,
-                            sttProperties.getApiKey()
+                            apiKey
                     )
                     .buildAsync(
-                            URI.create(
-                                    streamingUri
-                            ),
+                            URI.create(streamingUri),
                             streamingSession
                     )
-                    .join();
+                    .whenComplete(
+                            (webSocket, throwable) -> {
 
-            log.info(
-                    "Sarvam realtime STT session established. " +
-                            "callId={}",
-                    callId
-            );
+                                if (throwable != null) {
+
+                                    log.error(
+                                            "Sarvam realtime STT WebSocket " +
+                                                    "connection failed. " +
+                                                    "callId={}, model={}, " +
+                                                    "apiKeyFingerprint={}",
+                                            callId,
+                                            model,
+                                            createApiKeyFingerprint(
+                                                    apiKey
+                                            ),
+                                            throwable
+                                    );
+
+                                    streamingSession.markConnectionFailure(
+                                            throwable
+                                    );
+
+                                    return;
+                                }
+
+                                log.info(
+                                        "Sarvam realtime STT WebSocket " +
+                                                "connection established. " +
+                                                "callId={}, model={}",
+                                        callId,
+                                        model
+                                );
+                            }
+                    );
 
             return streamingSession;
 
         } catch (Exception exception) {
+
+            log.error(
+                    "Unable to start Sarvam realtime STT WebSocket. " +
+                            "callId={}, model={}",
+                    callId,
+                    model,
+                    exception
+            );
 
             try {
 
@@ -430,19 +475,12 @@ public class SarvamSttProvider
             } catch (Exception closeException) {
 
                 log.warn(
-                        "Unable to close failed Sarvam STT " +
-                                "streaming session. callId={}",
+                        "Unable to close failed Sarvam STT session. " +
+                                "callId={}",
                         callId,
                         closeException
                 );
             }
-
-            log.error(
-                    "Unable to establish Sarvam realtime STT session. " +
-                            "callId={}",
-                    callId,
-                    exception
-            );
 
             throw new IllegalStateException(
                     SttMessages.SARVAM_TRANSCRIPTION_FAILED,
@@ -575,9 +613,10 @@ public class SarvamSttProvider
      */
     private void validateApiKey() {
 
-        if (isBlank(
-                sttProperties.getApiKey()
-        )) {
+        String apiKey =
+                sttProperties.getApiKey();
+
+        if (isBlank(apiKey)) {
 
             log.error(
                     "Sarvam STT API key is not configured."
@@ -586,6 +625,102 @@ public class SarvamSttProvider
             throw new IllegalStateException(
                     SttMessages.PROVIDER_NOT_CONFIGURED
             );
+        }
+
+        log.debug(
+                "Sarvam STT API key configuration detected. " +
+                        "apiKeyLength={}, apiKeyFingerprint={}",
+                apiKey.trim().length(),
+                createApiKeyFingerprint(
+                        apiKey
+                )
+        );
+    }
+
+    /**
+     * Resolves and normalizes the configured API key.
+     *
+     * <p>
+     * Environment variables can occasionally contain accidental
+     * leading or trailing whitespace. The provider must never send
+     * that whitespace as part of the authentication credential.
+     * </p>
+     *
+     * @return normalized API key
+     */
+    private String resolveApiKey() {
+
+        String apiKey =
+                sttProperties.getApiKey();
+
+        if (isBlank(apiKey)) {
+
+            throw new IllegalStateException(
+                    SttMessages.PROVIDER_NOT_CONFIGURED
+            );
+        }
+
+        return apiKey.trim();
+    }
+
+    /**
+     * Creates a non-reversible fingerprint of the API key for
+     * diagnostic purposes.
+     *
+     * <p>
+     * The actual API key is never logged.
+     * </p>
+     *
+     * @param apiKey API key
+     * @return short SHA-256 fingerprint
+     */
+    private String createApiKeyFingerprint(
+            String apiKey) {
+
+        if (isBlank(apiKey)) {
+
+            return "NOT_CONFIGURED";
+        }
+
+        try {
+
+            MessageDigest digest =
+                    MessageDigest.getInstance(
+                            "SHA-256"
+                    );
+
+            byte[] hash =
+                    digest.digest(
+                            apiKey.trim()
+                                    .getBytes(
+                                            StandardCharsets.UTF_8
+                                    )
+                    );
+
+            StringBuilder fingerprint =
+                    new StringBuilder();
+
+            for (int index = 0;
+                 index < hash.length;
+                 index++) {
+
+                fingerprint.append(
+                        String.format(
+                                "%02x",
+                                hash[index]
+                        )
+                );
+            }
+
+            return fingerprint
+                    .substring(
+                            0,
+                            12
+                    );
+
+        } catch (Exception exception) {
+
+            return "UNAVAILABLE";
         }
     }
 
@@ -596,7 +731,7 @@ public class SarvamSttProvider
      * @param language language
      * @param sampleRate audio sample rate
      * @param audioEncoding audio encoding
-     * @param listener streaming listener
+     * @param listener listener
      */
     private void validateStreamingRequest(
             String callId,
@@ -644,12 +779,6 @@ public class SarvamSttProvider
 
     /**
      * Resolves the synchronous STT model.
-     *
-     * <p>
-     * A model supplied by the runtime request takes precedence.
-     * When the runtime request does not contain a model, the
-     * configured default STT model is used.
-     * </p>
      *
      * @param request transcription request
      * @return resolved model
@@ -707,6 +836,18 @@ public class SarvamSttProvider
      * @param audioEncoding requested audio encoding
      * @return resolved audio encoding
      */
+    /**
+     * Resolves the streaming audio encoding required by Sarvam.
+     *
+     * <p>
+     * Telephony providers may use provider-specific encoding names.
+     * For example, Exotel uses {@code slin} for signed linear PCM,
+     * while Sarvam expects {@code linear16}.
+     * </p>
+     *
+     * @param audioEncoding audio encoding received from the voice gateway
+     * @return Sarvam-compatible audio encoding
+     */
     private String resolveStreamingEncoding(
             String audioEncoding) {
 
@@ -717,13 +858,48 @@ public class SarvamSttProvider
             );
         }
 
-        return audioEncoding.trim();
+        String normalizedEncoding =
+                audioEncoding
+                        .trim()
+                        .toLowerCase();
+
+        return switch (normalizedEncoding) {
+
+            case "slin",
+                 "linear16",
+                 "pcm_s16le" ->
+                    "linear16";
+
+            case "linear32" ->
+                    "linear32";
+
+            case "mulaw",
+                 "ulaw" ->
+                    "mulaw";
+
+            case "alaw" ->
+                    "alaw";
+
+            default -> {
+
+                log.warn(
+                        "Unsupported Sarvam streaming audio encoding. " +
+                                "encoding={}",
+                        audioEncoding
+                );
+
+                throw new IllegalArgumentException(
+                        "Unsupported Sarvam streaming audio encoding: "
+                                + audioEncoding
+                );
+            }
+        };
     }
 
     /**
      * Builds the synchronous multipart request.
      *
-     * @param request transcription request
+     * @param request STT request
      * @param model resolved model
      * @return multipart request body
      */
@@ -865,11 +1041,64 @@ public class SarvamSttProvider
                 sttProperties.getStreamingStreamType()
         );
 
+        appendQueryParameter(
+                uri,
+                separator,
+                "threshold",
+                sttProperties.getStreamingThreshold() != null
+                        ? String.valueOf(
+                        sttProperties.getStreamingThreshold()
+                )
+                        : null
+        );
+
+        appendQueryParameter(
+                uri,
+                separator,
+                "silence_duration_ms",
+                sttProperties.getStreamingSilenceDurationMs() != null
+                        ? String.valueOf(
+                        sttProperties.getStreamingSilenceDurationMs()
+                )
+                        : null
+        );
+
+        appendQueryParameter(
+                uri,
+                separator,
+                "min_speech_duration_ms",
+                sttProperties.getStreamingMinSpeechDurationMs() != null
+                        ? String.valueOf(
+                        sttProperties.getStreamingMinSpeechDurationMs()
+                )
+                        : null
+        );
+
+        appendQueryParameter(
+                uri,
+                separator,
+                "prefix_padding_ms",
+                sttProperties.getStreamingPrefixPaddingMs() != null
+                        ? String.valueOf(
+                        sttProperties.getStreamingPrefixPaddingMs()
+                )
+                        : null
+        );
+
+        appendQueryParameter(
+                uri,
+                separator,
+                "return_timestamps",
+                String.valueOf(
+                        sttProperties.isStreamingReturnTimestamps()
+                )
+        );
+
         return uri.toString();
     }
 
     /**
-     * Appends a query parameter when a value is configured.
+     * Appends a query parameter when configured.
      *
      * @param uri URI builder
      * @param separator query separator
@@ -891,7 +1120,7 @@ public class SarvamSttProvider
                 .append(name)
                 .append("=")
                 .append(
-                        encode(value)
+                        encode(value.trim())
                 );
     }
 
@@ -932,8 +1161,15 @@ public class SarvamSttProvider
 
         log.debug(
                 "Sarvam STT provider availability checked. " +
-                        "available={}",
-                available
+                        "available={}, apiKeyConfigured={}, " +
+                        "streamingEndpointConfigured={}",
+                available,
+                !isBlank(
+                        sttProperties.getApiKey()
+                ),
+                !isBlank(
+                        sttProperties.getStreamingEndpoint()
+                )
         );
 
         return available;
@@ -950,5 +1186,28 @@ public class SarvamSttProvider
 
         return value == null
                 || value.isBlank();
+    }
+
+    /**
+     * Resolves the language strategy for realtime STT.
+     *
+     * <p>
+     * The realtime voice-agent flow uses automatic language detection
+     * so that the caller can switch languages during the same call.
+     * </p>
+     *
+     * @return configured realtime STT language strategy
+     */
+    private String resolveStreamingLanguage() {
+
+        String streamingLanguage =
+                sttProperties.getStreamingLanguage();
+
+        if (isBlank(streamingLanguage)) {
+
+            return "auto";
+        }
+
+        return streamingLanguage.trim();
     }
 }

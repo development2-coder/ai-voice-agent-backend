@@ -1,10 +1,10 @@
 package com.infinitio.aivoiceplatform.callrecording.service.impl;
 
 import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingStorageService;
+import com.infinitio.aivoiceplatform.telephony.config.ExotelProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -29,11 +29,14 @@ public class LocalCallRecordingStorageServiceImpl
 
     private final Path storageDirectory;
 
+    private final ExotelProperties exotelProperties;
+
     public LocalCallRecordingStorageServiceImpl(
             @Value(
                     "${CALL_RECORDING_STORAGE_PATH:uploads/call-recordings}"
             )
-            String storagePath) {
+            String storagePath,
+            ExotelProperties exotelProperties) {
 
         this.restClient =
                 RestClient.builder()
@@ -45,6 +48,9 @@ public class LocalCallRecordingStorageServiceImpl
                         )
                         .toAbsolutePath()
                         .normalize();
+
+        this.exotelProperties =
+                exotelProperties;
     }
 
     /**
@@ -119,6 +125,13 @@ public class LocalCallRecordingStorageServiceImpl
                                 URI.create(
                                         recordingUrl
                                 )
+                        )
+                        .headers(
+                                headers ->
+                                        headers.setBasicAuth(
+                                                exotelProperties.getApiKey(),
+                                                exotelProperties.getApiToken()
+                                        )
                         )
                         .header(
                                 HttpHeaders.ACCEPT,

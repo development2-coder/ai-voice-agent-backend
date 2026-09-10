@@ -135,4 +135,40 @@ public final class FlowExecutionContextKeys {
      */
     public static final String TRANSFER_MESSAGE =
             "transferMessage";
+
+    /**
+     * Text prepared for the next Text-to-Speech node.
+     */
+    public static final String TTS_TEXT =
+            "ttsText";
+
+    /**
+     * Latest generated LLM response.
+     */
+    public static final String LLM_RESPONSE =
+            "llmResponse";
+
+    /**
+     * Latest generated AI response.
+     */
+    public static final String AI_RESPONSE =
+            "aiResponse";
+
+    /**
+     * Latest caller transcript.
+     */
+    public static final String TRANSCRIPT =
+            "transcript";
+
+    /**
+     * Conversation messages used by the LLM runtime.
+     */
+    public static final String CONVERSATION_MESSAGES =
+            "conversationMessages";
+
+    /**
+     * Indicates whether the customer requested conversation termination.
+     */
+    public static final String END_CONVERSATION =
+            "endConversation";
 }

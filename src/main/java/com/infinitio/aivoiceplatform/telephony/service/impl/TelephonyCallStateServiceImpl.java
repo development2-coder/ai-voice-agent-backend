@@ -9,7 +9,8 @@ import com.infinitio.aivoiceplatform.telephony.service.TelephonyCallStateService
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-
+import com.infinitio.aivoiceplatform.callrecording.dto.response.CallRecordingResponse;
+import com.infinitio.aivoiceplatform.transcript.service.TranscriptService;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -46,6 +47,9 @@ public class TelephonyCallStateServiceImpl
 
     private final CallRecordingService
             callRecordingService;
+
+    private final TranscriptService
+            transcriptService;
 
     /**
      * Initializes a Call before the provider request.
@@ -578,12 +582,33 @@ public class TelephonyCallStateServiceImpl
 
         try {
 
-            callRecordingService.createFromWebhook(
-                    call.getPublicId(),
-                    event.getRecordingUrl(),
-                    event.getRecordingDurationSeconds(),
-                    event.getProvider()
-            );
+            CallRecordingResponse recordingResponse =
+                    callRecordingService.createFromWebhook(
+                            call.getPublicId(),
+                            event.getRecordingUrl(),
+                            event.getRecordingDurationSeconds(),
+                            event.getProvider()
+                    );
+
+            if (recordingResponse != null
+                    && recordingResponse.getPublicId() != null
+                    && !recordingResponse
+                    .getPublicId()
+                    .isBlank()) {
+
+                transcriptService.finalizeCallTranscript(
+                        call.getPublicId(),
+                        recordingResponse.getPublicId()
+                );
+
+                log.info(
+                        "Complete call transcript finalized after "
+                                + "recording persistence. "
+                                + "callPublicId={}, recordingPublicId={}",
+                        call.getPublicId(),
+                        recordingResponse.getPublicId()
+                );
+            }
 
             log.info(
                     "CallRecording processed successfully. "

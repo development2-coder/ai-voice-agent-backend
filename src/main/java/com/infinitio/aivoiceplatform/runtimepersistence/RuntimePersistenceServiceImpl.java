@@ -14,16 +14,14 @@ import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionRequest;
 import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import com.infinitio.aivoiceplatform.stt.entity.SttInteraction;
 import com.infinitio.aivoiceplatform.stt.repository.SttInteractionRepository;
-import com.infinitio.aivoiceplatform.transcript.entity.Transcript;
-import com.infinitio.aivoiceplatform.transcript.repository.TranscriptRepository;
 import com.infinitio.aivoiceplatform.transcript.service.TranscriptArtifactService;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisRequest;
 import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
 import com.infinitio.aivoiceplatform.tts.entity.TtsInteraction;
 import com.infinitio.aivoiceplatform.tts.repository.TtsInteractionRepository;
+import com.infinitio.aivoiceplatform.user.constant.UserConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,14 +39,6 @@ import java.util.Map;
 public class RuntimePersistenceServiceImpl
         implements RuntimePersistenceService {
 
-    /**
-     * Used only when runtime execution happens without
-     * an authenticated user and without an existing Call.
-     *
-     * Prefer the actual authenticated user or Call.createdBy.
-     */
-    private static final Long SYSTEM_USER_ID = 1L;
-
     private static final String SUCCESS = "SUCCESS";
 
     private final CallRepository callRepository;
@@ -63,9 +53,6 @@ public class RuntimePersistenceServiceImpl
 
     private final TtsInteractionRepository
             ttsInteractionRepository;
-
-    private final TranscriptRepository
-            transcriptRepository;
 
     private final TranscriptArtifactService
             transcriptArtifactService;
@@ -159,13 +146,21 @@ public class RuntimePersistenceServiceImpl
                 callPublicId
         );
 
+        /*
+         * Store the user message in the single conversation
+         * artifact for this call.
+         *
+         * IMPORTANT:
+         * This method no longer creates a Transcript DB row.
+         * The final Transcript DB record is created only after
+         * the call and recording are completely available.
+         */
         appendTranscript(
                 callPublicId,
                 "USER",
                 response.getTranscript(),
                 response.getLanguage(),
-                "STT",
-                createdBy
+                "STT"
         );
     }
 
@@ -260,13 +255,19 @@ public class RuntimePersistenceServiceImpl
                 callPublicId
         );
 
+        /*
+         * Store the assistant message in the same conversation
+         * artifact used by STT.
+         *
+         * IMPORTANT:
+         * No Transcript DB row is created here.
+         */
         appendTranscript(
                 callPublicId,
                 "ASSISTANT",
                 response.getContent(),
                 response.getLanguage(),
-                "LLM",
-                createdBy
+                "LLM"
         );
     }
 
@@ -378,19 +379,43 @@ public class RuntimePersistenceServiceImpl
 
 
     // =========================================================
-    // TRANSCRIPT
+    // TRANSCRIPT ARTIFACT
     // =========================================================
 
+    /**
+     * Appends one conversation message to the single
+     * transcript artifact associated with the call.
+     *
+     * <p>
+     * This method intentionally does not create a Transcript
+     * database row. The complete transcript database record is
+     * created only after the call has ended and the call recording
+     * has been persisted.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @param speakerType speaker type
+     * @param text transcript text
+     * @param language detected language
+     * @param source source of transcript
+     */
     private void appendTranscript(
             String callPublicId,
             String speakerType,
             String text,
             String language,
-            String source,
-            Long createdBy) {
+            String source) {
 
         if (text == null
                 || text.isBlank()) {
+
+            log.debug(
+                    "Transcript artifact append skipped because " +
+                            "text is empty. callPublicId={}, " +
+                            "speakerType={}",
+                    callPublicId,
+                    speakerType
+            );
 
             return;
         }
@@ -399,8 +424,9 @@ public class RuntimePersistenceServiceImpl
                 || callPublicId.isBlank()) {
 
             log.warn(
-                    "Transcript persistence skipped because " +
-                            "callPublicId is missing."
+                    "Transcript artifact append skipped because " +
+                            "callPublicId is missing. speakerType={}",
+                    speakerType
             );
 
             return;
@@ -409,18 +435,15 @@ public class RuntimePersistenceServiceImpl
         LocalDateTime now =
                 LocalDateTime.now();
 
-        int sequence =
-                nextSequence(
-                        callPublicId
-                );
-
+        /*
+         * Sequence number belongs to the conversation artifact,
+         * not to individual Transcript database rows.
+         *
+         * TranscriptArtifactService is responsible for maintaining
+         * the message sequence inside the single JSON.GZ file.
+         */
         Map<String, Object> message =
                 new LinkedHashMap<>();
-
-        message.put(
-                "sequenceNumber",
-                sequence
-        );
 
         message.put(
                 "speakerType",
@@ -459,58 +482,27 @@ public class RuntimePersistenceServiceImpl
                 );
 
         /*
-         * Swagger synthetic tests do not have a Call record.
-         * In that case the JSON.GZ artifact is still persisted.
+         * Synthetic Swagger/flow tests may not have a Call record.
+         * The transcript artifact must still be persisted.
          */
         if (call == null) {
 
             log.info(
-                    "No Call entity found. Transcript stored " +
-                            "as JSON.GZ only. callPublicId={}",
+                    "No Call entity found. Transcript artifact " +
+                            "stored as JSON.GZ only. " +
+                            "callPublicId={}",
                     callPublicId
             );
 
             return;
         }
 
-        Transcript transcript =
-                Transcript.builder()
-                        .call(
-                                call
-                        )
-                        .sequenceNumber(
-                                sequence
-                        )
-                        .speakerType(
-                                speakerType
-                        )
-                        .text(
-                                text
-                        )
-                        .language(
-                                language
-                        )
-                        .source(
-                                source
-                        )
-                        .startedAt(
-                                now
-                        )
-                        .endedAt(
-                                now
-                        )
-                        .createdBy(
-                                createdBy
-                        )
-                        .build();
-
-        transcriptRepository.save(
-                transcript
-        );
-
         /*
-         * Store the latest transcript artifact path
-         * on the actual Call.
+         * Store the path of the single complete conversation
+         * artifact on the Call.
+         *
+         * The same path is updated for every message because
+         * all messages belong to the same JSON.GZ file.
          */
         call.setTranscriptFilePath(
                 filePath
@@ -519,50 +511,17 @@ public class RuntimePersistenceServiceImpl
         callRepository.save(
                 call
         );
-    }
 
-
-    // =========================================================
-    // SEQUENCE
-    // =========================================================
-
-    private int nextSequence(
-            String callPublicId) {
-
-        Call call =
-                findCall(
-                        callPublicId
-                );
-
-        if (call == null) {
-
-            /*
-             * Synthetic Flow test.
-             */
-            return 1;
-        }
-
-        List<Transcript> latest =
-                transcriptRepository
-                        .findByCallIdOrderBySequenceNumberDesc(
-                                call.getId(),
-                                PageRequest.of(
-                                        0,
-                                        1
-                                )
-                        )
-                        .getContent();
-
-        if (latest.isEmpty()
-                || latest.get(0)
-                .getSequenceNumber() == null) {
-
-            return 1;
-        }
-
-        return latest.get(0)
-                .getSequenceNumber()
-                + 1;
+        log.debug(
+                "Transcript message appended to complete " +
+                        "conversation artifact. " +
+                        "callPublicId={}, speakerType={}, " +
+                        "source={}, filePath={}",
+                callPublicId,
+                speakerType,
+                source,
+                filePath
+        );
     }
 
 
@@ -570,6 +529,12 @@ public class RuntimePersistenceServiceImpl
     // CALL
     // =========================================================
 
+    /**
+     * Finds the Call entity using its public identifier.
+     *
+     * @param callPublicId call public identifier
+     * @return Call entity or null when not available
+     */
     private Call findCall(
             String callPublicId) {
 
@@ -591,6 +556,18 @@ public class RuntimePersistenceServiceImpl
     // CREATED BY
     // =========================================================
 
+    /**
+     * Resolves the user responsible for runtime persistence.
+     *
+     * <p>
+     * For a real call, the Call creator is preferred. If no Call
+     * exists, the authenticated user is used. Background provider
+     * callbacks fall back to the configured system user.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @return user identifier
+     */
     private Long resolveCreatedBy(
             String callPublicId) {
 
@@ -630,15 +607,27 @@ public class RuntimePersistenceServiceImpl
 
             log.debug(
                     "Unable to resolve authenticated user " +
-                            "for runtime persistence.",
+                            "for runtime persistence. " +
+                            "Using system user.",
                     exception
             );
         }
 
         /*
          * Background provider callback.
+         *
+         * Use the same system user constant used by the rest
+         * of the application. Do not use a separate hardcoded
+         * value here.
          */
-        return SYSTEM_USER_ID;
+        log.debug(
+                "No authenticated user available for runtime " +
+                        "persistence. Using system user. " +
+                        "systemUserId={}",
+                UserConstants.SYSTEM_USER_ID
+        );
+
+        return UserConstants.SYSTEM_USER_ID;
     }
 
 
@@ -646,6 +635,12 @@ public class RuntimePersistenceServiceImpl
     // JSON SERIALIZATION
     // =========================================================
 
+    /**
+     * Serializes LLM messages for persistence.
+     *
+     * @param messages LLM request messages
+     * @return JSON representation
+     */
     private String serializeMessages(
             List<?> messages) {
 
@@ -669,6 +664,12 @@ public class RuntimePersistenceServiceImpl
     // FILE SIZE
     // =========================================================
 
+    /**
+     * Resolves the size of a persisted audio file.
+     *
+     * @param filePath audio file path
+     * @return file size in bytes or null
+     */
     private Long resolveFileSize(
             String filePath) {
 
@@ -705,6 +706,4 @@ public class RuntimePersistenceServiceImpl
             return null;
         }
     }
-
-
 }

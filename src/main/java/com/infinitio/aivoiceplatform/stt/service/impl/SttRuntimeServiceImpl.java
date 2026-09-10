@@ -16,7 +16,8 @@ import com.infinitio.aivoiceplatform.stt.provider.SttProvider;
 import com.infinitio.aivoiceplatform.stt.provider.SttStreamingListener;
 import com.infinitio.aivoiceplatform.stt.provider.SttStreamingSession;
 import com.infinitio.aivoiceplatform.stt.service.SttRuntimeService;
-
+import java.util.ArrayDeque;
+import java.util.Deque;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -78,6 +79,33 @@ public class SttRuntimeServiceImpl
             new ConcurrentHashMap<>();
 
     /**
+     * Audio packets received while a realtime STT session is
+     * being established.
+     *
+     * <p>
+     * Exotel can start sending MEDIA packets immediately after
+     * the WebSocket START event. Sarvam STT establishment is
+     * asynchronous, therefore a small temporary queue prevents
+     * the first audio packets from being lost.
+     * </p>
+     */
+    private final Map<String, Deque<byte[]>>
+            pendingAudio =
+            new ConcurrentHashMap<>();
+
+    /**
+     * Maximum number of audio packets retained while STT
+     * initialization is in progress.
+     *
+     * <p>
+     * Exotel normally sends very small media packets, therefore
+     * this provides a short startup buffer without allowing
+     * unbounded memory growth.
+     * </p>
+     */
+    private static final int MAX_PENDING_AUDIO_PACKETS = 100;
+
+    /**
      * Performs synchronous speech-to-text transcription.
      *
      * @param request STT transcription request
@@ -87,57 +115,38 @@ public class SttRuntimeServiceImpl
     public SttTranscriptionResponse transcribe(
             SttTranscriptionRequest request) {
 
-        validateRequest(
-                request
-        );
-
-        validateLanguage(
-                request.getLanguage()
-        );
-
-        validateAudioSize(
-                request.getAudio()
-        );
-
+        validateRequest(request);
+        validateLanguage(request.getLanguage());
+        validateAudioSize(request.getAudio());
         validateProvider();
 
         log.info(
-                "Starting STT transcription. " +
-                        "callId={}, provider={}, language={}, " +
-                        "contentType={}, fileName={}, " +
-                        "audioSizeBytes={}, finalTranscript={}",
+                "Starting STT transcription. callId={}, provider={}, " +
+                        "language={}, audioSizeBytes={}, finalTranscript={}",
                 request.getCallId(),
                 sttProvider.getProviderCode(),
                 request.getLanguage(),
-                request.getContentType(),
-                request.getFileName(),
                 request.getAudio().length,
                 request.isFinalTranscript()
         );
 
-        long startTime =
-                System.currentTimeMillis();
+        long startTime = System.currentTimeMillis();
 
         try {
 
             SttTranscriptionResponse response =
-                    sttProvider.transcribe(
-                            request
-                    );
+                    sttProvider.transcribe(request);
 
             long latencyMs =
-                    System.currentTimeMillis()
-                            - startTime;
+                    System.currentTimeMillis() - startTime;
 
             if (response == null) {
 
                 log.error(
                         "STT provider returned an empty response. " +
-                                "callId={}, provider={}, " +
-                                "latencyMs={}",
+                                "callId={}, provider={}",
                         request.getCallId(),
-                        sttProvider.getProviderCode(),
-                        latencyMs
+                        sttProvider.getProviderCode()
                 );
 
                 throw new IllegalStateException(
@@ -151,53 +160,31 @@ public class SttRuntimeServiceImpl
                     latencyMs
             );
 
-            log.info(
-                    "STT transcription completed successfully. " +
-                            "callId={}, provider={}, language={}, " +
-                            "latencyMs={}, finalTranscript={}",
-                    response.getCallId(),
-                    response.getProvider(),
-                    response.getLanguage(),
-                    response.getLatencyMs(),
-                    response.isFinalTranscript()
-            );
-
-            /*
-             * Persist the actual runtime transcription result.
-             *
-             * This does not modify the STT configuration.
-             */
             runtimePersistenceService.saveStt(
                     request,
                     response
+            );
+
+            log.info(
+                    "STT transcription completed. callId={}, " +
+                            "provider={}, latencyMs={}",
+                    response.getCallId(),
+                    response.getProvider(),
+                    response.getLatencyMs()
             );
 
             return response;
 
         } catch (BadRequestException exception) {
 
-            log.warn(
-                    "STT transcription validation failed. " +
-                            "callId={}, reason={}",
-                    request.getCallId(),
-                    exception.getMessage()
-            );
-
             throw exception;
 
         } catch (Exception exception) {
 
-            long latencyMs =
-                    System.currentTimeMillis()
-                            - startTime;
-
             log.error(
-                    "STT transcription failed. " +
-                            "callId={}, provider={}, " +
-                            "latencyMs={}",
+                    "STT transcription failed. callId={}, provider={}",
                     request.getCallId(),
                     sttProvider.getProviderCode(),
-                    latencyMs,
                     exception
             );
 
@@ -210,6 +197,23 @@ public class SttRuntimeServiceImpl
 
     /**
      * Starts a realtime STT streaming session.
+     *
+     * @param callId application call identifier
+     * @param language conversation language
+     * @param sampleRate audio sample rate
+     * @param audioEncoding audio encoding
+     * @param listener streaming result listener
+     */
+    /**
+     * Starts a realtime STT streaming session.
+     *
+     * <p>
+     * The provider session is created before it is registered in the
+     * active session map. Exotel can send MEDIA packets concurrently
+     * with this operation, therefore packets received before the
+     * provider session becomes available are temporarily buffered and
+     * flushed after successful initialization.
+     * </p>
      *
      * @param callId application call identifier
      * @param language conversation language
@@ -233,24 +237,16 @@ public class SttRuntimeServiceImpl
                 listener
         );
 
-        validateLanguage(
-                language
-        );
-
+        validateLanguage(language);
         validateProvider();
 
-        /*
-         * A call must have only one active STT streaming session.
-         * Close the previous session before replacing it.
-         */
-        stopStreaming(
-                callId
-        );
+        stopStreaming(callId);
+
+        pendingAudio.remove(callId);
 
         log.info(
-                "Starting realtime STT streaming session. " +
-                        "callId={}, provider={}, language={}, " +
-                        "sampleRate={}, audioEncoding={}",
+                "Starting realtime STT session. callId={}, provider={}, " +
+                        "language={}, sampleRate={}, encoding={}",
                 callId,
                 sttProvider.getProviderCode(),
                 language,
@@ -260,6 +256,10 @@ public class SttRuntimeServiceImpl
 
         try {
 
+            /*
+             * The provider implementation creates the session object
+             * and starts its WebSocket connection.
+             */
             SttStreamingSession session =
                     sttProvider.openStreamingSession(
                             callId,
@@ -271,50 +271,75 @@ public class SttRuntimeServiceImpl
 
             if (session == null) {
 
-                log.error(
-                        "STT provider returned a null streaming " +
-                                "session. callId={}, provider={}",
-                        callId,
-                        sttProvider.getProviderCode()
-                );
-
                 throw new IllegalStateException(
                         SttMessages.STREAMING_SESSION_NOT_OPEN
                 );
             }
 
             /*
-             * Store the session only after the provider successfully
-             * creates the streaming session.
+             * IMPORTANT:
+             *
+             * Always register the session here, regardless of whether
+             * the provider WebSocket is currently open.
+             *
+             * streamAudio() can therefore buffer MEDIA packets while
+             * the provider connection is being established.
              */
             streamingSessions.put(
                     callId,
                     session
             );
 
+            /*
+             * Register the provider-ready callback before checking the
+             * current connection state.
+             *
+             * The Sarvam WebSocket is established asynchronously. Therefore
+             * the provider may become ready after this method returns.
+             */
+            session.setReadyListener(
+                    () -> flushPendingAudio(
+                            callId,
+                            session
+                    )
+            );
+
             log.info(
-                    "Realtime STT streaming session created. " +
-                            "callId={}, provider={}, open={}",
+                    "Realtime STT application session registered. " +
+                            "callId={}, provider={}, providerSocketOpen={}",
                     callId,
                     sttProvider.getProviderCode(),
                     session.isOpen()
             );
 
+            /*
+             * Handle the race where the provider WebSocket became ready
+             * before the ready listener was registered.
+             */
+            if (session.isOpen()) {
+
+                flushPendingAudio(
+                        callId,
+                        session
+                );
+            }
+
         } catch (BadRequestException exception) {
+
+            pendingAudio.remove(callId);
 
             throw exception;
 
         } catch (Exception exception) {
 
+            pendingAudio.remove(callId);
+            streamingSessions.remove(callId);
+
             log.error(
-                    "Unable to start realtime STT streaming. " +
-                            "callId={}, provider={}, language={}, " +
-                            "sampleRate={}, audioEncoding={}",
+                    "Unable to start realtime STT session. " +
+                            "callId={}, provider={}",
                     callId,
                     sttProvider.getProviderCode(),
-                    language,
-                    sampleRate,
-                    audioEncoding,
                     exception
             );
 
@@ -331,93 +356,106 @@ public class SttRuntimeServiceImpl
      * @param callId application call identifier
      * @param audio audio chunk
      */
+    /**
+     * Sends an audio chunk to the active realtime STT session.
+     *
+     * <p>
+     * Exotel may send MEDIA immediately after the WebSocket START
+     * event while the provider-side Sarvam STT WebSocket is still
+     * being established. When no active STT session is available,
+     * the audio packet is temporarily buffered instead of causing
+     * the Voice Gateway to fail.
+     * </p>
+     *
+     * @param callId application call identifier
+     * @param audio audio chunk
+     */
     @Override
     public void streamAudio(
             String callId,
             byte[] audio) {
 
-        validateCallId(
-                callId
-        );
+        validateCallId(callId);
 
         if (audio == null
                 || audio.length == 0) {
 
+            return;
+        }
+
+        validateAudioSize(audio);
+
+        SttStreamingSession session =
+                streamingSessions.get(callId);
+
+        /*
+         * This should no longer be the normal startup failure path.
+         * It can still occur if MEDIA arrives before startStreaming()
+         * creates the application session.
+         */
+        if (session == null) {
+
             log.debug(
-                    "Ignoring empty STT audio chunk. callId={}",
-                    callId
+                    "STT application session not registered yet. " +
+                            "Buffering Exotel audio. callId={}, " +
+                            "audioSizeBytes={}",
+                    callId,
+                    audio.length
+            );
+
+            bufferPendingAudio(
+                    callId,
+                    audio
             );
 
             return;
         }
 
-        validateAudioSize(
-                audio
+        /*
+         * Provider WebSocket is still connecting.
+         */
+
+        boolean sessionOpen =
+                session.isOpen();
+
+        log.debug(
+                "STT session state before audio forwarding. " +
+                        "callId={}, sessionOpen={}, audioSizeBytes={}",
+                callId,
+                sessionOpen,
+                audio.length
         );
 
-        SttStreamingSession session =
-                streamingSessions.get(
-                        callId
-                );
+        if (!session.isOpen()) {
 
-        if (session == null) {
-
-            log.warn(
-                    "No active realtime STT session found. " +
-                            "callId={}, audioSizeBytes={}",
+            log.debug(
+                    "STT provider WebSocket is not ready. " +
+                            "Buffering Exotel audio. callId={}, " +
+                            "audioSizeBytes={}",
                     callId,
                     audio.length
             );
 
-            throw new IllegalStateException(
-                    SttMessages.STREAMING_SESSION_NOT_ACTIVE
-            );
-        }
-
-        if (!session.isOpen()) {
-
-            log.warn(
-                    "Realtime STT session is closed. " +
-                            "callId={}",
-                    callId
-            );
-
-            removeAndCloseSession(
+            bufferPendingAudio(
                     callId,
-                    session
+                    audio
             );
 
-            throw new IllegalStateException(
-                    SttMessages.STREAMING_SESSION_CLOSED
-            );
+            return;
         }
 
         try {
 
-            log.debug(
-                    "Forwarding audio chunk to realtime STT. " +
-                            "callId={}, audioSizeBytes={}",
-                    callId,
-                    audio.length
-            );
-
-            session.sendAudio(
-                    audio
-            );
+            session.sendAudio(audio);
 
         } catch (Exception exception) {
 
             log.error(
-                    "Failed to send audio to realtime STT provider. " +
+                    "Unable to forward audio to STT provider. " +
                             "callId={}, audioSizeBytes={}",
                     callId,
                     audio.length,
                     exception
-            );
-
-            removeAndCloseSession(
-                    callId,
-                    session
             );
 
             throw new IllegalStateException(
@@ -425,6 +463,132 @@ public class SttRuntimeServiceImpl
                     exception
             );
         }
+    }
+
+    /**
+     * Buffers one audio packet received before the realtime STT
+     * session becomes ready.
+     *
+     * @param callId application call identifier
+     * @param audio audio packet
+     */
+    private void bufferPendingAudio(
+            String callId,
+            byte[] audio) {
+
+        Deque<byte[]> queue =
+                pendingAudio.computeIfAbsent(
+                        callId,
+                        key -> new ArrayDeque<>()
+                );
+
+        synchronized (queue) {
+
+            if (queue.size() >= MAX_PENDING_AUDIO_PACKETS) {
+
+                queue.pollFirst();
+
+                log.warn(
+                        "STT pending audio buffer reached maximum size. " +
+                                "Oldest packet removed. callId={}, " +
+                                "maxPackets={}",
+                        callId,
+                        MAX_PENDING_AUDIO_PACKETS
+                );
+            }
+
+            queue.addLast(
+                    audio.clone()
+            );
+
+            log.debug(
+                    "STT audio buffered. callId={}, queueSize={}, " +
+                            "audioSizeBytes={}",
+                    callId,
+                    queue.size(),
+                    audio.length
+            );
+        }
+    }
+
+    /**
+     * Flushes audio packets accumulated while the provider
+     * WebSocket was connecting.
+     *
+     * @param callId application call identifier
+     * @param session active STT session
+     */
+    private void flushPendingAudio(
+            String callId,
+            SttStreamingSession session) {
+
+        if (session == null
+                || !session.isOpen()) {
+
+            return;
+        }
+
+        Deque<byte[]> queue =
+                pendingAudio.remove(callId);
+
+        if (queue == null
+                || queue.isEmpty()) {
+
+            return;
+        }
+
+        int packetCount = 0;
+
+        synchronized (queue) {
+
+            while (!queue.isEmpty()) {
+
+                byte[] audio =
+                        queue.pollFirst();
+
+                if (audio == null
+                        || audio.length == 0) {
+
+                    continue;
+                }
+
+                try {
+
+                    session.sendAudio(audio);
+
+                    packetCount++;
+
+                } catch (Exception exception) {
+
+                    /*
+                     * Put the current packet back so the packet is
+                     * not silently lost if provider transmission fails.
+                     */
+                    queue.addFirst(audio);
+
+                    pendingAudio.put(
+                            callId,
+                            queue
+                    );
+
+                    log.error(
+                            "Unable to flush buffered STT audio. " +
+                                    "callId={}, flushedPackets={}",
+                            callId,
+                            packetCount,
+                            exception
+                    );
+
+                    return;
+                }
+            }
+        }
+
+        log.info(
+                "Buffered STT audio flushed. callId={}, packets={}",
+                callId,
+                packetCount
+        );
     }
 
     /**
@@ -439,55 +603,26 @@ public class SttRuntimeServiceImpl
         if (callId == null
                 || callId.isBlank()) {
 
-            log.debug(
-                    "Ignoring STT turn completion because " +
-                            "callId is missing."
-            );
-
             return;
         }
 
         SttStreamingSession session =
-                streamingSessions.get(
-                        callId
-                );
+                streamingSessions.get(callId);
 
-        if (session == null) {
-
-            log.debug(
-                    "No realtime STT session found for turn " +
-                            "completion. callId={}",
-                    callId
-            );
-
-            return;
-        }
-
-        if (!session.isOpen()) {
-
-            log.debug(
-                    "Realtime STT session is already closed. " +
-                            "callId={}",
-                    callId
-            );
+        if (session == null
+                || !session.isOpen()) {
 
             return;
         }
 
         try {
 
-            log.debug(
-                    "Finishing realtime STT turn. callId={}",
-                    callId
-            );
-
             session.finishTurn();
 
         } catch (Exception exception) {
 
             log.warn(
-                    "Unable to finish realtime STT turn. " +
-                            "callId={}",
+                    "Unable to finish realtime STT turn. callId={}",
                     callId,
                     exception
             );
@@ -495,7 +630,7 @@ public class SttRuntimeServiceImpl
     }
 
     /**
-     * Stops and removes the realtime STT session for a call.
+     * Stops the realtime STT session.
      *
      * @param callId application call identifier
      */
@@ -509,26 +644,15 @@ public class SttRuntimeServiceImpl
             return;
         }
 
+        pendingAudio.remove(callId);
+
         SttStreamingSession session =
-                streamingSessions.remove(
-                        callId
-                );
+                streamingSessions.remove(callId);
 
         if (session == null) {
 
-            log.debug(
-                    "No realtime STT session found to stop. " +
-                            "callId={}",
-                    callId
-            );
-
             return;
         }
-
-        log.info(
-                "Stopping realtime STT session. callId={}",
-                callId
-        );
 
         try {
 
@@ -537,12 +661,16 @@ public class SttRuntimeServiceImpl
         } catch (Exception exception) {
 
             log.warn(
-                    "Error while closing realtime STT session. " +
-                            "callId={}",
+                    "Unable to close realtime STT session. callId={}",
                     callId,
                     exception
             );
         }
+
+        log.info(
+                "Realtime STT session stopped. callId={}",
+                callId
+        );
     }
 
     /**
@@ -588,6 +716,10 @@ public class SttRuntimeServiceImpl
     }
 
     /**
+     * Validates STT provider configuration.
+     */
+
+    /**
      * Validates realtime STT streaming parameters.
      *
      * @param callId application call identifier
@@ -603,9 +735,7 @@ public class SttRuntimeServiceImpl
             String audioEncoding,
             SttStreamingListener listener) {
 
-        validateCallId(
-                callId
-        );
+        validateCallId(callId);
 
         if (language == null
                 || language.isBlank()) {
@@ -617,25 +747,12 @@ public class SttRuntimeServiceImpl
 
         if (sampleRate == null) {
 
-            log.warn(
-                    "STT streaming sample rate is missing. " +
-                            "callId={}",
-                    callId
-            );
-
             throw new BadRequestException(
                     SttMessages.STREAMING_SAMPLE_RATE_REQUIRED
             );
         }
 
         if (sampleRate <= 0) {
-
-            log.warn(
-                    "Invalid STT streaming sample rate. " +
-                            "callId={}, sampleRate={}",
-                    callId,
-                    sampleRate
-            );
 
             throw new BadRequestException(
                     SttMessages.STREAMING_SAMPLE_RATE_INVALID
@@ -645,24 +762,12 @@ public class SttRuntimeServiceImpl
         if (audioEncoding == null
                 || audioEncoding.isBlank()) {
 
-            log.warn(
-                    "STT streaming audio encoding is missing. " +
-                            "callId={}",
-                    callId
-            );
-
             throw new BadRequestException(
                     SttMessages.STREAMING_AUDIO_ENCODING_REQUIRED
             );
         }
 
         if (listener == null) {
-
-            log.warn(
-                    "STT streaming listener is missing. " +
-                            "callId={}",
-                    callId
-            );
 
             throw new BadRequestException(
                     SttMessages.STREAMING_LISTENER_REQUIRED

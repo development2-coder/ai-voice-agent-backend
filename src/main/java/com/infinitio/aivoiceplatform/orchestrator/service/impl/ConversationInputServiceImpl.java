@@ -322,6 +322,40 @@ public class ConversationInputServiceImpl
          *
          * The Flow Engine decides what node should execute next.
          */
+        Map<String, Object> flowContext =
+                request.getContext() == null
+                        ? new HashMap<>()
+                        : new HashMap<>(
+                        request.getContext()
+                );
+
+        String language =
+                resolveLanguage(
+                        request.getLanguage()
+                );
+
+        flowContext.put(
+                LANGUAGE,
+                language
+        );
+
+        boolean endConversation =
+                isConversationEndRequested(
+                        request.getTranscript()
+                );
+
+        flowContext.put(
+                FlowExecutionContextKeys.END_CONVERSATION,
+                endConversation
+        );
+
+        log.debug(
+                "Conversation termination state resolved. " +
+                        "callId={}, endConversation={}",
+                request.getCallId(),
+                endConversation
+        );
+
         FlowExecutionResult execution =
                 flowExecutionService.continueExecution(
                         ContinueFlowExecutionRequest.builder()
@@ -332,7 +366,7 @@ public class ConversationInputServiceImpl
                                         request.getTranscript()
                                 )
                                 .context(
-                                        request.getContext()
+                                        flowContext
                                 )
                                 .build()
                 );
@@ -555,6 +589,51 @@ public class ConversationInputServiceImpl
                         true
                 )
                 .build();
+    }
+
+    /**
+     * Determines whether the customer requested conversation termination.
+     *
+     * @param transcript final customer transcript
+     * @return true when the customer requested the conversation to end
+     */
+    private boolean isConversationEndRequested(
+            String transcript) {
+
+        if (transcript == null
+                || transcript.isBlank()) {
+
+            return false;
+        }
+
+        String normalized =
+                transcript
+                        .trim()
+                        .toLowerCase(java.util.Locale.ROOT)
+                        .replaceAll(
+                                "[^\\p{L}\\p{N}\\s]",
+                                " "
+                        )
+                        .replaceAll(
+                                "\\s+",
+                                " "
+                        )
+                        .trim();
+
+        return normalized.equals("bye")
+                || normalized.equals("goodbye")
+                || normalized.equals("good bye")
+                || normalized.equals("thanks bye")
+                || normalized.equals("thank you bye")
+                || normalized.equals("that is all")
+                || normalized.equals("thats all")
+                || normalized.contains("goodbye")
+                || normalized.contains("good bye")
+                || normalized.contains("thank you goodbye")
+                || normalized.contains("thanks goodbye")
+                || normalized.equals("धन्यवाद")
+                || normalized.equals("एवढेच")
+                || normalized.equals("झाले");
     }
 
     // =========================================================

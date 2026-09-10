@@ -2,6 +2,7 @@ package com.infinitio.aivoiceplatform.llm.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.llm.dto.request.CreateLlmRequest;
 import com.infinitio.aivoiceplatform.llm.dto.request.UpdateLlmRequest;
@@ -38,6 +39,8 @@ public class LlmServiceImpl implements LlmService {
 
     private final AgentValidator agentValidator;
 
+    private final CurrentUserService currentUserService;
+
     @Override
     public LlmResponse create(CreateLlmRequest request) {
 
@@ -60,8 +63,13 @@ public class LlmServiceImpl implements LlmService {
 
         llm.setAgent(agent);
 
+        llm.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
         Llm savedLlm =
                 llmRepository.save(llm);
+
 
         log.info(
                 "LLM created successfully. Public Id : {}",

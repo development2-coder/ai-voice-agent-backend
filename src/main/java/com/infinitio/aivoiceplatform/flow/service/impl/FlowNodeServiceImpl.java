@@ -39,16 +39,34 @@ import java.util.List;
 public class FlowNodeServiceImpl
         implements FlowNodeService {
 
+    /**
+     * Represents an active node.
+     */
     private static final Integer NOT_DELETED = 0;
 
+    /**
+     * Represents a deleted node.
+     */
     private static final Integer DELETED = 1;
 
+    /**
+     * Flow node repository.
+     */
     private final FlowNodeRepository nodeRepository;
 
+    /**
+     * Flow validator.
+     */
     private final FlowValidator flowValidator;
 
+    /**
+     * Flow node mapper.
+     */
     private final FlowNodeMapper nodeMapper;
 
+    /**
+     * Current authenticated user service.
+     */
     private final CurrentUserService currentUserService;
 
     /**
@@ -100,10 +118,13 @@ public class FlowNodeServiceImpl
 
         log.info(
                 "Adding Flow node. " +
-                        "flowPublicId={}, nodeKey={}, nodeType={}",
+                        "flowPublicId={}, nodeKey={}, nodeType={}, " +
+                        "positionX={}, positionY={}",
                 request.getFlowPublicId(),
                 request.getNodeKey(),
-                request.getNodeType()
+                request.getNodeType(),
+                request.getPositionX(),
+                request.getPositionY()
         );
 
         Flow flow =
@@ -143,8 +164,31 @@ public class FlowNodeServiceImpl
                 flow
         );
 
+        /*
+         * Explicitly persist visual coordinates.
+         *
+         * This guarantees that the coordinates submitted by
+         * the Flow Builder are written to flow_nodes.position_x
+         * and flow_nodes.position_y.
+         */
+        node.setPositionX(
+                request.getPositionX()
+        );
+
+        node.setPositionY(
+                request.getPositionY()
+        );
+
         node.setCreatedBy(
                 currentUserService.getCurrentUserId()
+        );
+
+        log.debug(
+                "Persisting new Flow node coordinates. " +
+                        "nodeKey={}, positionX={}, positionY={}",
+                request.getNodeKey(),
+                node.getPositionX(),
+                node.getPositionY()
         );
 
         FlowNode saved =
@@ -155,11 +199,13 @@ public class FlowNodeServiceImpl
         log.info(
                 "Flow node created successfully. " +
                         "flowPublicId={}, nodePublicId={}, " +
-                        "nodeKey={}, nodeType={}",
+                        "nodeKey={}, nodeType={}, positionX={}, positionY={}",
                 flow.getPublicId(),
                 saved.getPublicId(),
                 saved.getNodeKey(),
-                saved.getNodeType()
+                saved.getNodeType(),
+                saved.getPositionX(),
+                saved.getPositionY()
         );
 
         return nodeMapper.toResponse(
@@ -175,8 +221,13 @@ public class FlowNodeServiceImpl
             UpdateFlowNodeRequest request) {
 
         log.info(
-                "Updating Flow node. nodePublicId={}",
-                request.getPublicId()
+                "Updating Flow node. " +
+                        "nodePublicId={}, nodeKey={}, " +
+                        "positionX={}, positionY={}",
+                request.getPublicId(),
+                request.getNodeKey(),
+                request.getPositionX(),
+                request.getPositionY()
         );
 
         FlowNode node =
@@ -199,8 +250,35 @@ public class FlowNodeServiceImpl
                 node
         );
 
+        /*
+         * Explicitly persist visual coordinates.
+         *
+         * The Flow Builder sends these values whenever a node
+         * is moved. They must be copied to the entity before
+         * repository.save().
+         */
+        if (request.getPositionX() != null) {
+            node.setPositionX(
+                    request.getPositionX()
+            );
+        }
+
+        if (request.getPositionY() != null) {
+            node.setPositionY(
+                    request.getPositionY()
+            );
+        }
+
         node.setUpdatedBy(
                 currentUserService.getCurrentUserId()
+        );
+
+        log.debug(
+                "Persisting updated Flow node coordinates. " +
+                        "nodePublicId={}, positionX={}, positionY={}",
+                node.getPublicId(),
+                node.getPositionX(),
+                node.getPositionY()
         );
 
         FlowNode saved =
@@ -210,10 +288,13 @@ public class FlowNodeServiceImpl
 
         log.info(
                 "Flow node updated successfully. " +
-                        "nodePublicId={}, nodeKey={}, nodeType={}",
+                        "nodePublicId={}, nodeKey={}, nodeType={}, " +
+                        "positionX={}, positionY={}",
                 saved.getPublicId(),
                 saved.getNodeKey(),
-                saved.getNodeType()
+                saved.getNodeType(),
+                saved.getPositionX(),
+                saved.getPositionY()
         );
 
         return nodeMapper.toResponse(

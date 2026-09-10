@@ -11,8 +11,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
-
+import com.infinitio.aivoiceplatform.telephony.constants.ExotelWebSocketConstants;
 import org.springframework.web.socket.CloseStatus;
+import java.io.ByteArrayOutputStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,6 +49,10 @@ public class VoiceGatewayWebSocketSessionRegistry {
 
     private final Map<String, WebSocketSession>
             sessions =
+            new ConcurrentHashMap<>();
+
+    private final Map<String, ByteArrayOutputStream>
+            outboundAudioBuffers =
             new ConcurrentHashMap<>();
 
     /**
@@ -99,6 +104,19 @@ public class VoiceGatewayWebSocketSessionRegistry {
                 || callId.isBlank()) {
 
             return;
+        }
+
+        ByteArrayOutputStream buffer =
+                outboundAudioBuffers.remove(
+                        callId
+                );
+
+        if (buffer != null) {
+
+            synchronized (buffer) {
+
+                buffer.reset();
+            }
         }
 
         WebSocketSession session =
@@ -209,6 +227,36 @@ public class VoiceGatewayWebSocketSessionRegistry {
      * @param audioBytes audio chunk
      * @param contentType audio content type
      */
+    /**
+     * Sends a streaming TTS audio chunk through the active
+     * provider WebSocket session.
+     *
+     * <p>
+     * Provider generated audio is split into smaller chunks
+     * before being sent through the Exotel WebSocket.
+     * </p>
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param audioBytes audio bytes
+     * @param contentType audio content type
+     */
+    /**
+     * Sends a streaming TTS audio chunk through the active
+     * provider WebSocket session.
+     *
+     * <p>
+     * Sarvam may provide audio chunks whose size does not match
+     * the packet size required by Exotel. Therefore audio is first
+     * accumulated in a per-call buffer and only complete Exotel
+     * compatible packets are transmitted.
+     * </p>
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param audioBytes audio chunk
+     * @param contentType audio content type
+     */
     public void sendAudio(
             String callId,
             String streamId,
@@ -262,64 +310,91 @@ public class VoiceGatewayWebSocketSessionRegistry {
 
         try {
 
-            String audioBase64 =
-                    Base64.getEncoder()
-                            .encodeToString(
-                                    audioBytes
-                            );
-
-            VoiceGatewayResponseDto response =
-                    VoiceGatewayResponseDto.builder()
-                            .callId(
-                                    callId
-                            )
-                            .streamId(
-                                    streamId
-                            )
-                            .action(
-                                    "MEDIA"
-                            )
-                            .audioBase64(
-                                    audioBase64
-                            )
-                            .contentType(
-                                    contentType
-                            )
-                            .build();
-
-            String payload =
-                    responseMapper.toProviderMessage(
-                            response
+            ByteArrayOutputStream buffer =
+                    outboundAudioBuffers.computeIfAbsent(
+                            callId,
+                            key -> new ByteArrayOutputStream()
                     );
 
-            if (payload == null
-                    || payload.isBlank()) {
+            synchronized (buffer) {
 
-                log.warn(
-                        "Unable to create provider audio payload. " +
-                                "callId={}, streamId={}",
-                        callId,
-                        streamId
+                buffer.write(
+                        audioBytes
                 );
 
-                return;
+                byte[] bufferedAudio =
+                        buffer.toByteArray();
+
+                int chunkSize =
+                        ExotelWebSocketConstants
+                                .OUTBOUND_AUDIO_CHUNK_SIZE_BYTES;
+
+                int sendableBytes =
+                        (bufferedAudio.length / chunkSize)
+                                * chunkSize;
+
+                if (sendableBytes <= 0) {
+
+                    log.debug(
+                            "TTS audio buffered waiting for complete " +
+                                    "Exotel packet. callId={}, " +
+                                    "bufferedBytes={}, requiredChunkBytes={}",
+                            callId,
+                            bufferedAudio.length,
+                            chunkSize
+                    );
+
+                    return;
+                }
+
+                int offset = 0;
+
+                int chunksSent = 0;
+
+                while (offset < sendableBytes) {
+
+                    byte[] audioChunk =
+                            java.util.Arrays.copyOfRange(
+                                    bufferedAudio,
+                                    offset,
+                                    offset + chunkSize
+                            );
+
+                    sendAudioChunk(
+                            callId,
+                            streamId,
+                            session,
+                            audioChunk,
+                            contentType
+                    );
+
+                    offset += chunkSize;
+
+                    chunksSent++;
+                }
+
+                buffer.reset();
+
+                if (sendableBytes < bufferedAudio.length) {
+
+                    buffer.write(
+                            bufferedAudio,
+                            sendableBytes,
+                            bufferedAudio.length - sendableBytes
+                    );
+                }
+
+                log.debug(
+                        "Streaming TTS audio buffered and processed. " +
+                                "callId={}, streamId={}, sourceBytes={}, " +
+                                "bufferedBytes={}, chunksSent={}",
+                        callId,
+                        streamId,
+                        audioBytes.length,
+                        buffer.size(),
+                        chunksSent
+                );
             }
-
-            sendText(
-                    session,
-                    payload
-            );
-
-            log.debug(
-                    "Streaming TTS audio chunk sent. " +
-                            "callId={}, streamId={}, sessionId={}, " +
-                            "audioBytes={}, contentType={}",
-                    callId,
-                    streamId,
-                    session.getId(),
-                    audioBytes.length,
-                    contentType
-            );
 
         } catch (Exception exception) {
 
@@ -332,6 +407,212 @@ public class VoiceGatewayWebSocketSessionRegistry {
                     exception
             );
         }
+    }
+
+    /**
+     * Flushes the remaining TTS audio for a completed response.
+     *
+     * <p>
+     * Exotel requires outbound audio packets to use the configured
+     * packet size. Any remaining Linear16 PCM audio is therefore
+     * completed with silence so that the final packet remains a
+     * valid Exotel packet.
+     * </p>
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param contentType audio content type
+     */
+    public void flushAudio(
+            String callId,
+            String streamId,
+            String contentType) {
+
+        if (callId == null
+                || callId.isBlank()) {
+
+            return;
+        }
+
+        ByteArrayOutputStream buffer =
+                outboundAudioBuffers.get(
+                        callId
+                );
+
+        if (buffer == null) {
+
+            return;
+        }
+
+        WebSocketSession session =
+                getOpenSession(
+                        callId
+                );
+
+        if (session == null) {
+
+            outboundAudioBuffers.remove(
+                    callId
+            );
+
+            return;
+        }
+
+        try {
+
+            synchronized (buffer) {
+
+                int remainingBytes =
+                        buffer.size();
+
+                if (remainingBytes == 0) {
+
+                    outboundAudioBuffers.remove(
+                            callId
+                    );
+
+                    return;
+                }
+
+                int chunkSize =
+                        ExotelWebSocketConstants
+                                .OUTBOUND_AUDIO_CHUNK_SIZE_BYTES;
+
+                byte[] remainingAudio =
+                        buffer.toByteArray();
+
+                byte[] finalChunk =
+                        new byte[chunkSize];
+
+                System.arraycopy(
+                        remainingAudio,
+                        0,
+                        finalChunk,
+                        0,
+                        Math.min(
+                                remainingAudio.length,
+                                finalChunk.length
+                        )
+                );
+
+                /*
+                 * Remaining bytes after the actual audio are
+                 * initialized to zero, which represents silence
+                 * for Linear16 PCM.
+                 */
+                sendAudioChunk(
+                        callId,
+                        streamId,
+                        session,
+                        finalChunk,
+                        contentType
+                );
+
+                buffer.reset();
+
+                outboundAudioBuffers.remove(
+                        callId
+                );
+
+                log.debug(
+                        "Final TTS audio buffer flushed. " +
+                                "callId={}, streamId={}, " +
+                                "remainingAudioBytes={}, finalPacketBytes={}",
+                        callId,
+                        streamId,
+                        remainingBytes,
+                        finalChunk.length
+                );
+            }
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to flush final TTS audio buffer. " +
+                            "callId={}, streamId={}",
+                    callId,
+                    streamId,
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Sends one audio chunk to the provider WebSocket.
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param session active WebSocket session
+     * @param audioChunk audio chunk
+     * @param contentType audio content type
+     * @throws IOException when the WebSocket cannot send the message
+     */
+    private void sendAudioChunk(
+            String callId,
+            String streamId,
+            WebSocketSession session,
+            byte[] audioChunk,
+            String contentType)
+            throws Exception {
+
+        String audioBase64 =
+                Base64.getEncoder()
+                        .encodeToString(
+                                audioChunk
+                        );
+
+        VoiceGatewayResponseDto response =
+                VoiceGatewayResponseDto.builder()
+                        .callId(
+                                callId
+                        )
+                        .streamId(
+                                streamId
+                        )
+                        .action(
+                                "MEDIA"
+                        )
+                        .audioBase64(
+                                audioBase64
+                        )
+                        .contentType(
+                                contentType
+                        )
+                        .build();
+
+        String payload =
+                responseMapper.toProviderMessage(
+                        response
+                );
+
+        if (payload == null
+                || payload.isBlank()) {
+
+            log.warn(
+                    "Unable to create provider audio payload. " +
+                            "callId={}, streamId={}",
+                    callId,
+                    streamId
+            );
+
+            return;
+        }
+
+        sendText(
+                session,
+                payload
+        );
+
+        log.info(
+                "Streaming TTS audio chunk sent to Exotel. " +
+                        "callId={}, streamId={}, sessionId={}, " +
+                        "audioBytes={}, contentType={}",
+                callId,
+                streamId,
+                session.getId(),
+                audioChunk.length,
+                contentType
+        );
     }
 
     /**
@@ -354,6 +635,25 @@ public class VoiceGatewayWebSocketSessionRegistry {
                 || callId.isBlank()) {
 
             return;
+        }
+
+        ByteArrayOutputStream buffer =
+                outboundAudioBuffers.remove(
+                        callId
+                );
+
+        if (buffer != null) {
+
+            synchronized (buffer) {
+
+                buffer.reset();
+            }
+
+            log.debug(
+                    "Discarded buffered TTS audio during barge-in. " +
+                            "callId={}",
+                    callId
+            );
         }
 
         if (streamId == null

@@ -39,6 +39,13 @@ public class TtsAudioStreamRegistry {
             new ConcurrentHashMap<>();
 
     /**
+     * Active TTS playback state mapped by call identifier.
+     */
+    private final ConcurrentHashMap<String, AtomicBoolean> activePlayback =
+            new ConcurrentHashMap<>();
+
+
+    /**
      * Registers a TTS audio listener for a call.
      *
      * @param callId call identifier
@@ -56,6 +63,11 @@ public class TtsAudioStreamRegistry {
         listeners.put(callId, listener);
 
         interruptions.computeIfAbsent(
+                callId,
+                key -> new AtomicBoolean(false)
+        );
+
+        activePlayback.computeIfAbsent(
                 callId,
                 key -> new AtomicBoolean(false)
         );
@@ -134,6 +146,72 @@ public class TtsAudioStreamRegistry {
     }
 
     /**
+     * Marks TTS playback as active for a call.
+     *
+     * @param callId call identifier
+     */
+    public void startPlayback(String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            return;
+        }
+
+        activePlayback
+                .computeIfAbsent(
+                        callId,
+                        key -> new AtomicBoolean(false)
+                )
+                .set(true);
+
+        log.debug(
+                "TTS playback started. callId={}",
+                callId
+        );
+    }
+
+    /**
+     * Marks TTS playback as inactive for a call.
+     *
+     * @param callId call identifier
+     */
+    public void stopPlayback(String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            return;
+        }
+
+        AtomicBoolean playback =
+                activePlayback.get(callId);
+
+        if (playback != null) {
+            playback.set(false);
+        }
+
+        log.debug(
+                "TTS playback stopped. callId={}",
+                callId
+        );
+    }
+
+    /**
+     * Checks whether TTS playback is currently active.
+     *
+     * @param callId call identifier
+     * @return {@code true} if TTS playback is active
+     */
+    public boolean isPlaybackActive(String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            return false;
+        }
+
+        AtomicBoolean playback =
+                activePlayback.get(callId);
+
+        return playback != null && playback.get();
+    }
+
+    /**
      * Removes the interruption state for a call.
      *
      * @param callId call identifier
@@ -153,14 +231,24 @@ public class TtsAudioStreamRegistry {
      *
      * @param callId call identifier
      */
+    /**
+     * Removes the complete TTS streaming state for a call.
+     *
+     * @param callId call identifier
+     */
     public void remove(String callId) {
+
         if (callId == null || callId.isBlank()) {
             return;
         }
 
         listeners.remove(callId);
         interruptions.remove(callId);
+        activePlayback.remove(callId);
 
-        log.debug("Removed TTS audio stream state. callId={}", callId);
+        log.debug(
+                "Removed TTS audio stream state. callId={}",
+                callId
+        );
     }
 }

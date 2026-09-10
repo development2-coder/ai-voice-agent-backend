@@ -125,4 +125,10 @@ public final class SarvamStreamingConstants {
      */
     public static final String PROVIDER_NAME =
             "sarvam";
+
+    /**
+     * Detected transcript language field.
+     */
+    public static final String FIELD_LANGUAGE =
+            "language";
 }

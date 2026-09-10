@@ -73,6 +73,12 @@ public class ConversationAiServiceImpl
     private final CallSessionConversationService
             callSessionConversationService;
 
+    private static final String SYSTEM_ROLE =
+            ConversationOrchestratorConstants.ROLE_SYSTEM;
+
+    private static final String LAST_USER_INPUT =
+            "lastUserInput";
+
     /**
      * {@inheritDoc}
      */
@@ -275,6 +281,19 @@ public class ConversationAiServiceImpl
      * current AI prompt is added as the latest user message.
      * </p>
      */
+    /**
+     * Resolves messages for the AI response request.
+     *
+     * <p>
+     * The configured AI prompt is sent as a system instruction,
+     * while the latest caller input is sent as the user message.
+     * Existing conversation messages are preserved when available.
+     * </p>
+     *
+     * @param context Flow execution context
+     * @param prompt AI system instruction
+     * @return messages for LLM generation
+     */
     private List<LlmMessageDto> resolveMessages(
             Map<String, Object> context,
             String prompt) {
@@ -282,6 +301,28 @@ public class ConversationAiServiceImpl
         List<LlmMessageDto> messages =
                 new ArrayList<>();
 
+        /*
+         * The AI node prompt contains instructions for the LLM.
+         * It must NOT be sent as the customer's user message.
+         */
+        if (prompt != null
+                && !prompt.isBlank()) {
+
+            messages.add(
+                    LlmMessageDto.builder()
+                            .role(
+                                    SYSTEM_ROLE
+                            )
+                            .content(
+                                    prompt
+                            )
+                            .build()
+            );
+        }
+
+        /*
+         * Preserve existing conversation messages when available.
+         */
         Object configuredMessages =
                 context.get(
                         CONVERSATION_MESSAGES
@@ -303,14 +344,10 @@ public class ConversationAiServiceImpl
                 if (item instanceof Map<?, ?> map) {
 
                     Object role =
-                            map.get(
-                                    "role"
-                            );
+                            map.get("role");
 
                     Object content =
-                            map.get(
-                                    "content"
-                            );
+                            map.get("content");
 
                     if (role != null
                             && content != null) {
@@ -334,15 +371,56 @@ public class ConversationAiServiceImpl
             }
         }
 
+        /*
+         * Add the latest caller speech as the actual user message.
+         *
+         * FlowExecutionContinuationServiceImpl stores caller input
+         * under lastUserInput when CUSTOMER_STT completes.
+         */
+        Object userInputValue =
+                context.get(
+                        LAST_USER_INPUT
+                );
+
+        String userInput =
+                userInputValue == null
+                        ? null
+                        : String.valueOf(
+                        userInputValue
+                ).trim();
+
+        if (userInput == null
+                || userInput.isBlank()) {
+
+            log.warn(
+                    "Latest caller input is missing for AI response."
+            );
+
+            throw new IllegalStateException(
+                    ConversationOrchestratorMessages
+                            .LLM_RESPONSE_EMPTY
+            );
+        }
+
         messages.add(
                 LlmMessageDto.builder()
                         .role(
                                 USER_ROLE
                         )
                         .content(
-                                prompt
+                                userInput
                         )
                         .build()
+        );
+
+        log.debug(
+                "Resolved AI conversation messages. " +
+                        "systemPromptPresent={}, userInputLength={}, " +
+                        "messageCount={}",
+                prompt != null
+                        && !prompt.isBlank(),
+                userInput.length(),
+                messages.size()
         );
 
         return messages;
@@ -414,6 +492,8 @@ public class ConversationAiServiceImpl
         request.setContext(
                 Map.of(
                         AI_RESPONSE,
+                        llmResponse.getContent(),
+                        FlowExecutionContextKeys.LLM_RESPONSE,
                         llmResponse.getContent()
                 )
         );

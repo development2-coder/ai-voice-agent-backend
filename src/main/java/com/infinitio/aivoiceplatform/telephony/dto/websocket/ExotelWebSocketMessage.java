@@ -218,7 +218,15 @@ public class ExotelWebSocketMessage {
         /**
          * Audio bitrate.
          */
+        /**
+         * Audio bit rate reported by Exotel.
+         *
+         * <p>
+         * Exotel may return values such as {@code 128kbps},
+         * therefore this value is represented as text.
+         * </p>
+         */
         @JsonProperty("bit_rate")
-        private Integer bitRate;
+        private String bitRate;
     }
 }

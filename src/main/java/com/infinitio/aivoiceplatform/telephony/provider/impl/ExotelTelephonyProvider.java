@@ -103,6 +103,24 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
 
     private final ObjectMapper objectMapper;
 
+    private static final String FIELD_PHONE_NUMBER =
+            "PhoneNumber";
+
+    private static final String FIELD_VOICE_URL =
+            "VoiceUrl";
+
+    private static final String FIELD_SMS_URL =
+            "SMSUrl";
+
+    private static final String FIELD_FRIENDLY_NAME =
+            "FriendlyName";
+
+    private static final String FIELD_ACTION =
+            "Action";
+
+    private static final String ACTION_HANGUP =
+            "hangup";
+
     /**
      * Returns the provider code.
      *
@@ -161,6 +179,11 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         formData.add(
                 FIELD_FROM,
                 request.getToNumber()
+        );
+
+        formData.add(
+                FIELD_TO,
+                request.getFromNumber()
         );
 
         formData.add(
@@ -916,25 +939,147 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
      * @param request number provisioning request
      * @return number response
      */
+    /**
+     * Provisions an Exotel phone number.
+     *
+     * <p>
+     * Exotel requires the caller to first identify an available
+     * ExoPhone and then submit that specific phone number to the
+     * IncomingPhoneNumbers API.
+     * </p>
+     *
+     * @param request number provisioning request
+     * @return provisioned number response
+     */
     @Override
     public NumberResponseDto provisionNumber(
             ProvisionNumberRequestDto request) {
 
-        log.info(
-                "Exotel number provisioning requested. "
-                        + "region={}, type={}",
-                request != null
-                        ? request.getRegion()
-                        : null,
-                request != null
-                        ? request.getType()
-                        : null
+        validateProvisionNumberRequest(request);
+        validateNumberApiConfiguration();
+
+        String path =
+                exotelProperties
+                        .getIncomingPhoneNumbersPath()
+                        .replace(
+                                "{accountSid}",
+                                exotelProperties.getAccountSid()
+                        );
+
+        String requestUrl =
+                exotelProperties.getBaseUrl() + path;
+
+        MultiValueMap<String, String> formData =
+                new LinkedMultiValueMap<>();
+
+        formData.add(
+                FIELD_PHONE_NUMBER,
+                request.getPhoneNumber()
         );
 
-        throw new UnsupportedOperationException(
-                "Exotel number provisioning is managed "
-                        + "through the Exotel dashboard."
+        if (request.getVoiceUrl() != null
+                && !request.getVoiceUrl().isBlank()) {
+
+            formData.add(
+                    FIELD_VOICE_URL,
+                    request.getVoiceUrl()
+            );
+        }
+
+        if (request.getSmsUrl() != null
+                && !request.getSmsUrl().isBlank()) {
+
+            formData.add(
+                    FIELD_SMS_URL,
+                    request.getSmsUrl()
+            );
+        }
+
+        if (request.getFriendlyName() != null
+                && !request.getFriendlyName().isBlank()) {
+
+            formData.add(
+                    FIELD_FRIENDLY_NAME,
+                    request.getFriendlyName()
+            );
+        }
+
+        log.info(
+                "Provisioning Exotel phone number. "
+                        + "phoneNumber={}, friendlyName={}",
+                request.getPhoneNumber(),
+                request.getFriendlyName()
         );
+
+        try {
+
+            String response =
+                    exotelRestClient
+                            .post()
+                            .uri(requestUrl)
+                            .headers(
+                                    headers ->
+                                            headers.setBasicAuth(
+                                                    exotelProperties.getApiKey(),
+                                                    exotelProperties.getApiToken()
+                                            )
+                            )
+                            .contentType(
+                                    MediaType.APPLICATION_FORM_URLENCODED
+                            )
+                            .body(formData)
+                            .retrieve()
+                            .body(String.class);
+
+            NumberResponseDto numberResponse =
+                    parseProvisionedPhoneNumber(
+                            response
+                    );
+
+            log.info(
+                    "Exotel phone number provisioned successfully. "
+                            + "phoneNumber={}, providerNumberId={}",
+                    numberResponse.getE164Number(),
+                    numberResponse.getProviderNumberId()
+            );
+
+            return numberResponse;
+
+        } catch (RestClientResponseException exception) {
+
+            String errorBody =
+                    exception.getResponseBodyAsString();
+
+            String exotelError =
+                    parseExotelErrorResponse(
+                            errorBody
+                    );
+
+            log.error(
+                    "Exotel phone-number provisioning failed. "
+                            + "httpStatus={}, error={}",
+                    exception.getStatusCode().value(),
+                    exotelError
+            );
+
+            throw new IllegalStateException(
+                    "Unable to provision phone number through Exotel. "
+                            + exotelError,
+                    exception
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to provision Exotel phone number.",
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to provision phone number through Exotel.",
+                    exception
+            );
+        }
     }
 
     /**
@@ -1033,20 +1178,83 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
      *
      * @param request hangup request
      */
+    /**
+     * Hangs up all active legs belonging to an Exotel call.
+     *
+     * <p>
+     * Exotel requires the active leg identifiers to perform the
+     * hangup operation. Therefore the implementation first retrieves
+     * the active legs for the supplied CallSid and then sends the
+     * hangup action to each active leg.
+     * </p>
+     *
+     * @param request hangup request
+     */
     @Override
     public void hangupCall(
             HangupCallRequestDto request) {
 
-        log.info(
-                "Exotel call hangup requested. callId={}",
-                request != null
-                        ? request.getProviderCallId()
-                        : null
-        );
+        validateHangupRequest(request);
+        validateHangupApiConfiguration();
 
-        throw new UnsupportedOperationException(
-                "Exotel call hangup is not implemented "
-                        + "in the current telephony integration."
+        String callSid =
+                request.getProviderCallId();
+
+        List<String> activeLegSids =
+                getActiveLegSids(
+                        callSid
+                );
+
+        if (activeLegSids.isEmpty()) {
+
+            log.info(
+                    "No active Exotel legs found for call. "
+                            + "callId={}",
+                    callSid
+            );
+
+            return;
+        }
+
+        int successfulHangups = 0;
+
+        for (String legSid : activeLegSids) {
+
+            try {
+
+                hangupExotelLeg(
+                        callSid,
+                        legSid
+                );
+
+                successfulHangups++;
+
+            } catch (Exception exception) {
+
+                log.error(
+                        "Failed to hang up Exotel call leg. "
+                                + "callId={}, legId={}",
+                        callSid,
+                        legSid,
+                        exception
+                );
+            }
+        }
+
+        if (successfulHangups == 0) {
+
+            throw new IllegalStateException(
+                    "Unable to hang up any active Exotel call leg."
+            );
+        }
+
+        log.info(
+                "Exotel call hangup completed. "
+                        + "callId={}, activeLegs={}, "
+                        + "successfulHangups={}",
+                callSid,
+                activeLegSids.size(),
+                successfulHangups
         );
     }
 
@@ -1096,6 +1304,11 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                         )
                 );
 
+        String recordingUrl =
+                callbackParameters.get(
+                        FIELD_RECORDING_URL
+                );
+
         String event =
                 resolveEvent(
                         status
@@ -1118,6 +1331,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 .fromNumber(fromNumber)
                 .toNumber(toNumber)
                 .timestamp(timestamp)
+                .recordingUrl(recordingUrl)
                 .payload(payload)
                 .build();
     }
@@ -1441,6 +1655,461 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
             );
         }
     }
+
+    /**
+     * Validates the Exotel number provisioning request.
+     *
+     * @param request provisioning request
+     */
+    private void validateProvisionNumberRequest(
+            ProvisionNumberRequestDto request) {
+
+        if (request == null) {
+
+            throw new IllegalArgumentException(
+                    "Number provisioning request must not be null."
+            );
+        }
+
+        if (request.getPhoneNumber() == null
+                || request.getPhoneNumber().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Phone number is required for provisioning."
+            );
+        }
+
+        if (exotelProperties.getApiKey() == null
+                || exotelProperties.getApiKey().isBlank()
+                || exotelProperties.getApiToken() == null
+                || exotelProperties.getApiToken().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel API credentials are not configured."
+            );
+        }
+    }
+
+    /**
+     * Parses the response returned by the Exotel
+     * IncomingPhoneNumbers API.
+     *
+     * @param response raw Exotel response
+     * @return normalized provisioned number response
+     */
+    private NumberResponseDto parseProvisionedPhoneNumber(
+            String response) {
+
+        if (response == null
+                || response.isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel returned an empty provisioning response."
+            );
+        }
+
+        try {
+
+            JsonNode rootNode =
+                    objectMapper.readTree(
+                            response
+                    );
+
+            /*
+             * Exotel provisioning response contains the
+             * number details at the root level.
+             */
+            JsonNode numberNode =
+                    rootNode.has("incoming_phone_number")
+                            ? rootNode.path(
+                            "incoming_phone_number"
+                    )
+                            : rootNode;
+
+            String providerNumberId =
+                    numberNode
+                            .path("sid")
+                            .asText(null);
+
+            String phoneNumber =
+                    numberNode
+                            .path("phone_number")
+                            .asText(null);
+
+            String numberType =
+                    numberNode
+                            .path("number_type")
+                            .asText(null);
+
+            if (phoneNumber == null
+                    || phoneNumber.isBlank()) {
+
+                throw new IllegalStateException(
+                        "Exotel provisioning response "
+                                + "does not contain a phone number."
+                );
+            }
+
+            return NumberResponseDto
+                    .builder()
+                    .provider(getProviderCode())
+                    .e164Number(phoneNumber)
+                    .type(numberType)
+                    .status("PROVISIONED")
+                    .providerNumberId(providerNumberId)
+                    .build();
+
+        } catch (IllegalStateException exception) {
+
+            throw exception;
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to parse Exotel provisioning response.",
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to parse Exotel number provisioning response.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Validates an Exotel hangup request.
+     *
+     * @param request hangup request
+     */
+    private void validateHangupRequest(
+            HangupCallRequestDto request) {
+
+        if (request == null) {
+
+            throw new IllegalArgumentException(
+                    "Hangup request must not be null."
+            );
+        }
+
+        if (request.getProviderCallId() == null
+                || request.getProviderCallId().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Provider call ID is required for hangup."
+            );
+        }
+    }
+
+    /**
+     * Validates Exotel configuration required for call hangup.
+     */
+    private void validateHangupApiConfiguration() {
+
+        if (exotelProperties.getBaseUrl() == null
+                || exotelProperties.getBaseUrl().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel base URL is not configured."
+            );
+        }
+
+        if (exotelProperties.getAccountSid() == null
+                || exotelProperties.getAccountSid().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel account SID is not configured."
+            );
+        }
+
+        if (exotelProperties.getApiKey() == null
+                || exotelProperties.getApiKey().isBlank()
+                || exotelProperties.getApiToken() == null
+                || exotelProperties.getApiToken().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel API credentials are not configured."
+            );
+        }
+
+        if (exotelProperties.getActiveCallLegsPath() == null
+                || exotelProperties
+                .getActiveCallLegsPath()
+                .isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel active call legs path "
+                            + "is not configured."
+            );
+        }
+
+        if (exotelProperties.getCallLegPath() == null
+                || exotelProperties
+                .getCallLegPath()
+                .isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel call leg path is not configured."
+            );
+        }
+    }
+
+
+    /**
+     * Retrieves the active leg identifiers for an Exotel call.
+     *
+     * @param callSid Exotel CallSid
+     * @return active leg identifiers
+     */
+    private List<String> getActiveLegSids(
+            String callSid) {
+
+        String path =
+                exotelProperties
+                        .getActiveCallLegsPath()
+                        .replace(
+                                "{accountSid}",
+                                exotelProperties.getAccountSid()
+                        )
+                        .replace(
+                                "{callSid}",
+                                callSid
+                        );
+
+        String requestUrl =
+                exotelProperties.getBaseUrl() + path;
+
+        log.info(
+                "Fetching active Exotel call legs. "
+                        + "callId={}",
+                callSid
+        );
+
+        try {
+
+            String response =
+                    exotelRestClient
+                            .get()
+                            .uri(requestUrl)
+                            .headers(
+                                    headers ->
+                                            headers.setBasicAuth(
+                                                    exotelProperties.getApiKey(),
+                                                    exotelProperties.getApiToken()
+                                            )
+                            )
+                            .retrieve()
+                            .body(String.class);
+
+            return parseActiveLegSids(
+                    response
+            );
+
+        } catch (RestClientResponseException exception) {
+
+            String exotelError =
+                    parseExotelErrorResponse(
+                            exception.getResponseBodyAsString()
+                    );
+
+            log.error(
+                    "Unable to retrieve active Exotel call legs. "
+                            + "callId={}, httpStatus={}, error={}",
+                    callSid,
+                    exception.getStatusCode().value(),
+                    exotelError
+            );
+
+            throw new IllegalStateException(
+                    "Unable to retrieve active Exotel call legs. "
+                            + exotelError,
+                    exception
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unexpected error while retrieving active "
+                            + "Exotel call legs. callId={}",
+                    callSid,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to retrieve active Exotel call legs.",
+                    exception
+            );
+        }
+    }
+
+
+    /**
+     * Parses active leg identifiers from the Exotel response.
+     *
+     * @param response raw Exotel active-legs response
+     * @return active leg identifiers
+     */
+    private List<String> parseActiveLegSids(
+            String response) {
+
+        if (response == null
+                || response.isBlank()) {
+
+            return List.of();
+        }
+
+        try {
+
+            JsonNode rootNode =
+                    objectMapper.readTree(
+                            response
+                    );
+
+            JsonNode legsNode =
+                    rootNode.path("Legs");
+
+            if (!legsNode.isArray()) {
+
+                /*
+                 * Support lowercase response variants as well.
+                 */
+                legsNode =
+                        rootNode.path("legs");
+            }
+
+            if (!legsNode.isArray()) {
+
+                log.warn(
+                        "Exotel active-legs response does not "
+                                + "contain a Legs array."
+                );
+
+                return List.of();
+            }
+
+            List<String> legSids =
+                    new ArrayList<>();
+
+            for (JsonNode legNode : legsNode) {
+
+                String legSid =
+                        legNode
+                                .path("Sid")
+                                .asText(null);
+
+                if (legSid == null
+                        || legSid.isBlank()) {
+
+                    legSid =
+                            legNode
+                                    .path("sid")
+                                    .asText(null);
+                }
+
+                if (legSid != null
+                        && !legSid.isBlank()) {
+
+                    legSids.add(
+                            legSid
+                    );
+                }
+            }
+
+            return legSids;
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to parse Exotel active-legs response.",
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to parse Exotel active call legs.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Sends the hangup action to an individual Exotel call leg.
+     *
+     * @param callSid Exotel CallSid
+     * @param legSid Exotel leg SID
+     */
+    private void hangupExotelLeg(
+            String callSid,
+            String legSid) {
+
+        String path =
+                exotelProperties
+                        .getCallLegPath()
+                        .replace(
+                                "{accountSid}",
+                                exotelProperties.getAccountSid()
+                        )
+                        .replace(
+                                "{callSid}",
+                                callSid
+                        )
+                        .replace(
+                                "{legSid}",
+                                legSid
+                        );
+
+        String requestUrl =
+                exotelProperties.getBaseUrl() + path;
+
+        MultiValueMap<String, String> formData =
+                new LinkedMultiValueMap<>();
+
+        formData.add(
+                FIELD_ACTION,
+                ACTION_HANGUP
+        );
+
+        log.info(
+                "Sending Exotel leg hangup request. "
+                        + "callId={}, legId={}",
+                callSid,
+                legSid
+        );
+
+        try {
+
+            exotelRestClient
+                    .put()
+                    .uri(requestUrl)
+                    .headers(
+                            headers ->
+                                    headers.setBasicAuth(
+                                            exotelProperties.getApiKey(),
+                                            exotelProperties.getApiToken()
+                                    )
+                    )
+                    .contentType(
+                            MediaType.APPLICATION_FORM_URLENCODED
+                    )
+                    .body(formData)
+                    .retrieve()
+                    .toBodilessEntity();
+
+        } catch (RestClientResponseException exception) {
+
+            String exotelError =
+                    parseExotelErrorResponse(
+                            exception.getResponseBodyAsString()
+                    );
+
+            throw new IllegalStateException(
+                    "Exotel leg hangup failed. "
+                            + exotelError,
+                    exception
+            );
+        }
+    }
+
+
 
     /**
      * Returns phone numbers available for provisioning from Exotel.

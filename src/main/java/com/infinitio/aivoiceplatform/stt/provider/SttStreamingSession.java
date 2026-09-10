@@ -45,4 +45,20 @@ public interface SttStreamingSession {
      * @return true when connected
      */
     boolean isOpen();
+
+    /**
+     * Called when the provider streaming session becomes ready.
+     */
+    void onReady();
+
+    /**
+     * Registers a callback that is invoked when the provider
+     * streaming session becomes ready.
+     *
+     * @param readyListener callback to execute when the provider
+     *                      connection becomes ready
+     */
+    void setReadyListener(
+            Runnable readyListener
+    );
 }

@@ -143,6 +143,16 @@ public class SttProperties {
     private boolean streamingReturnTimestamps;
 
     /**
+     * Language strategy used by the realtime streaming STT provider.
+     *
+     * <p>
+     * The value {@code auto} enables provider-side language detection
+     * for multilingual voice conversations.
+     * </p>
+     */
+    private String streamingLanguage;
+
+    /**
      * Logs loaded STT configuration metadata.
      *
      * <p>

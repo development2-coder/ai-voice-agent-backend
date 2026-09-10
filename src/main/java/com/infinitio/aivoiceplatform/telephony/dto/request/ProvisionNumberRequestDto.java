@@ -9,7 +9,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * Request for provisioning a telephone number.
+ * Request for provisioning a telephone number through
+ * a telephony provider.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -22,14 +23,23 @@ import lombok.Setter;
 public class ProvisionNumberRequestDto {
 
     /**
-     * Region in which the number should be provisioned.
+     * Exotel phone number that should be provisioned.
      */
     @NotBlank
-    private String region;
+    private String phoneNumber;
 
     /**
-     * Number type such as local or toll-free.
+     * Optional voice URL to associate with the provisioned number.
      */
-    @NotBlank
-    private String type;
+    private String voiceUrl;
+
+    /**
+     * Optional SMS URL to associate with the provisioned number.
+     */
+    private String smsUrl;
+
+    /**
+     * Optional friendly name for the provisioned number.
+     */
+    private String friendlyName;
 }

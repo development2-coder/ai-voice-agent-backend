@@ -86,4 +86,22 @@ public interface TranscriptService {
     void deactivate(
             String publicId
     );
+
+
+    /**
+     * Finalizes the transcript for a completed call.
+     *
+     * <p>
+     * Creates or updates one complete transcript record
+     * containing the entire conversation from the call.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @param callRecordingPublicId call recording public identifier
+     * @return finalized transcript
+     */
+    TranscriptResponse finalizeCallTranscript(
+            String callPublicId,
+            String callRecordingPublicId
+    );
 }

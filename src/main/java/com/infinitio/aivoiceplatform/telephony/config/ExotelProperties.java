@@ -70,4 +70,14 @@ public class ExotelProperties {
     private String availablePhoneNumbersPath;
 
     private String incomingPhoneNumbersPath;
+
+    /**
+     * API path used to retrieve active legs for an ongoing call.
+     */
+    private String activeCallLegsPath;
+
+    /**
+     * API path used to perform an action on a specific call leg.
+     */
+    private String callLegPath;
 }

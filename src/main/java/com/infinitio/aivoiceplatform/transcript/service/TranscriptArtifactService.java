@@ -1,6 +1,6 @@
 package com.infinitio.aivoiceplatform.transcript.service;
 
-import java.util.Map;
+import java.util.*;
 
 public interface TranscriptArtifactService {
 
@@ -15,5 +15,15 @@ public interface TranscriptArtifactService {
     String append(
             String callPublicId,
             Map<String, Object> message
+    );
+
+    /**
+     * Reads all transcript messages stored for a call.
+     *
+     * @param callPublicId call public identifier
+     * @return complete transcript messages
+     */
+    List<Map<String, Object>> readMessages(
+            String callPublicId
     );
 }

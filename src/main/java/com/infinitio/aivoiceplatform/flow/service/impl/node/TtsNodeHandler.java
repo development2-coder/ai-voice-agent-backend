@@ -18,7 +18,8 @@ import com.infinitio.aivoiceplatform.tts.dto.runtime.TtsSynthesisResponse;
 import com.infinitio.aivoiceplatform.tts.service.TtsRuntimeService;
 import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamListener;
 import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamRegistry;
-
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionContextKeys;
+import com.infinitio.aivoiceplatform.voicegateway.websocket.VoiceGatewayWebSocketSessionRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -94,37 +95,22 @@ public class TtsNodeHandler
      * Call identifier context key.
      */
     private static final String CALL_ID =
-            "callId";
+            FlowExecutionContextKeys.CALL_ID;
 
-    /**
-     * Language configuration/context key.
-     */
     private static final String LANGUAGE =
-            "language";
+            FlowExecutionContextKeys.LANGUAGE;
 
-    /**
-     * Explicit TTS text configuration key.
-     */
     private static final String TEXT =
             "text";
 
-    /**
-     * LLM response context key.
-     */
     private static final String LLM_RESPONSE =
-            "llmResponse";
+            FlowExecutionContextKeys.LLM_RESPONSE;
 
-    /**
-     * Generic response context key.
-     */
     private static final String RESPONSE =
             "response";
 
-    /**
-     * Runtime TTS text context key.
-     */
     private static final String TTS_TEXT =
-            "ttsText";
+            FlowExecutionContextKeys.TTS_TEXT;
 
     /**
      * TTS speaker configuration key.
@@ -217,6 +203,10 @@ public class TtsNodeHandler
      * Registry containing active TTS audio stream listeners.
      */
     private final TtsAudioStreamRegistry ttsAudioStreamRegistry;
+
+
+    private final VoiceGatewayWebSocketSessionRegistry
+            webSocketSessionRegistry;
 
     /**
      * {@inheritDoc}
@@ -396,9 +386,12 @@ public class TtsNodeHandler
             );
 
             /*
-             * Protect the active stream from sending audio after
-             * a caller has interrupted the TTS response.
+             * Mark TTS playback as active before streaming starts.
              */
+            ttsAudioStreamRegistry.startPlayback(
+                    callId
+            );
+
             TtsAudioStreamListener guardedListener =
                     (audioBytes, contentType) -> {
 
@@ -434,11 +427,30 @@ public class TtsNodeHandler
                         );
                     };
 
-            response =
-                    ttsRuntimeService.synthesizeStreaming(
-                            request,
-                            guardedListener
-                    );
+            try {
+
+                response =
+                        ttsRuntimeService.synthesizeStreaming(
+                                request,
+                                guardedListener
+                        );
+
+                webSocketSessionRegistry.flushAudio(
+                        callId,
+                        null,
+                        response.getContentType()
+                );
+
+            } finally {
+
+                /*
+                 * TTS streaming has completed. Background speech
+                 * must not be treated as a barge-in against this stream.
+                 */
+                ttsAudioStreamRegistry.stopPlayback(
+                        callId
+                );
+            }
 
         } else {
 
@@ -591,24 +603,28 @@ public class TtsNodeHandler
             }
         }
 
-        String ttsText =
-                getOptionalContextString(
-                        context,
-                        TTS_TEXT
-                );
-
-        if (ttsText != null) {
-            return ttsText;
-        }
-
         String llmResponse =
                 getOptionalContextString(
                         context,
                         LLM_RESPONSE
                 );
 
-        if (llmResponse != null) {
+        if (llmResponse != null
+                && !llmResponse.isBlank()) {
+
             return llmResponse;
+        }
+
+        String ttsText =
+                getOptionalContextString(
+                        context,
+                        TTS_TEXT
+                );
+
+        if (ttsText != null
+                && !ttsText.isBlank()) {
+
+            return ttsText;
         }
 
         String response =

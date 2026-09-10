@@ -281,4 +281,15 @@ public final class ExotelWebSocketConstants {
      */
     public static final int AUDIO_SAMPLE_SIZE_BITS =
             16;
+
+    /**
+     * Maximum outbound audio chunk size for Exotel.
+     *
+     * <p>
+     * At 8 kHz, 16-bit mono PCM, 100 milliseconds
+     * of audio corresponds to 3200 bytes.
+     * </p>
+     */
+    public static final int OUTBOUND_AUDIO_CHUNK_SIZE_BYTES =
+            3200;
 }

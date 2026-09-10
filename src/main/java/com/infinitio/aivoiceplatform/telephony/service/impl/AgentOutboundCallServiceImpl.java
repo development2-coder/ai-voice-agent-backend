@@ -15,6 +15,7 @@ import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceAgentOutboundCal
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.AgentOutboundCallResponseDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
+import com.infinitio.aivoiceplatform.telephony.service.AgentOutboundCallPreparationService;
 import com.infinitio.aivoiceplatform.telephony.service.AgentOutboundCallService;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,6 @@ import java.time.LocalDateTime;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class AgentOutboundCallServiceImpl
         implements AgentOutboundCallService {
 
@@ -76,6 +76,9 @@ public class AgentOutboundCallServiceImpl
 
     private final TelephonyMediaProperties
             telephonyMediaProperties;
+
+    private final AgentOutboundCallPreparationService
+            agentOutboundCallPreparationService;
 
     /**
      * Places a direct outbound call for an Agent Flow.
@@ -237,84 +240,28 @@ public class AgentOutboundCallServiceImpl
          * phone number.
          */
 
-        Call call =
-                Call.builder()
-                        .campaignContact(null)
-                        .provider(providerCode)
-                        .fromNumber(
-                                phoneNumber
-                                        .getPhoneNumber()
-                        )
-                        .toNumber(
-                                request.getToNumber()
-                        )
-                        .direction(OUTBOUND)
-                        .status(INITIATED)
-                        .startedAt(
-                                LocalDateTime.now()
-                        )
-                        .description(
-                                "Direct Agent outbound call."
-                        )
-                        .createdBy(
-                                currentUserService
-                                        .getCurrentUserId()
-                        )
-                        .build();
-
-        Call savedCall =
-                callRepository.save(
-                        call
-                );
-
-        log.info(
-                "Outbound Call created. "
-                        + "callPublicId={}, provider={}",
-                savedCall.getPublicId(),
-                providerCode
-        );
-
         /*
          * ---------------------------------------------------------
-         * CREATE CALL SESSION
+         * CREATE CALL + CALL SESSION
          * ---------------------------------------------------------
+         *
+         * The Call and CallSession are created inside a separate
+         * transaction and committed before the telephony provider
+         * is contacted.
+         *
+         * Exotel may establish the WebSocket immediately after the
+         * outbound call is initiated. Therefore the CallSession must
+         * already be committed and visible to the WebSocket thread.
          */
 
-        CreateCallSessionRequestDto
-                callSessionRequest =
-                CreateCallSessionRequestDto
-                        .builder()
-                        .callId(
-                                savedCall
-                                        .getPublicId()
-                        )
-                        .tenantId(
-                                flow.getAgent()
-                                        .getTenant()
-                                        .getPublicId()
-                        )
-                        .agentId(
-                                flow.getAgent()
-                                        .getPublicId()
-                        )
-                        .agentVersion(
-                                flow.getVersion()
-                        )
-                        .flowPublicId(
-                                flow.getPublicId()
-                        )
-                        .language(
-                                flow.getAgent()
-                                        .getLanguage()
-                        )
-                        .build();
-
-        callSessionCreateService
-                .createCallSession(
-                        callSessionRequest,
-                        currentUserService
-                                .getCurrentUserId()
-                );
+        Call savedCall =
+                agentOutboundCallPreparationService
+                        .prepareOutboundCall(
+                                request,
+                                flow,
+                                providerCode,
+                                phoneNumber.getPhoneNumber()
+                        );
 
         /*
          * ---------------------------------------------------------

@@ -23,6 +23,7 @@ import com.infinitio.aivoiceplatform.flow.service.FlowExecutionRuntimeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowExecutionService;
 import com.infinitio.aivoiceplatform.flow.service.FlowResultService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
+import com.infinitio.aivoiceplatform.user.constant.UserConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -201,25 +202,27 @@ public class FlowExecutionServiceImpl
         }
 
         /*
-         * Resolve authenticated user for audit fields.
+         * Resolve the audit user.
+         *
+         * Normal API requests have an authenticated user.
+         * Provider-driven runtime callbacks such as Exotel
+         * WebSocket requests do not have an authenticated
+         * HTTP security context.
+         *
+         * Therefore the configured system user is used when
+         * no authenticated user is available.
          */
         Long currentUserId =
-                currentUserService.getCurrentUserId();
+                resolveExecutionUserId();
 
-        if (currentUserId == null) {
-
-            log.error(
-                    "Unable to start Flow execution because " +
-                            "authenticated user ID is unavailable. " +
-                            "flowPublicId={}, callPublicId={}",
-                    request.getFlowPublicId(),
-                    request.getCallPublicId()
-            );
-
-            throw new IllegalStateException(
-                    "Authenticated user is required to start flow execution."
-            );
-        }
+        log.debug(
+                "Resolved Flow execution audit user. " +
+                        "flowPublicId={}, callPublicId={}, " +
+                        "createdBy={}",
+                request.getFlowPublicId(),
+                request.getCallPublicId(),
+                currentUserId
+        );
 
         /*
          * Create FlowExecution.
@@ -565,8 +568,13 @@ public class FlowExecutionServiceImpl
                 LocalDateTime.now()
         );
 
+        /*
+         * Cancellation can also be triggered by a provider
+         * runtime callback, so do not directly require an
+         * authenticated HTTP user here.
+         */
         execution.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                resolveExecutionUserId()
         );
 
         executionRepository.save(
@@ -578,6 +586,61 @@ public class FlowExecutionServiceImpl
                         "executionPublicId={}",
                 executionPublicId
         );
+    }
+
+    // =========================================================
+    // AUDIT USER RESOLUTION
+    // =========================================================
+
+    /**
+     * Resolves the user responsible for Flow execution audit fields.
+     *
+     * <p>
+     * Interactive API requests normally have an authenticated user.
+     * Provider-driven runtime callbacks such as Exotel WebSocket
+     * requests do not have an authenticated HTTP security context.
+     * </p>
+     *
+     * <p>
+     * When an authenticated user is unavailable, the configured
+     * system user is used so that runtime execution can continue
+     * without violating the non-null audit fields of the entity.
+     * </p>
+     *
+     * @return authenticated user ID or configured system user ID
+     */
+    private Long resolveExecutionUserId() {
+
+        try {
+
+            if (currentUserService.isAuthenticated()) {
+
+                Long currentUserId =
+                        currentUserService.getCurrentUserId();
+
+                if (currentUserId != null) {
+
+                    return currentUserId;
+                }
+            }
+
+        } catch (Exception exception) {
+
+            log.debug(
+                    "Unable to resolve authenticated user " +
+                            "for Flow execution. " +
+                            "Using system user.",
+                    exception
+            );
+        }
+
+        log.debug(
+                "No authenticated user available for Flow execution. " +
+                        "Using system user. systemUserId={}",
+                UserConstants.SYSTEM_USER_ID
+        );
+
+        return UserConstants.SYSTEM_USER_ID;
     }
 
     // =========================================================

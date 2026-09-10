@@ -20,7 +20,7 @@ import com.infinitio.aivoiceplatform.voicegateway.dto.request.VoiceGatewayStartR
 import com.infinitio.aivoiceplatform.voicegateway.dto.request.VoiceGatewayStopRequestDto;
 import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayService;
 import com.infinitio.aivoiceplatform.voicegateway.websocket.VoiceGatewayWebSocketSessionRegistry;
-
+import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayCallResolverService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -102,6 +102,13 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
      */
     private static final String SESSION_CHANNELS =
             "exotel.channels";
+
+    /**
+     * Resolves the application Call public identifier from
+     * the Exotel provider call identifier.
+     */
+    private final VoiceGatewayCallResolverService
+            voiceGatewayCallResolverService;
 
     /**
      * Handles a newly established WebSocket connection.
@@ -1018,9 +1025,39 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
      * @param message parsed Exotel message
      * @return application call identifier
      */
+    /**
+     * Resolves the application call identifier associated with
+     * the Exotel WebSocket stream.
+     *
+     * <p>
+     * The application call identifier is resolved using the following
+     * priority:
+     * </p>
+     *
+     * <ol>
+     *     <li>Application call ID supplied through Exotel custom parameters.</li>
+     *     <li>Provider Call SID resolved through the persisted Call record.</li>
+     *     <li>Application call ID supplied through the WebSocket URI.</li>
+     * </ol>
+     *
+     * <p>
+     * Provider Call SID and application Call public ID are intentionally
+     * treated as different identifiers.
+     * </p>
+     *
+     * @param session WebSocket session
+     * @param message parsed Exotel message
+     * @return application call identifier
+     */
     private String resolveApplicationCallId(
             WebSocketSession session,
             ExotelWebSocketMessage message) {
+
+        /*
+         * ---------------------------------------------------------
+         * STEP 1: Resolve from Exotel custom parameters.
+         * ---------------------------------------------------------
+         */
 
         String callId =
                 resolveCallIdFromCustomParameters(
@@ -1030,21 +1067,107 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
         if (callId != null
                 && !callId.isBlank()) {
 
+            log.info(
+                    "Application Call ID resolved from Exotel custom parameters. " +
+                            "callId={}, sessionId={}",
+                    callId,
+                    session.getId()
+            );
+
             return callId;
         }
 
-        if (message.getStart() != null
-                && message.getStart().getCallSid() != null
-                && !message.getStart().getCallSid().isBlank()) {
+        /*
+         * ---------------------------------------------------------
+         * STEP 2: Resolve provider Call SID from persisted Call.
+         * ---------------------------------------------------------
+         *
+         * Exotel sends its Call SID in:
+         *
+         * start.call_sid
+         *
+         * The Call table stores:
+         *
+         * provider_call_id -> public_id
+         *
+         * Therefore the provider Call SID can safely be converted
+         * into the application's Call public ID.
+         */
 
-            return message
-                    .getStart()
-                    .getCallSid();
+        String providerCallId =
+                message.getStart() != null
+                        ? message.getStart().getCallSid()
+                        : null;
+
+        if (providerCallId != null
+                && !providerCallId.isBlank()) {
+
+            try {
+
+                callId =
+                        voiceGatewayCallResolverService
+                                .resolveCallId(
+                                        providerCallId
+                                );
+
+                if (callId != null
+                        && !callId.isBlank()) {
+
+                    log.info(
+                            "Application Call ID resolved from provider Call SID. " +
+                                    "providerCallId={}, callId={}, sessionId={}",
+                            providerCallId,
+                            callId,
+                            session.getId()
+                    );
+
+                    return callId;
+                }
+
+            } catch (Exception exception) {
+
+                log.warn(
+                        "Unable to resolve application Call ID from provider " +
+                                "Call SID. providerCallId={}, sessionId={}",
+                        providerCallId,
+                        session.getId(),
+                        exception
+                );
+            }
         }
 
-        return resolveCallIdFromUri(
-                session.getUri()
+        /*
+         * ---------------------------------------------------------
+         * STEP 3: Resolve from WebSocket URI.
+         * ---------------------------------------------------------
+         */
+
+        callId =
+                resolveCallIdFromUri(
+                        session.getUri()
+                );
+
+        if (callId != null
+                && !callId.isBlank()) {
+
+            log.info(
+                    "Application Call ID resolved from WebSocket URI. " +
+                            "callId={}, sessionId={}",
+                    callId,
+                    session.getId()
+            );
+
+            return callId;
+        }
+
+        log.warn(
+                "Unable to resolve application Call ID. " +
+                        "sessionId={}, providerCallId={}",
+                session.getId(),
+                providerCallId
         );
+
+        return null;
     }
 
     /**
@@ -1053,6 +1176,13 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
      *
      * @param message parsed Exotel message
      * @return call identifier or null
+     */
+    /**
+     * Resolves an application call identifier from Exotel
+     * custom parameters.
+     *
+     * @param message parsed Exotel message
+     * @return application call identifier or null
      */
     private String resolveCallIdFromCustomParameters(
             ExotelWebSocketMessage message) {
@@ -1070,13 +1200,37 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
 
         if (!(customParameters instanceof Map<?, ?> parameters)) {
 
+            log.debug(
+                    "Exotel custom parameters are not represented as a Map."
+            );
+
             return null;
         }
 
+        /*
+         * Current application-generated stream URL uses:
+         *
+         * ?callPublicId=<application-call-public-id>
+         *
+         * Exotel passes this value inside custom_parameters.
+         */
+
         Object callId =
                 parameters.get(
-                        "call_id"
+                        "callPublicId"
                 );
+
+        /*
+         * Backward-compatible aliases.
+         */
+
+        if (callId == null) {
+
+            callId =
+                    parameters.get(
+                            "call_id"
+                    );
+        }
 
         if (callId == null) {
 
@@ -1086,9 +1240,20 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
                     );
         }
 
-        return callId != null
-                ? callId.toString()
-                : null;
+        if (callId == null) {
+
+            return null;
+        }
+
+        String resolvedCallId =
+                callId.toString();
+
+        log.debug(
+                "Exotel custom parameter Call ID resolved. callId={}",
+                resolvedCallId
+        );
+
+        return resolvedCallId;
     }
 
     /**

@@ -4,15 +4,8 @@ import java.time.LocalDateTime;
 
 import com.infinitio.aivoiceplatform.call.entity.Call;
 import com.infinitio.aivoiceplatform.common.entity.BaseEntity;
-
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import com.infinitio.aivoiceplatform.callrecording.entity.CallRecording;
+import jakarta.persistence.*;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -80,6 +73,24 @@ public class Transcript extends BaseEntity {
     private Call call;
 
     /**
+     * Complete call recording associated with this transcript.
+     *
+     * <p>
+     * The recording is associated after the call recording becomes
+     * available from the telephony provider.
+     * </p>
+     */
+    @ManyToOne(
+            fetch = FetchType.LAZY,
+            optional = true
+    )
+    @JoinColumn(
+            name = "call_recording_id",
+            nullable = true
+    )
+    private CallRecording callRecording;
+
+    /**
      * Sequence number of this transcript segment within the call.
      */
     @Column(
@@ -106,10 +117,11 @@ public class Transcript extends BaseEntity {
     /**
      * Transcribed text.
      */
+    @Lob
     @Column(
             name = "text",
             nullable = false,
-            length = 5000
+            columnDefinition = "LONGTEXT"
     )
     private String text;
 

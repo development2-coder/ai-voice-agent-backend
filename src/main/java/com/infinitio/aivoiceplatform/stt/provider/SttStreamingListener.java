@@ -1,5 +1,7 @@
 package com.infinitio.aivoiceplatform.stt.provider;
 
+import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
+
 /**
  * Listener for events produced by a streaming Speech-to-Text
  * provider.
@@ -28,27 +30,24 @@ public interface SttStreamingListener {
     /**
      * Called when a final transcript is received.
      *
-     * @param callId call identifier
-     * @param transcript final transcript
+     * <p>
+     * The complete STT response is supplied so that runtime
+     * information such as the detected language is preserved
+     * and can be propagated to the Flow execution context.
+     * </p>
+     *
+     * @param response final STT response
      */
     void onFinalTranscript(
-            String callId,
-            String transcript);
+            SttTranscriptionResponse response);
 
     /**
      * Called when the provider detects the beginning of speech.
      *
      * <p>
      * This callback is used by the Voice Gateway to implement
-     * barge-in. When the caller starts speaking while TTS audio
-     * is being played, the active TTS stream can be interrupted
-     * and a clear-audio instruction can be sent to the telephony
-     * provider.
-     * </p>
-     *
-     * <p>
-     * The default implementation intentionally does nothing so
-     * existing implementations remain backward compatible.
+     * barge-in. The Voice Gateway may wait for STT confirmation
+     * before interrupting active TTS playback.
      * </p>
      *
      * @param callId call identifier
@@ -60,12 +59,6 @@ public interface SttStreamingListener {
 
     /**
      * Called when the provider detects the end of speech.
-     *
-     * <p>
-     * This callback is optional and can be used by the Voice
-     * Gateway or conversation runtime when speech activity
-     * information is required.
-     * </p>
      *
      * @param callId call identifier
      */

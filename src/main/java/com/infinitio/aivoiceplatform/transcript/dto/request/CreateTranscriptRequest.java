@@ -55,7 +55,6 @@ public class CreateTranscriptRequest {
      * Transcript text.
      */
     @NotBlank
-    @Size(max = 5000)
     private String text;
 
     /**

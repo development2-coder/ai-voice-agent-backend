@@ -20,7 +20,13 @@ import com.infinitio.aivoiceplatform.transcript.mapper.TranscriptMapper;
 import com.infinitio.aivoiceplatform.transcript.repository.TranscriptRepository;
 import com.infinitio.aivoiceplatform.transcript.service.TranscriptService;
 import com.infinitio.aivoiceplatform.transcript.validator.TranscriptValidator;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
+import com.infinitio.aivoiceplatform.callrecording.entity.CallRecording;
+import com.infinitio.aivoiceplatform.callrecording.repository.CallRecordingRepository;
+import com.infinitio.aivoiceplatform.transcript.service.TranscriptArtifactService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -55,6 +61,18 @@ public class TranscriptServiceImpl
     private final TranscriptMapper transcriptMapper;
 
     private final TranscriptValidator transcriptValidator;
+
+    private static final String COMPLETE_RUNTIME_SOURCE =
+            "RUNTIME_COMPLETE";
+
+    private static final String COMPLETE_CONVERSATION_SPEAKER =
+            "CONVERSATION";
+
+    private final CallRecordingRepository
+            callRecordingRepository;
+
+    private final TranscriptArtifactService
+            transcriptArtifactService;
 
     /**
      * {@inheritDoc}
@@ -463,5 +481,236 @@ public class TranscriptServiceImpl
                 TranscriptMessages
                         .SEQUENCE_NUMBER_ALREADY_EXISTS
         );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public TranscriptResponse finalizeCallTranscript(
+            String callPublicId,
+            String callRecordingPublicId) {
+
+        log.info(
+                "Finalizing complete call transcript. "
+                        + "callPublicId={}, callRecordingPublicId={}",
+                callPublicId,
+                callRecordingPublicId
+        );
+
+        Call call =
+                getCall(
+                        callPublicId
+                );
+
+        CallRecording callRecording =
+                callRecordingRepository
+                        .findByPublicId(
+                                callRecordingPublicId
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        "Call recording not found."
+                                )
+                        );
+
+        if (callRecording.getCall() == null
+                || !call.getId().equals(
+                callRecording.getCall().getId()
+        )) {
+
+            throw new IllegalArgumentException(
+                    "Call recording does not belong to the call."
+            );
+        }
+
+        List<Map<String, Object>> messages =
+                transcriptArtifactService.readMessages(
+                        callPublicId
+                );
+
+        if (messages.isEmpty()) {
+
+            log.warn(
+                    "No transcript messages found for completed call. "
+                            + "callPublicId={}",
+                    callPublicId
+            );
+
+            return null;
+        }
+
+        String completeText =
+                buildCompleteTranscriptText(
+                        messages
+                );
+
+        String language =
+                resolveLanguage(
+                        messages
+                );
+
+        Transcript transcript =
+                transcriptRepository
+                        .findFirstByCallIdAndSource(
+                                call.getId(),
+                                COMPLETE_RUNTIME_SOURCE
+                        )
+                        .orElse(null);
+
+        if (transcript == null) {
+
+            transcript =
+                    Transcript.builder()
+                            .call(call)
+                            .callRecording(callRecording)
+                            .sequenceNumber(1)
+                            .speakerType(
+                                    COMPLETE_CONVERSATION_SPEAKER
+                            )
+                            .text(completeText)
+                            .language(language)
+                            .source(
+                                    COMPLETE_RUNTIME_SOURCE
+                            )
+                            .startedAt(
+                                    call.getStartedAt()
+                            )
+                            .endedAt(
+                                    call.getEndedAt()
+                            )
+                            .createdBy(
+                                    call.getCreatedBy()
+                            )
+                            .build();
+
+        } else {
+
+            transcript.setCallRecording(
+                    callRecording
+            );
+
+            transcript.setText(
+                    completeText
+            );
+
+            transcript.setLanguage(
+                    language
+            );
+
+            transcript.setStartedAt(
+                    call.getStartedAt()
+            );
+
+            transcript.setEndedAt(
+                    call.getEndedAt()
+            );
+        }
+
+        Transcript savedTranscript =
+                transcriptRepository.save(
+                        transcript
+                );
+
+        log.info(
+                "Complete call transcript finalized successfully. "
+                        + "transcriptPublicId={}, callPublicId={}, "
+                        + "recordingPublicId={}, messageCount={}",
+                savedTranscript.getPublicId(),
+                callPublicId,
+                callRecordingPublicId,
+                messages.size()
+        );
+
+        return transcriptMapper.toResponse(
+                savedTranscript
+        );
+    }
+
+    /**
+     * Builds one complete conversation text from all
+     * transcript artifact messages.
+     *
+     * @param messages transcript messages
+     * @return complete conversation text
+     */
+    private String buildCompleteTranscriptText(
+            List<Map<String, Object>> messages) {
+
+        StringBuilder transcriptText =
+                new StringBuilder();
+
+        for (Map<String, Object> message :
+                messages) {
+
+            String speaker =
+                    String.valueOf(
+                            message.getOrDefault(
+                                    "speakerType",
+                                    "UNKNOWN"
+                            )
+                    );
+
+            String text =
+                    String.valueOf(
+                            message.getOrDefault(
+                                    "text",
+                                    ""
+                            )
+                    );
+
+            if (text.isBlank()) {
+                continue;
+            }
+
+            if (transcriptText.length() > 0) {
+
+                transcriptText.append(
+                        System.lineSeparator()
+                );
+
+                transcriptText.append(
+                        System.lineSeparator()
+                );
+            }
+
+            transcriptText
+                    .append(speaker)
+                    .append(": ")
+                    .append(text);
+        }
+
+        return transcriptText.toString();
+    }
+
+    /**
+     * Resolves the first available language from transcript messages.
+     *
+     * @param messages transcript messages
+     * @return language when available
+     */
+    private String resolveLanguage(
+            List<Map<String, Object>> messages) {
+
+        for (Map<String, Object> message :
+                messages) {
+
+            Object language =
+                    message.get(
+                            "language"
+                    );
+
+            if (language != null
+                    && !String.valueOf(
+                    language
+            ).isBlank()) {
+
+                return String.valueOf(
+                        language
+                );
+            }
+        }
+
+        return null;
     }
 }

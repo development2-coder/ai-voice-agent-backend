@@ -77,4 +77,17 @@ public interface TranscriptRepository
             Long callId,
             Pageable pageable
     );
+
+    /**
+     * Finds the complete runtime transcript for a call.
+     *
+     * @param callId database identifier of the call
+     * @param source transcript source
+     * @return complete transcript when available
+     */
+    Optional<Transcript>
+    findFirstByCallIdAndSource(
+            Long callId,
+            String source
+    );
 }

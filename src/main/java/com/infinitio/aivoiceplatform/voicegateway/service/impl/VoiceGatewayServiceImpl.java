@@ -5,8 +5,8 @@ import com.infinitio.aivoiceplatform.orchestrator.dto.request.ProcessTranscriptR
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.StartConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationOrchestratorResponseDto;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationOrchestratorService;
-import com.infinitio.aivoiceplatform.stt.service.SttRuntimeService;
 import com.infinitio.aivoiceplatform.stt.provider.SttStreamingListener;
+import com.infinitio.aivoiceplatform.stt.service.SttRuntimeService;
 import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamRegistry;
 import com.infinitio.aivoiceplatform.voicegateway.constant.VoiceGatewayConstants;
 import com.infinitio.aivoiceplatform.voicegateway.constant.VoiceGatewayMessages;
@@ -18,25 +18,29 @@ import com.infinitio.aivoiceplatform.voicegateway.dto.response.VoiceGatewayRespo
 import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayCallContextService;
 import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayService;
 import com.infinitio.aivoiceplatform.voicegateway.websocket.VoiceGatewayWebSocketSessionRegistry;
+import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Default implementation of the Voice Gateway service.
  *
  * <p>
- * This service acts as the runtime bridge between the
- * telephony WebSocket layer and the Conversation Orchestrator.
+ * The Voice Gateway provides the transport bridge between the
+ * provider-specific telephony WebSocket layer and the
+ * Conversation Orchestrator.
  * </p>
  *
  * <p>
- * The Voice Gateway is responsible for transport-level
- * validation and event handling. Tenant-specific runtime
- * behaviour is delegated to the Conversation Orchestrator.
+ * Runtime conversation behaviour is not hardcoded here.
+ * The selected Flow and its configured nodes are resolved by
+ * the Conversation Orchestrator and Flow Runtime.
  * </p>
  *
  * @author Infinitio Digital
@@ -49,20 +53,30 @@ import java.util.Base64;
 public class VoiceGatewayServiceImpl
         implements VoiceGatewayService {
 
-    private final VoiceGatewayCallContextService
-            callContextService;
+    private final VoiceGatewayCallContextService callContextService;
 
     private final ConversationOrchestratorService
             conversationOrchestratorService;
 
-    private final SttRuntimeService
-            sttRuntimeService;
+    private final SttRuntimeService sttRuntimeService;
 
     private final VoiceGatewayWebSocketSessionRegistry
             webSocketSessionRegistry;
 
-    private final TtsAudioStreamRegistry
-            ttsAudioStreamRegistry;
+    private final TtsAudioStreamRegistry ttsAudioStreamRegistry;
+
+    /**
+     * Stores whether caller speech has been detected by VAD
+     * and is waiting for STT confirmation.
+     *
+     * <p>
+     * VAD speech-start alone must not interrupt TTS because
+     * background noise or other sounds can trigger VAD.
+     * </p>
+     */
+    private final Map<String, Boolean>
+            pendingBargeIns =
+            new ConcurrentHashMap<>();
 
     // =========================================================
     // START STREAM
@@ -78,9 +92,7 @@ public class VoiceGatewayServiceImpl
     public VoiceGatewayResponseDto startStream(
             VoiceGatewayStartRequestDto request) {
 
-        validateStartRequest(
-                request
-        );
+        validateStartRequest(request);
 
         log.info(
                 "{} Starting voice stream. " +
@@ -110,6 +122,8 @@ public class VoiceGatewayServiceImpl
             );
         }
 
+        validateRuntimeContext(callSession);
+
         String tenantId =
                 callSession.getTenantId();
 
@@ -125,10 +139,6 @@ public class VoiceGatewayServiceImpl
         String language =
                 callSession.getLanguage();
 
-        validateRuntimeContext(
-                callSession
-        );
-
         log.info(
                 "{} Runtime context resolved. " +
                         "callId={}, tenantId={}, agentId={}, " +
@@ -142,12 +152,30 @@ public class VoiceGatewayServiceImpl
                 language
         );
 
+        registerTtsListener(
+                request.getCallId(),
+                request.getStreamId()
+        );
+
         /*
-         * The Voice Gateway does not choose the Flow.
-         *
-         * The Flow was selected when the Call Session was created
-         * and is now recovered from that persisted runtime state.
+         * Reset interruption state before the conversation starts.
          */
+        ttsAudioStreamRegistry.resetInterruption(
+                request.getCallId()
+        );
+
+        /*
+         * Reset pending barge-in state.
+         */
+        pendingBargeIns.remove(
+                request.getCallId()
+        );
+
+        startSttStreaming(
+                request,
+                language
+        );
+
         StartConversationRequestDto conversationRequest =
                 StartConversationRequestDto.builder()
                         .callId(
@@ -171,46 +199,32 @@ public class VoiceGatewayServiceImpl
                         .build();
 
         ConversationOrchestratorResponseDto
-                orchestratorResponse =
-                conversationOrchestratorService.start(
-                        conversationRequest
-                );
+                orchestratorResponse;
 
-        /*
-         * Register the TTS output listener before starting the
-         * STT stream so that TTS audio generated by the Flow
-         * Runtime can immediately be sent to the active
-         * telephony WebSocket.
-         */
-        ttsAudioStreamRegistry.register(
-                request.getCallId(),
-                (audioBytes, contentType) ->
-                        webSocketSessionRegistry.sendAudio(
-                                request.getCallId(),
-                                request.getStreamId(),
-                                audioBytes,
-                                contentType
-                        )
-        );
+        try {
 
-        /*
-         * Reset any stale interruption state from a previous
-         * lifecycle using the same Call ID.
-         */
-        ttsAudioStreamRegistry.resetInterruption(
-                request.getCallId()
-        );
+            orchestratorResponse =
+                    conversationOrchestratorService.start(
+                            conversationRequest
+                    );
 
-        sttRuntimeService.startStreaming(
-                request.getCallId(),
-                language,
-                VoiceGatewayConstants.AUDIO_SAMPLE_RATE,
-                VoiceGatewayConstants.AUDIO_ENCODING,
-                buildSttStreamingListener(
-                        request.getCallId(),
-                        request.getStreamId()
-                )
-        );
+        } catch (Exception exception) {
+
+            log.error(
+                    "{} Conversation initialization failed. " +
+                            "callId={}, flowPublicId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    request.getCallId(),
+                    flowPublicId,
+                    exception
+            );
+
+            stopRuntimeResources(
+                    request.getCallId()
+            );
+
+            throw exception;
+        }
 
         log.info(
                 "{} Voice conversation initialized. " +
@@ -231,12 +245,104 @@ public class VoiceGatewayServiceImpl
     }
 
     // =========================================================
+    // TTS REGISTRATION
+    // =========================================================
+
+    /**
+     * Registers the TTS audio listener for the active call.
+     *
+     * @param callId application Call ID
+     * @param streamId provider stream ID
+     */
+    private void registerTtsListener(
+            String callId,
+            String streamId) {
+
+        ttsAudioStreamRegistry.register(
+                callId,
+                (audioBytes, contentType) ->
+                        webSocketSessionRegistry.sendAudio(
+                                callId,
+                                streamId,
+                                audioBytes,
+                                contentType
+                        )
+        );
+
+        log.debug(
+                "{} TTS audio listener registered. " +
+                        "callId={}, streamId={}",
+                VoiceGatewayConstants.LOG_PREFIX,
+                callId,
+                streamId
+        );
+    }
+
+    // =========================================================
+    // STT INITIALIZATION
+    // =========================================================
+
+    /**
+     * Starts the streaming STT session for the call.
+     *
+     * @param request Voice Gateway start request
+     * @param language configured conversation language
+     */
+    private void startSttStreaming(
+            VoiceGatewayStartRequestDto request,
+            String language) {
+
+        try {
+
+            sttRuntimeService.startStreaming(
+                    request.getCallId(),
+                    language,
+                    VoiceGatewayConstants.AUDIO_SAMPLE_RATE,
+                    VoiceGatewayConstants.AUDIO_ENCODING,
+                    buildSttStreamingListener(
+                            request.getCallId(),
+                            request.getStreamId()
+                    )
+            );
+
+            log.info(
+                    "{} Streaming STT session initialized. " +
+                            "callId={}, streamId={}, language={}, " +
+                            "sampleRate={}, encoding={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    request.getCallId(),
+                    request.getStreamId(),
+                    language,
+                    VoiceGatewayConstants.AUDIO_SAMPLE_RATE,
+                    VoiceGatewayConstants.AUDIO_ENCODING
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "{} Failed to initialize streaming STT. " +
+                            "callId={}, streamId={}, language={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    request.getCallId(),
+                    request.getStreamId(),
+                    language,
+                    exception
+            );
+
+            ttsAudioStreamRegistry.remove(
+                    request.getCallId()
+            );
+
+            throw exception;
+        }
+    }
+
+    // =========================================================
     // MEDIA
     // =========================================================
 
     /**
-     * Processes an incoming media packet and streams the
-     * decoded audio to the active STT session.
+     * Processes an incoming media packet.
      *
      * @param request Voice Gateway media request
      * @return Voice Gateway response
@@ -245,9 +351,7 @@ public class VoiceGatewayServiceImpl
     public VoiceGatewayResponseDto processMedia(
             VoiceGatewayMediaRequestDto request) {
 
-        validateMediaRequest(
-                request
-        );
+        validateMediaRequest(request);
 
         log.debug(
                 "{} Processing incoming media. " +
@@ -290,15 +394,28 @@ public class VoiceGatewayServiceImpl
                 request.getSampleRate()
         );
 
-        sttRuntimeService.streamAudio(
-                request.getCallId(),
-                audioBytes
-        );
+        try {
 
-        /*
-         * MEDIA packets do not produce a conversational response.
-         * STT events arrive asynchronously through the listener.
-         */
+            sttRuntimeService.streamAudio(
+                    request.getCallId(),
+                    audioBytes
+            );
+
+        } catch (IllegalStateException exception) {
+
+            log.error(
+                    "{} Active STT session is unavailable while " +
+                            "processing media. callId={}, streamId={}, chunk={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    request.getCallId(),
+                    request.getStreamId(),
+                    request.getChunk(),
+                    exception
+            );
+
+            throw exception;
+        }
+
         return null;
     }
 
@@ -316,9 +433,7 @@ public class VoiceGatewayServiceImpl
     public VoiceGatewayResponseDto processDtmf(
             VoiceGatewayDtmfRequestDto request) {
 
-        validateDtmfRequest(
-                request
-        );
+        validateDtmfRequest(request);
 
         log.info(
                 "{} Processing DTMF. " +
@@ -330,18 +445,10 @@ public class VoiceGatewayServiceImpl
         );
 
         return VoiceGatewayResponseDto.builder()
-                .callId(
-                        request.getCallId()
-                )
-                .streamId(
-                        request.getStreamId()
-                )
-                .action(
-                        VoiceGatewayConstants.ACTION_LISTEN
-                )
-                .listen(
-                        true
-                )
+                .callId(request.getCallId())
+                .streamId(request.getStreamId())
+                .action(VoiceGatewayConstants.ACTION_LISTEN)
+                .listen(true)
                 .build();
     }
 
@@ -350,7 +457,8 @@ public class VoiceGatewayServiceImpl
     // =========================================================
 
     /**
-     * Stops the Voice Gateway stream.
+     * Stops the Voice Gateway stream and releases all runtime
+     * resources associated with the call.
      *
      * @param request stop request
      * @return Voice Gateway response
@@ -359,9 +467,7 @@ public class VoiceGatewayServiceImpl
     public VoiceGatewayResponseDto stopStream(
             VoiceGatewayStopRequestDto request) {
 
-        validateStopRequest(
-                request
-        );
+        validateStopRequest(request);
 
         log.info(
                 "{} Stopping voice stream. " +
@@ -374,35 +480,80 @@ public class VoiceGatewayServiceImpl
                 request.getReason()
         );
 
-        sttRuntimeService.stopStreaming(
-                request.getCallId()
-        );
-
-        /*
-         * Remove TTS streaming state when the call ends.
-         */
-        ttsAudioStreamRegistry.remove(
-                request.getCallId()
-        );
-
-        webSocketSessionRegistry.remove(
+        stopRuntimeResources(
                 request.getCallId()
         );
 
         return VoiceGatewayResponseDto.builder()
-                .callId(
-                        request.getCallId()
-                )
-                .streamId(
-                        request.getStreamId()
-                )
-                .action(
-                        VoiceGatewayConstants.ACTION_END
-                )
-                .endCall(
-                        true
-                )
+                .callId(request.getCallId())
+                .streamId(request.getStreamId())
+                .action(VoiceGatewayConstants.ACTION_END)
+                .endCall(true)
                 .build();
+    }
+
+    /**
+     * Stops STT and removes TTS/WebSocket runtime resources.
+     *
+     * @param callId application Call ID
+     */
+    private void stopRuntimeResources(
+            String callId) {
+
+        pendingBargeIns.remove(
+                callId
+        );
+
+        try {
+
+            sttRuntimeService.stopStreaming(
+                    callId
+            );
+
+        } catch (Exception exception) {
+
+            log.warn(
+                    "{} Failed to stop STT runtime cleanly. " +
+                            "callId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId,
+                    exception
+            );
+        }
+
+        try {
+
+            ttsAudioStreamRegistry.remove(
+                    callId
+            );
+
+        } catch (Exception exception) {
+
+            log.warn(
+                    "{} Failed to remove TTS runtime state. " +
+                            "callId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId,
+                    exception
+            );
+        }
+
+        try {
+
+            webSocketSessionRegistry.remove(
+                    callId
+            );
+
+        } catch (Exception exception) {
+
+            log.warn(
+                    "{} Failed to remove WebSocket runtime state. " +
+                            "callId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId,
+                    exception
+            );
+        }
     }
 
     // =========================================================
@@ -411,11 +562,6 @@ public class VoiceGatewayServiceImpl
 
     /**
      * Processes caller barge-in.
-     *
-     * <p>
-     * Barge-in interrupts the currently active TTS stream and
-     * instructs the telephony transport to clear already queued
-     * audio.
      *
      * @param callId application Call ID
      * @return Voice Gateway response
@@ -450,25 +596,22 @@ public class VoiceGatewayServiceImpl
         }
 
         log.info(
-                "{} Barge-in received. callId={}, streamId={}",
+                "{} Confirmed caller barge-in. " +
+                        "callId={}, streamId={}",
                 VoiceGatewayConstants.LOG_PREFIX,
                 callId,
                 streamId
         );
 
         /*
-         * Mark the active TTS stream as interrupted.
-         *
-         * TtsNodeHandler checks this state before forwarding
-         * every generated audio chunk.
+         * Interrupt currently generated TTS.
          */
         ttsAudioStreamRegistry.interrupt(
                 callId
         );
 
         /*
-         * Clear any TTS audio that has already been queued at
-         * the telephony/provider side.
+         * Clear audio already queued on the provider side.
          */
         if (streamId != null
                 && !streamId.isBlank()) {
@@ -480,21 +623,11 @@ public class VoiceGatewayServiceImpl
         }
 
         return VoiceGatewayResponseDto.builder()
-                .callId(
-                        callId
-                )
-                .streamId(
-                        streamId
-                )
-                .action(
-                        VoiceGatewayConstants.ACTION_LISTEN
-                )
-                .listen(
-                        true
-                )
-                .clearAudio(
-                        true
-                )
+                .callId(callId)
+                .streamId(streamId)
+                .action(VoiceGatewayConstants.ACTION_LISTEN)
+                .listen(true)
+                .clearAudio(true)
                 .build();
     }
 
@@ -526,18 +659,10 @@ public class VoiceGatewayServiceImpl
             );
 
             return VoiceGatewayResponseDto.builder()
-                    .callId(
-                            callId
-                    )
-                    .streamId(
-                            streamId
-                    )
-                    .action(
-                            VoiceGatewayConstants.ACTION_LISTEN
-                    )
-                    .listen(
-                            true
-                    )
+                    .callId(callId)
+                    .streamId(streamId)
+                    .action(VoiceGatewayConstants.ACTION_LISTEN)
+                    .listen(true)
                     .build();
         }
 
@@ -563,14 +688,6 @@ public class VoiceGatewayServiceImpl
         boolean transferred =
                 response.isTransferred();
 
-        /*
-         * When live TTS streaming is registered for this call,
-         * audio chunks are already being sent directly to the
-         * telephony WebSocket.
-         *
-         * Therefore do not send the same complete audio payload
-         * again through the normal Voice Gateway response.
-         */
         boolean liveTtsStreaming =
                 ttsAudioStreamRegistry.getListener(
                         callId
@@ -602,24 +719,12 @@ public class VoiceGatewayServiceImpl
         VoiceGatewayResponseDto.VoiceGatewayResponseDtoBuilder
                 builder =
                 VoiceGatewayResponseDto.builder()
-                        .callId(
-                                callId
-                        )
-                        .streamId(
-                                streamId
-                        )
-                        .action(
-                                action
-                        )
-                        .responseText(
-                                responseText
-                        )
-                        .audioBase64(
-                                audioBase64
-                        )
-                        .contentType(
-                                audioContentType
-                        )
+                        .callId(callId)
+                        .streamId(streamId)
+                        .action(action)
+                        .responseText(responseText)
+                        .audioBase64(audioBase64)
+                        .contentType(audioContentType)
                         .audioEncoding(
                                 VoiceGatewayConstants.AUDIO_ENCODING
                         )
@@ -633,36 +738,24 @@ public class VoiceGatewayServiceImpl
         if (completed) {
 
             builder
-                    .endCall(
-                            true
-                    )
-                    .listen(
-                            false
-                    );
+                    .endCall(true)
+                    .listen(false);
 
         } else if (transferred) {
 
             builder
-                    .transfer(
-                            true
-                    )
-                    .listen(
-                            false
-                    );
+                    .transfer(true)
+                    .listen(false);
 
         } else if (hasAudio) {
 
             builder
-                    .listen(
-                            false
-                    );
+                    .listen(false);
 
         } else {
 
             builder
-                    .listen(
-                            true
-                    );
+                    .listen(true);
         }
 
         return builder.build();
@@ -684,9 +777,7 @@ public class VoiceGatewayServiceImpl
         try {
 
             return Base64.getDecoder()
-                    .decode(
-                            audioBase64
-                    );
+                    .decode(audioBase64);
 
         } catch (IllegalArgumentException exception) {
 
@@ -764,6 +855,11 @@ public class VoiceGatewayServiceImpl
     // REQUEST VALIDATION
     // =========================================================
 
+    /**
+     * Validates the START event.
+     *
+     * @param request start request
+     */
     private void validateStartRequest(
             VoiceGatewayStartRequestDto request) {
 
@@ -791,6 +887,11 @@ public class VoiceGatewayServiceImpl
         }
     }
 
+    /**
+     * Validates the MEDIA event.
+     *
+     * @param request media request
+     */
     private void validateMediaRequest(
             VoiceGatewayMediaRequestDto request) {
 
@@ -826,6 +927,11 @@ public class VoiceGatewayServiceImpl
         }
     }
 
+    /**
+     * Validates DTMF input.
+     *
+     * @param request DTMF request
+     */
     private void validateDtmfRequest(
             VoiceGatewayDtmfRequestDto request) {
 
@@ -853,6 +959,11 @@ public class VoiceGatewayServiceImpl
         }
     }
 
+    /**
+     * Validates the STOP event.
+     *
+     * @param request stop request
+     */
     private void validateStopRequest(
             VoiceGatewayStopRequestDto request) {
 
@@ -888,9 +999,10 @@ public class VoiceGatewayServiceImpl
      * Creates the listener for the active STT session.
      *
      * <p>
-     * Final transcripts are forwarded to the Conversation
-     * Orchestrator. Speech-start events are used to trigger
-     * TTS barge-in handling.
+     * VAD speech-start events are treated only as possible
+     * caller speech. TTS interruption happens after STT
+     * provides actual transcript content.
+     * </p>
      *
      * @param callId application call identifier
      * @param streamId provider stream identifier
@@ -906,12 +1018,18 @@ public class VoiceGatewayServiceImpl
             /**
              * Handles partial STT transcription.
              *
-             * @param failedCallId application call identifier
+             * <p>
+             * A partial transcript confirms that the audio
+             * detected by VAD contains speech recognized by
+             * the STT engine. Only then is TTS interrupted.
+             * </p>
+             *
+             * @param partialCallId application call identifier
              * @param transcript partial transcript
              */
             @Override
             public void onPartialTranscript(
-                    String failedCallId,
+                    String partialCallId,
                     String transcript) {
 
                 if (transcript == null
@@ -920,25 +1038,167 @@ public class VoiceGatewayServiceImpl
                     return;
                 }
 
+                /*
+                 * Do not process barge-in when the agent is not
+                 * currently speaking.
+                 */
+                if (!ttsAudioStreamRegistry.isPlaybackActive(
+                        partialCallId
+                )) {
+
+                    pendingBargeIns.remove(
+                            partialCallId
+                    );
+
+                    log.debug(
+                            "{} Ignoring partial transcript because TTS " +
+                                    "playback is not active. callId={}, transcript={}",
+                            VoiceGatewayConstants.LOG_PREFIX,
+                            partialCallId,
+                            transcript
+                    );
+
+                    return;
+                }
+
+                /*
+                 * Ignore very short/noisy STT partials.
+                 */
+                if (!isMeaningfulBargeInTranscript(
+                        transcript
+                )) {
+
+                    log.debug(
+                            "{} Ignoring weak partial transcript for barge-in. " +
+                                    "callId={}, transcript={}",
+                            VoiceGatewayConstants.LOG_PREFIX,
+                            partialCallId,
+                            transcript
+                    );
+
+                    return;
+                }
+
                 log.debug(
                         "{} Partial STT transcript received. " +
                                 "callId={}, transcript={}",
                         VoiceGatewayConstants.LOG_PREFIX,
-                        failedCallId,
+                        partialCallId,
                         transcript
                 );
+
+                Boolean pending =
+                        pendingBargeIns.get(
+                                partialCallId
+                        );
+
+                if (!Boolean.TRUE.equals(pending)) {
+
+                    return;
+                }
+
+                /*
+                 * STT has now confirmed meaningful caller speech.
+                 */
+                pendingBargeIns.remove(
+                        partialCallId
+                );
+
+                log.info(
+                        "{} Caller speech confirmed by STT. " +
+                                "Processing TTS barge-in. " +
+                                "callId={}, transcript={}",
+                        VoiceGatewayConstants.LOG_PREFIX,
+                        partialCallId,
+                        transcript
+                );
+
+                processBargeIn(
+                        partialCallId,
+                        streamId
+                );
+            }
+
+            /**
+             * Determines whether a partial transcript contains enough
+             * meaningful speech to be considered a barge-in.
+             *
+             * @param transcript partial STT transcript
+             * @return {@code true} when the transcript is meaningful
+             */
+            private boolean isMeaningfulBargeInTranscript(
+                    String transcript) {
+
+                if (transcript == null
+                        || transcript.isBlank()) {
+
+                    return false;
+                }
+
+                String normalizedTranscript =
+                        transcript.trim();
+
+                /*
+                 * Ignore extremely short STT fragments.
+                 */
+                if (normalizedTranscript.length() < 3) {
+                    return false;
+                }
+
+                String[] words =
+                        normalizedTranscript.split("\\s+");
+
+                /*
+                 * Accept either a multi-word phrase or a sufficiently
+                 * long single recognized word.
+                 */
+                return words.length >= 2
+                        || normalizedTranscript.length() >= 8;
             }
 
             /**
              * Handles final STT transcription.
              *
-             * @param failedCallId application call identifier
+             * @param finalCallId application call identifier
              * @param transcript final transcript
+             */
+            /**
+             * Handles final STT transcription.
+             *
+             * <p>
+             * The detected language returned by the STT provider is
+             * propagated to the conversation Flow so that subsequent
+             * AI and TTS nodes can respond in the customer's current
+             * language.
+             * </p>
+             *
+             * @param response final STT response
              */
             @Override
             public void onFinalTranscript(
-                    String failedCallId,
-                    String transcript) {
+                    SttTranscriptionResponse response) {
+
+                if (response == null) {
+
+                    return;
+                }
+
+                String finalCallId =
+                        response.getCallId();
+
+                String transcript =
+                        response.getTranscript();
+
+                String detectedLanguage =
+                        response.getLanguage();
+
+                /*
+                 * Remove pending VAD state because a final transcript
+                 * has now been produced.
+                 */
+                pendingBargeIns.remove(
+                        finalCallId
+                );
 
                 if (transcript == null
                         || transcript.isBlank()) {
@@ -948,17 +1208,18 @@ public class VoiceGatewayServiceImpl
 
                 log.info(
                         "{} Final STT transcript received. " +
-                                "callId={}, transcript={}",
+                                "callId={}, language={}, transcript={}",
                         VoiceGatewayConstants.LOG_PREFIX,
-                        failedCallId,
+                        finalCallId,
+                        detectedLanguage,
                         transcript
                 );
 
                 processFinalTranscript(
-                        failedCallId,
+                        finalCallId,
                         streamId,
                         transcript,
-                        null
+                        detectedLanguage
                 );
             }
 
@@ -966,8 +1227,10 @@ public class VoiceGatewayServiceImpl
              * Handles caller speech start.
              *
              * <p>
-             * Sarvam VAD detects that the caller has started
-             * speaking. This is the barge-in trigger.
+             * VAD speech-start is intentionally not treated
+             * as a confirmed barge-in. Background noise,
+             * music, echo, or another speaker can trigger VAD.
+             * </p>
              *
              * @param speechCallId application call identifier
              */
@@ -975,16 +1238,16 @@ public class VoiceGatewayServiceImpl
             public void onSpeechStart(
                     String speechCallId) {
 
-                log.info(
-                        "{} Caller speech started. " +
-                                "Processing TTS barge-in. callId={}",
-                        VoiceGatewayConstants.LOG_PREFIX,
-                        speechCallId
+                pendingBargeIns.put(
+                        speechCallId,
+                        true
                 );
 
-                processBargeIn(
-                        speechCallId,
-                        streamId
+                log.debug(
+                        "{} Possible caller speech detected by VAD. " +
+                                "Waiting for STT confirmation. callId={}",
+                        VoiceGatewayConstants.LOG_PREFIX,
+                        speechCallId
                 );
             }
 
@@ -997,8 +1260,18 @@ public class VoiceGatewayServiceImpl
             public void onSpeechEnd(
                     String speechCallId) {
 
+                /*
+                 * If no transcript was produced while the speech
+                 * segment was active, consider it noise/background
+                 * audio and discard the pending barge-in.
+                 */
+                pendingBargeIns.remove(
+                        speechCallId
+                );
+
                 log.debug(
-                        "{} Caller speech ended. callId={}",
+                        "{} Caller speech segment ended without " +
+                                "STT-confirmed barge-in. callId={}",
                         VoiceGatewayConstants.LOG_PREFIX,
                         speechCallId
                 );
@@ -1015,6 +1288,10 @@ public class VoiceGatewayServiceImpl
                     String failedCallId,
                     Throwable exception) {
 
+                pendingBargeIns.remove(
+                        failedCallId
+                );
+
                 log.error(
                         "{} Streaming STT failed. callId={}",
                         VoiceGatewayConstants.LOG_PREFIX,
@@ -1024,6 +1301,10 @@ public class VoiceGatewayServiceImpl
             }
         };
     }
+
+    // =========================================================
+    // FINAL TRANSCRIPT
+    // =========================================================
 
     /**
      * Continues the conversation after a final STT transcript.
@@ -1044,18 +1325,10 @@ public class VoiceGatewayServiceImpl
             ProcessTranscriptRequestDto request =
                     ProcessTranscriptRequestDto
                             .builder()
-                            .callId(
-                                    callId
-                            )
-                            .transcript(
-                                    transcript
-                            )
-                            .language(
-                                    language
-                            )
-                            .finalTranscript(
-                                    true
-                            )
+                            .callId(callId)
+                            .transcript(transcript)
+                            .language(language)
+                            .finalTranscript(true)
                             .build();
 
             ConversationOrchestratorResponseDto

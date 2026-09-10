@@ -412,6 +412,138 @@ public class TranscriptArtifactServiceImpl
         }
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> readMessages(
+            String callPublicId) {
+
+        if (callPublicId == null
+                || callPublicId.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Call public ID is required."
+            );
+        }
+
+        if (storagePath == null
+                || storagePath.isBlank()) {
+
+            throw new IllegalStateException(
+                    "Conversation storage path is not configured."
+            );
+        }
+
+        Path directory =
+                Paths.get(
+                                storagePath
+                        )
+                        .toAbsolutePath()
+                        .normalize();
+
+        Path filePath =
+                directory.resolve(
+                        sanitize(callPublicId)
+                                + ".json.gz"
+                );
+
+        if (!Files.exists(filePath)) {
+
+            log.warn(
+                    "Transcript artifact does not exist. " +
+                            "callPublicId={}, path={}",
+                    callPublicId,
+                    filePath
+            );
+
+            return List.of();
+        }
+
+        ObjectMapper transcriptMapper =
+                getTranscriptObjectMapper();
+
+        try (
+                InputStream inputStream =
+                        Files.newInputStream(
+                                filePath
+                        );
+
+                GZIPInputStream gzipInputStream =
+                        new GZIPInputStream(
+                                inputStream
+                        )
+        ) {
+
+            Map<String, Object> document =
+                    transcriptMapper.readValue(
+                            gzipInputStream,
+                            new TypeReference<
+                                    Map<String, Object>
+                                    >() {
+                            }
+                    );
+
+            Object messagesObject =
+                    document.get(
+                            "messages"
+                    );
+
+            if (!(messagesObject instanceof List<?>)) {
+
+                return List.of();
+            }
+
+            List<Map<String, Object>> messages =
+                    new ArrayList<>();
+
+            for (Object messageObject :
+                    (List<?>) messagesObject) {
+
+                if (messageObject instanceof Map<?, ?>) {
+
+                    Map<String, Object> message =
+                            new LinkedHashMap<>();
+
+                    ((Map<?, ?>) messageObject)
+                            .forEach(
+                                    (key, value) ->
+                                            message.put(
+                                                    String.valueOf(key),
+                                                    value
+                                            )
+                            );
+
+                    messages.add(
+                            message
+                    );
+                }
+            }
+
+            log.info(
+                    "Complete transcript artifact read successfully. "
+                            + "callPublicId={}, messageCount={}",
+                    callPublicId,
+                    messages.size()
+            );
+
+            return messages;
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to read complete transcript artifact. "
+                            + "callPublicId={}, path={}",
+                    callPublicId,
+                    filePath,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to read complete transcript artifact.",
+                    exception
+            );
+        }
+    }
+
     /**
      * Reads an existing .json.gz transcript.
      */

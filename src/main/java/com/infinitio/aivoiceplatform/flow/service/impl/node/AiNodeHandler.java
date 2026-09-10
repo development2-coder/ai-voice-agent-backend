@@ -1,6 +1,7 @@
 package com.infinitio.aivoiceplatform.flow.service.impl.node;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionContextKeys;
 import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeExecutionResult;
@@ -19,12 +20,32 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiNodeHandler implements FlowNodeHandler {
 
-    private static final String PROMPT_KEY = "prompt";
+    private static final String PROMPT_KEY =
+            "prompt";
 
-    private static final String VARIABLE_KEY = "variable";
+    private static final String VARIABLE_KEY =
+            "variable";
+
+    private static final String OUTPUT_VARIABLE_KEY =
+            "outputVariable";
+
+    private static final String LLM_CONFIG_PUBLIC_ID_KEY =
+            "llmConfigPublicId";
+
+    private static final String TEMPERATURE_KEY =
+            "temperature";
 
     private static final String WAITING_AI_VARIABLE =
-            "_waitingAiVariable";
+            FlowExecutionContextKeys.WAITING_AI_VARIABLE;
+
+    private static final String AI_PROMPT =
+            FlowExecutionContextKeys.AI_PROMPT;
+
+    private static final String AI_LLM_CONFIG_PUBLIC_ID =
+            "llmConfigPublicId";
+
+    private static final String AI_TEMPERATURE =
+            "aiTemperature";
 
     private final ObjectMapper objectMapper;
 
@@ -41,8 +62,30 @@ public class AiNodeHandler implements FlowNodeHandler {
             FlowNode node,
             Map<String, Object> context) {
 
+        if (execution == null) {
+
+            throw new IllegalArgumentException(
+                    "Flow execution cannot be null."
+            );
+        }
+
+        if (node == null) {
+
+            throw new IllegalArgumentException(
+                    "Flow node cannot be null."
+            );
+        }
+
+        if (context == null) {
+
+            throw new IllegalArgumentException(
+                    "Flow execution context cannot be null."
+            );
+        }
+
         log.info(
-                "Executing AI node. execution={}, node={}",
+                "Executing AI_RESPONSE node. " +
+                        "executionPublicId={}, nodeKey={}",
                 execution.getPublicId(),
                 node.getNodeKey()
         );
@@ -58,19 +101,6 @@ public class AiNodeHandler implements FlowNodeHandler {
                         PROMPT_KEY
                 );
 
-        String outputVariable =
-                getOptionalValue(
-                        configuration,
-                        VARIABLE_KEY
-                );
-
-        /*
-         * Replace flow variables in the prompt.
-         *
-         * Example:
-         *
-         * "Help {{customerName}} with {{lastUserInput}}"
-         */
         String resolvedPrompt =
                 flowContextService.replaceVariables(
                         prompt,
@@ -78,15 +108,69 @@ public class AiNodeHandler implements FlowNodeHandler {
                 );
 
         /*
-         * Store information required by the
-         * future AI/LLM integration layer.
-         *
-         * We are NOT calling Sarvam here.
+         * Store the resolved prompt for ConversationAiService.
          */
         context.put(
-                "_aiPrompt",
+                AI_PROMPT,
                 resolvedPrompt
         );
+
+        /*
+         * Preserve the LLM configuration selected by
+         * the Flow Builder.
+         */
+        String llmConfigPublicId =
+                getOptionalValue(
+                        configuration,
+                        LLM_CONFIG_PUBLIC_ID_KEY
+                );
+
+        if (llmConfigPublicId != null
+                && !llmConfigPublicId.isBlank()) {
+
+            context.put(
+                    AI_LLM_CONFIG_PUBLIC_ID,
+                    llmConfigPublicId
+            );
+        }
+
+        /*
+         * Preserve temperature configured by the Flow Builder.
+         */
+        Object temperature =
+                configuration.get(
+                        TEMPERATURE_KEY
+                );
+
+        if (temperature != null) {
+
+            context.put(
+                    AI_TEMPERATURE,
+                    temperature
+            );
+        }
+
+        /*
+         * The frontend uses outputVariable.
+         *
+         * The older backend used variable.
+         * Support both so existing flows remain compatible.
+         */
+        String outputVariable =
+                getOptionalValue(
+                        configuration,
+                        OUTPUT_VARIABLE_KEY
+                );
+
+        if (outputVariable == null
+                || outputVariable.isBlank()) {
+
+            outputVariable =
+                    getOptionalValue(
+                            configuration,
+                            VARIABLE_KEY
+                    );
+        }
 
         if (outputVariable != null
                 && !outputVariable.isBlank()) {
@@ -97,13 +181,17 @@ public class AiNodeHandler implements FlowNodeHandler {
             );
         }
 
-        /*
-         * AI execution is asynchronous from the
-         * flow engine's point of view.
-         *
-         * The Conversation/AI integration layer
-         * will eventually provide the response.
-         */
+        log.info(
+                "AI_RESPONSE node is waiting for AI processing. " +
+                        "executionPublicId={}, nodeKey={}, " +
+                        "llmConfigPresent={}, outputVariable={}",
+                execution.getPublicId(),
+                node.getNodeKey(),
+                llmConfigPublicId != null
+                        && !llmConfigPublicId.isBlank(),
+                outputVariable
+        );
+
         return FlowNodeExecutionResult.builder()
                 .status(
                         FlowExecutionStatus.WAITING_FOR_AI
