@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import com.infinitio.aivoiceplatform.agent.dto.request.CopyAgentRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -77,6 +78,40 @@ public class AgentController {
         return ResponseBuilder.success(
                 response,
                 AgentMessages.AGENT_UPDATED
+        );
+    }
+
+    // =========================================================
+// COPY
+// =========================================================
+
+    /**
+     * Creates a complete copy of an existing Agent.
+     *
+     * @param publicId source Agent public identifier
+     * @param request copy request
+     * @return copied Agent
+     */
+    @Operation(summary = "Copy Agent")
+    @PostMapping("/{publicId}/copy")
+    public ResponseEntity<ApiResponse<AgentResponse>> copy(
+            @PathVariable String publicId,
+            @Valid @RequestBody CopyAgentRequest request) {
+
+        log.info(
+                "REST Request : Copy Agent | Source Public Id : {}",
+                publicId
+        );
+
+        AgentResponse response =
+                agentService.copy(
+                        publicId,
+                        request
+                );
+
+        return ResponseBuilder.created(
+                response,
+                AgentMessages.AGENT_COPIED
         );
     }
 

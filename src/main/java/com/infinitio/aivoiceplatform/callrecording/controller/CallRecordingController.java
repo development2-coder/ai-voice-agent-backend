@@ -8,6 +8,9 @@ import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -204,5 +207,38 @@ public class CallRecordingController {
                 null,
                 CallRecordingMessages.DEACTIVATED
         );
+    }
+
+    @Operation(
+            summary = "Stream Local Call Recording"
+    )
+    @GetMapping("/{publicId}/stream")
+    public ResponseEntity<Resource> streamRecording(
+            @PathVariable String publicId) {
+
+        log.info(
+                "REST Request : Stream Local Call Recording : {}",
+                publicId
+        );
+
+        Resource resource =
+                callRecordingService
+                        .getRecordingResource(
+                                publicId
+                        );
+
+        return ResponseEntity.ok()
+                .contentType(
+                        MediaType.parseMediaType(
+                                "audio/mpeg"
+                        )
+                )
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        "inline"
+                )
+                .body(
+                        resource
+                );
     }
 }

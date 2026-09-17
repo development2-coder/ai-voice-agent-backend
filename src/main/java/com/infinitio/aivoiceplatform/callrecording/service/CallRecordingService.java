@@ -4,6 +4,7 @@ import com.infinitio.aivoiceplatform.callrecording.dto.request.CreateCallRecordi
 import com.infinitio.aivoiceplatform.callrecording.dto.request.UpdateCallRecordingRequest;
 import com.infinitio.aivoiceplatform.callrecording.dto.response.CallRecordingResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import org.springframework.core.io.Resource;
 
 /**
  * Service interface for Call Recording.
@@ -120,6 +121,16 @@ public interface CallRecordingService {
      * @param publicId recording public identifier
      */
     void deactivate(
+            String publicId
+    );
+
+    /**
+     * Loads a locally stored call recording for browser playback.
+     *
+     * @param publicId recording public identifier
+     * @return local recording resource
+     */
+    Resource getRecordingResource(
             String publicId
     );
 }

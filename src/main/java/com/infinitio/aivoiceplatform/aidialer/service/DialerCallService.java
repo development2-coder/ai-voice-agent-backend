@@ -92,4 +92,13 @@ public interface DialerCallService {
             String dialerPublicId,
             String campaignContactPublicId
     );
+
+    /**
+     * Creates and immediately initiates a call
+     * for a campaign contact.
+     *
+     * @param dialerPublicId AI Dialer public identifier
+     * @param campaignContactPublicId campaign contact public identifier
+     * @return initiated dialer call
+     */
 }

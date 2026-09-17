@@ -43,17 +43,17 @@ public class DialerCallWebhookServiceImpl
     private final DialerCallLifecycleService
             dialerCallLifecycleService;
 
-    private final CallRepository
-            callRepository;
-
-    private final CallSessionRepository
-            callSessionRepository;
-
-    private final CallSessionRuntimeService
-            callSessionRuntimeService;
-
-    private final CallSessionFlowRuntimeService
-            callSessionFlowRuntimeService;
+//    private final CallRepository
+//            callRepository;
+//
+//    private final CallSessionRepository
+//            callSessionRepository;
+//
+//    private final CallSessionRuntimeService
+//            callSessionRuntimeService;
+//
+//    private final CallSessionFlowRuntimeService
+//            callSessionFlowRuntimeService;
 
     /**
      * Processes a normalized telephony provider event.
@@ -201,15 +201,36 @@ public class DialerCallWebhookServiceImpl
          *
          * THIS is where CallSession creation starts.
          */
+        /*
+         * ---------------------------------------------------------
+         * CALL ANSWERED
+         * ---------------------------------------------------------
+         *
+         * The CallSession and realtime runtime are already prepared
+         * before the provider call is initiated.
+         *
+         * The Exotel WebSocket START event is responsible for starting
+         * the Voice Gateway runtime.
+         */
         if (TelephonyConstants.EVENT_CALL_ANSWERED
                 .equals(
                         normalizedEvent
                 )) {
 
-            handleAnswered(
-                    dialerCall,
+            log.info(
+                    "Customer answered AI Dialer call. "
+                            + "Realtime runtime is handled by "
+                            + "the Exotel WebSocket. "
+                            + "dialerCallPublicId={}, "
+                            + "providerCallId={}",
+                    dialerCall.getPublicId(),
                     providerCallId
             );
+
+            dialerCallLifecycleService
+                    .markAnswered(
+                            dialerCall
+                    );
 
             return;
         }
@@ -392,254 +413,254 @@ public class DialerCallWebhookServiceImpl
      * @param dialerCall AI Dialer call
      * @param providerCallId provider call identifier
      */
-    private void handleAnswered(
-            DialerCall dialerCall,
-            String providerCallId) {
-
-        log.info(
-                "Customer answered AI Dialer call. "
-                        + "dialerCallPublicId={}, "
-                        + "providerCallId={}",
-                dialerCall.getPublicId(),
-                providerCallId
-        );
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 1: Update DialerCall.
-         * ---------------------------------------------------------
-         */
-        dialerCallLifecycleService
-                .markAnswered(
-                        dialerCall
-                );
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 2: Find platform Call.
-         * ---------------------------------------------------------
-         *
-         * DialerCall.exotelCallId
-         *              ↓
-         * Call.providerCallId
-         */
-        Call call =
-                callRepository
-                        .findByProviderCallId(
-                                providerCallId
-                        )
-                        .orElse(null);
-
-        if (call == null) {
-
-            log.error(
-                    "Platform Call not found for answered "
-                            + "Exotel call. "
-                            + "providerCallId={}, "
-                            + "dialerCallPublicId={}",
-                    providerCallId,
-                    dialerCall.getPublicId()
-            );
-
-            throw new IllegalStateException(
-                    "Platform Call not found for provider call ID: "
-                            + providerCallId
-            );
-        }
-
-        String callPublicId =
-                call.getPublicId();
-
-        log.info(
-                "Platform Call resolved from provider call ID. "
-                        + "providerCallId={}, callPublicId={}, "
-                        + "dialerCallPublicId={}",
-                providerCallId,
-                callPublicId,
-                dialerCall.getPublicId()
-        );
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 3: Validate Dialer runtime configuration.
-         * ---------------------------------------------------------
-         */
-        if (dialerCall.getDialer() == null) {
-
-            throw new IllegalStateException(
-                    "AI Dialer configuration is missing."
-            );
-        }
-
-        if (dialerCall.getDialer().getAgent() == null) {
-
-            throw new IllegalStateException(
-                    "Agent is not configured for AI Dialer."
-            );
-        }
-
-        if (dialerCall.getDialer().getFlow() == null) {
-
-            throw new IllegalStateException(
-                    "Flow is not configured for AI Dialer."
-            );
-        }
-
-        if (dialerCall.getDialer()
-                .getAgent()
-                .getTenant() == null) {
-
-            throw new IllegalStateException(
-                    "Tenant is not configured for AI Dialer Agent."
-            );
-        }
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 4: Resolve runtime values.
-         * ---------------------------------------------------------
-         */
-        Integer runtimeVersion =
-                dialerCall
-                        .getDialer()
-                        .getFlow()
-                        .getVersion();
-
-        if (runtimeVersion == null
-                || runtimeVersion <= 0) {
-
-            throw new IllegalStateException(
-                    "Flow version is not configured."
-            );
-        }
-
-        String tenantPublicId =
-                dialerCall
-                        .getDialer()
-                        .getAgent()
-                        .getTenant()
-                        .getPublicId();
-
-        String agentPublicId =
-                dialerCall
-                        .getDialer()
-                        .getAgent()
-                        .getPublicId();
-
-        String flowPublicId =
-                dialerCall
-                        .getDialer()
-                        .getFlow()
-                        .getPublicId();
-
-        String language =
-                dialerCall
-                        .getDialer()
-                        .getAgent()
-                        .getLanguage();
-
-        Long createdBy =
-                dialerCall
-                        .getDialer()
-                        .getCreatedBy();
-
-        log.info(
-                "AI Dialer runtime configuration resolved. "
-                        + "callPublicId={}, tenantPublicId={}, "
-                        + "agentPublicId={}, flowPublicId={}, "
-                        + "flowVersion={}",
-                callPublicId,
-                tenantPublicId,
-                agentPublicId,
-                flowPublicId,
-                runtimeVersion
-        );
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 5: Check for an existing CallSession.
-         * ---------------------------------------------------------
-         *
-         * Provider webhooks can be retried.
-         *
-         * Therefore we must not create multiple sessions
-         * for the same Call.
-         */
-        boolean sessionExists =
-                callSessionRepository
-                        .existsByCallId(
-                                callPublicId
-                        );
-
-        if (sessionExists) {
-
-            log.info(
-                    "CallSession already exists. "
-                            + "Skipping duplicate session creation. "
-                            + "callPublicId={}",
-                    callPublicId
-            );
-
-        } else {
-
-            /*
-             * -----------------------------------------------------
-             * STEP 6: Create CallSession.
-             * -----------------------------------------------------
-             */
-            CallSessionResponseDto session =
-                    callSessionRuntimeService
-                            .startSession(
-                                    callPublicId,
-                                    tenantPublicId,
-                                    agentPublicId,
-                                    runtimeVersion,
-                                    flowPublicId,
-                                    language,
-                                    createdBy
-                            );
-
-            log.info(
-                    "CallSession created after customer answered. "
-                            + "callPublicId={}, sessionCallId={}",
-                    callPublicId,
-                    session != null
-                            ? session.getCallId()
-                            : null
-            );
-        }
-
-        /*
-         * ---------------------------------------------------------
-         * STEP 7: Start Flow.
-         * ---------------------------------------------------------
-         *
-         * startFlow() already contains duplicate execution
-         * protection through flowExecutionPublicId.
-         */
-        CallSessionResponseDto flowSession =
-                callSessionFlowRuntimeService
-                        .startFlow(
-                                callPublicId,
-                                flowPublicId,
-                                language,
-                                null
-                        );
-
-        log.info(
-                "AI Flow runtime started after customer answered. "
-                        + "callPublicId={}, execution={}, node={}",
-                callPublicId,
-                flowSession != null
-                        ? flowSession
-                        .getFlowExecutionPublicId()
-                        : null,
-                flowSession != null
-                        ? flowSession
-                        .getFlowNodeId()
-                        : null
-        );
-    }
+//    private void handleAnswered(
+//            DialerCall dialerCall,
+//            String providerCallId) {
+//
+//        log.info(
+//                "Customer answered AI Dialer call. "
+//                        + "dialerCallPublicId={}, "
+//                        + "providerCallId={}",
+//                dialerCall.getPublicId(),
+//                providerCallId
+//        );
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 1: Update DialerCall.
+//         * ---------------------------------------------------------
+//         */
+//        dialerCallLifecycleService
+//                .markAnswered(
+//                        dialerCall
+//                );
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 2: Find platform Call.
+//         * ---------------------------------------------------------
+//         *
+//         * DialerCall.exotelCallId
+//         *              ↓
+//         * Call.providerCallId
+//         */
+//        Call call =
+//                callRepository
+//                        .findByProviderCallId(
+//                                providerCallId
+//                        )
+//                        .orElse(null);
+//
+//        if (call == null) {
+//
+//            log.error(
+//                    "Platform Call not found for answered "
+//                            + "Exotel call. "
+//                            + "providerCallId={}, "
+//                            + "dialerCallPublicId={}",
+//                    providerCallId,
+//                    dialerCall.getPublicId()
+//            );
+//
+//            throw new IllegalStateException(
+//                    "Platform Call not found for provider call ID: "
+//                            + providerCallId
+//            );
+//        }
+//
+//        String callPublicId =
+//                call.getPublicId();
+//
+//        log.info(
+//                "Platform Call resolved from provider call ID. "
+//                        + "providerCallId={}, callPublicId={}, "
+//                        + "dialerCallPublicId={}",
+//                providerCallId,
+//                callPublicId,
+//                dialerCall.getPublicId()
+//        );
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 3: Validate Dialer runtime configuration.
+//         * ---------------------------------------------------------
+//         */
+//        if (dialerCall.getDialer() == null) {
+//
+//            throw new IllegalStateException(
+//                    "AI Dialer configuration is missing."
+//            );
+//        }
+//
+//        if (dialerCall.getDialer().getAgent() == null) {
+//
+//            throw new IllegalStateException(
+//                    "Agent is not configured for AI Dialer."
+//            );
+//        }
+//
+//        if (dialerCall.getDialer().getFlow() == null) {
+//
+//            throw new IllegalStateException(
+//                    "Flow is not configured for AI Dialer."
+//            );
+//        }
+//
+//        if (dialerCall.getDialer()
+//                .getAgent()
+//                .getTenant() == null) {
+//
+//            throw new IllegalStateException(
+//                    "Tenant is not configured for AI Dialer Agent."
+//            );
+//        }
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 4: Resolve runtime values.
+//         * ---------------------------------------------------------
+//         */
+//        Integer runtimeVersion =
+//                dialerCall
+//                        .getDialer()
+//                        .getFlow()
+//                        .getVersion();
+//
+//        if (runtimeVersion == null
+//                || runtimeVersion <= 0) {
+//
+//            throw new IllegalStateException(
+//                    "Flow version is not configured."
+//            );
+//        }
+//
+//        String tenantPublicId =
+//                dialerCall
+//                        .getDialer()
+//                        .getAgent()
+//                        .getTenant()
+//                        .getPublicId();
+//
+//        String agentPublicId =
+//                dialerCall
+//                        .getDialer()
+//                        .getAgent()
+//                        .getPublicId();
+//
+//        String flowPublicId =
+//                dialerCall
+//                        .getDialer()
+//                        .getFlow()
+//                        .getPublicId();
+//
+//        String language =
+//                dialerCall
+//                        .getDialer()
+//                        .getAgent()
+//                        .getLanguage();
+//
+//        Long createdBy =
+//                dialerCall
+//                        .getDialer()
+//                        .getCreatedBy();
+//
+//        log.info(
+//                "AI Dialer runtime configuration resolved. "
+//                        + "callPublicId={}, tenantPublicId={}, "
+//                        + "agentPublicId={}, flowPublicId={}, "
+//                        + "flowVersion={}",
+//                callPublicId,
+//                tenantPublicId,
+//                agentPublicId,
+//                flowPublicId,
+//                runtimeVersion
+//        );
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 5: Check for an existing CallSession.
+//         * ---------------------------------------------------------
+//         *
+//         * Provider webhooks can be retried.
+//         *
+//         * Therefore we must not create multiple sessions
+//         * for the same Call.
+//         */
+//        boolean sessionExists =
+//                callSessionRepository
+//                        .existsByCallId(
+//                                callPublicId
+//                        );
+//
+//        if (sessionExists) {
+//
+//            log.info(
+//                    "CallSession already exists. "
+//                            + "Skipping duplicate session creation. "
+//                            + "callPublicId={}",
+//                    callPublicId
+//            );
+//
+//        } else {
+//
+//            /*
+//             * -----------------------------------------------------
+//             * STEP 6: Create CallSession.
+//             * -----------------------------------------------------
+//             */
+//            CallSessionResponseDto session =
+//                    callSessionRuntimeService
+//                            .startSession(
+//                                    callPublicId,
+//                                    tenantPublicId,
+//                                    agentPublicId,
+//                                    runtimeVersion,
+//                                    flowPublicId,
+//                                    language,
+//                                    createdBy
+//                            );
+//
+//            log.info(
+//                    "CallSession created after customer answered. "
+//                            + "callPublicId={}, sessionCallId={}",
+//                    callPublicId,
+//                    session != null
+//                            ? session.getCallId()
+//                            : null
+//            );
+//        }
+//
+//        /*
+//         * ---------------------------------------------------------
+//         * STEP 7: Start Flow.
+//         * ---------------------------------------------------------
+//         *
+//         * startFlow() already contains duplicate execution
+//         * protection through flowExecutionPublicId.
+//         */
+//        CallSessionResponseDto flowSession =
+//                callSessionFlowRuntimeService
+//                        .startFlow(
+//                                callPublicId,
+//                                flowPublicId,
+//                                language,
+//                                null
+//                        );
+//
+//        log.info(
+//                "AI Flow runtime started after customer answered. "
+//                        + "callPublicId={}, execution={}, node={}",
+//                callPublicId,
+//                flowSession != null
+//                        ? flowSession
+//                        .getFlowExecutionPublicId()
+//                        : null,
+//                flowSession != null
+//                        ? flowSession
+//                        .getFlowNodeId()
+//                        : null
+//        );
+//    }
 
     /**
      * Normalizes normalized event values.

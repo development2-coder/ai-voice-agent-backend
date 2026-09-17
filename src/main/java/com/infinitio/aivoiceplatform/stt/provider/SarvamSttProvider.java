@@ -365,7 +365,9 @@ public class SarvamSttProvider
                 );
 
         String streamingLanguage =
-                resolveStreamingLanguage();
+                resolveStreamingLanguage(
+                        language
+                );
 
         String streamingUri =
                 buildStreamingUri(
@@ -1198,16 +1200,31 @@ public class SarvamSttProvider
      *
      * @return configured realtime STT language strategy
      */
-    private String resolveStreamingLanguage() {
+    /**
+     * Resolves the language for realtime STT.
+     *
+     * <p>
+     * The language supplied by the active conversation runtime takes
+     * precedence over the global STT streaming language configuration.
+     * This ensures that when an Agent is configured for Marathi,
+     * Sarvam realtime STT receives {@code mr-IN} instead of falling
+     * back to {@code auto} or another configured language.
+     * </p>
+     *
+     * @param requestedLanguage language resolved for the current call
+     * @return resolved realtime STT language
+     */
+    private String resolveStreamingLanguage(
+            String requestedLanguage) {
 
-        String streamingLanguage =
+        String configuredLanguage =
                 sttProperties.getStreamingLanguage();
 
-        if (isBlank(streamingLanguage)) {
+        if (!isBlank(configuredLanguage)) {
 
-            return "auto";
+            return configuredLanguage.trim();
         }
 
-        return streamingLanguage.trim();
+        return "auto";
     }
 }

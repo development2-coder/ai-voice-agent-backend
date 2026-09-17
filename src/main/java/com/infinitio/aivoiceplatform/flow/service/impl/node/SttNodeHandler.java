@@ -152,6 +152,45 @@ public class SttNodeHandler
                         CALL_ID
                 );
 
+        /*
+         * In realtime voice calls, caller audio is streamed directly
+         * from the Voice Gateway to the active STT provider session.
+         *
+         * Therefore audio is not expected to be present in the Flow
+         * execution context when the STT node is reached.
+         *
+         * When audio is available in the context, retain the existing
+         * synchronous transcription behaviour for non-streaming use cases.
+         */
+        Object audioValue =
+                context.get(
+                        AUDIO
+                );
+
+        if (audioValue == null) {
+
+            log.info(
+                    "STT node is waiting for realtime caller audio. " +
+                            "executionPublicId={}, nodeKey={}, callId={}",
+                    execution.getPublicId(),
+                    node.getNodeKey(),
+                    callId
+            );
+
+            return FlowNodeExecutionResult.builder()
+                    .status(
+                            FlowExecutionStatus.WAITING_FOR_INPUT
+                    )
+                    .action(
+                            "WAIT_FOR_SPEECH"
+                    )
+                    .waiting(true)
+                    .completed(false)
+                    .transferred(false)
+                    .context(context)
+                    .build();
+        }
+
         byte[] audio =
                 resolveAudio(
                         context

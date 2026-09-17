@@ -706,4 +706,58 @@ public class RuntimePersistenceServiceImpl
             return null;
         }
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional
+    public void saveTranscriptMessage(
+            String callPublicId,
+            String speakerType,
+            String text,
+            String language,
+            String source) {
+
+        if (callPublicId == null
+                || callPublicId.isBlank()) {
+
+            log.warn(
+                    "Transcript message persistence skipped because " +
+                            "callPublicId is missing. speakerType={}",
+                    speakerType
+            );
+
+            return;
+        }
+
+        if (text == null
+                || text.isBlank()) {
+
+            log.debug(
+                    "Transcript message persistence skipped because " +
+                            "text is empty. callPublicId={}, speakerType={}",
+                    callPublicId,
+                    speakerType
+            );
+
+            return;
+        }
+
+        appendTranscript(
+                callPublicId,
+                speakerType,
+                text,
+                language,
+                source
+        );
+
+        log.info(
+                "Conversation transcript message persisted. " +
+                        "callPublicId={}, speakerType={}, source={}",
+                callPublicId,
+                speakerType,
+                source
+        );
+    }
 }

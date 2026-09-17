@@ -10,6 +10,7 @@ import com.infinitio.aivoiceplatform.callsession.service.CallSessionFlowService;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionGetService;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionRuntimeService;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionUpdateService;
+import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
@@ -22,11 +23,16 @@ import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationOrche
 import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationRuntimeConfigurationResponseDto;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationResponseService;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationSessionService;
+import com.infinitio.aivoiceplatform.call.entity.Call;
+import com.infinitio.aivoiceplatform.call.repository.CallRepository;
+import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.orchestrator.service.ConversationAiService;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -185,6 +191,13 @@ public class ConversationSessionServiceImpl
 
     private final ConversationResponseService
             conversationResponseService;
+
+    private final CallRepository callRepository;
+
+    private final ObjectMapper objectMapper;
+
+    private final ConversationAiService
+            conversationAiService;
 
     /**
      * {@inheritDoc}
@@ -377,19 +390,64 @@ public class ConversationSessionServiceImpl
                         flowSession
                 );
 
+        /*
+         * Synchronize the Call Session with the newly created
+         * Flow Execution before any AI processing starts.
+         */
         synchronizeSession(
                 request.getCallId(),
                 execution,
                 language
         );
 
+        /*
+         * Outbound conversations may start with an AI_RESPONSE node.
+         *
+         * Flow runtime correctly stops at WAITING_FOR_AI. The
+         * Conversation AI service must then process that waiting
+         * state so the AI can speak first without requiring
+         * customer input.
+         *
+         * This is especially important for outbound campaign calls.
+         */
+        if (execution.isWaitingForAi()) {
+
+            log.info(
+                    "Initial Flow node requires AI processing. " +
+                            "Starting outbound AI response. " +
+                            "callId={}, executionPublicId={}, node={}",
+                    request.getCallId(),
+                    execution.getExecutionPublicId(),
+                    execution.getCurrentNodeKey()
+            );
+
+            execution =
+                    conversationAiService
+                            .processAiWaitingState(
+                                    request.getCallId(),
+                                    execution
+                            );
+
+            /*
+             * The AI response may have moved the Flow to TTS,
+             * STT/input, another AI node, or END.
+             */
+            synchronizeSession(
+                    request.getCallId(),
+                    execution,
+                    language
+            );
+        }
+
         log.info(
                 "Conversation session started successfully. " +
                         "callId={}, flowExecutionPublicId={}, " +
-                        "currentNode={}",
+                        "currentNode={}, status={}, action={}",
                 request.getCallId(),
                 execution.getExecutionPublicId(),
-                execution.getCurrentNodeKey()
+                execution.getCurrentNodeKey(),
+                execution.getStatus(),
+                execution.getAction()
         );
 
         return conversationResponseService
@@ -933,6 +991,11 @@ public class ConversationSessionServiceImpl
             );
         }
 
+        addCampaignContext(
+                context,
+                request.getCallId()
+        );
+
         /*
          * Call information.
          */
@@ -1270,5 +1333,194 @@ public class ConversationSessionServiceImpl
 
         return value == null
                 || value.isBlank();
+    }
+
+
+    private void addCampaignContext(
+            Map<String, Object> context,
+            String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            return;
+        }
+
+        Call call =
+                callRepository
+                        .findByPublicId(callId)
+                        .orElse(null);
+
+        if (call == null
+                || call.getCampaignContact() == null) {
+
+            log.debug(
+                    "No Campaign Contact found for Flow context. " +
+                            "callId={}",
+                    callId
+            );
+
+            return;
+        }
+
+        CampaignContact campaignContact =
+                call.getCampaignContact();
+
+        Campaign campaign =
+                campaignContact.getCampaign();
+
+        Map<String, Object> campaignContext =
+                new HashMap<>();
+
+        if (campaign != null) {
+
+            campaignContext.put(
+                    "publicId",
+                    campaign.getPublicId()
+            );
+
+            campaignContext.put(
+                    "name",
+                    campaign.getCampaignName()
+            );
+
+            campaignContext.put(
+                    "code",
+                    campaign.getCampaignCode()
+            );
+
+            campaignContext.put(
+                    "type",
+                    campaign.getCampaignType()
+            );
+
+            campaignContext.put(
+                    "description",
+                    campaign.getDescription()
+            );
+
+            campaignContext.put(
+                    "customData",
+                    parseCustomData(
+                            campaign.getCustomData()
+                    )
+            );
+        }
+
+        Map<String, Object> contactCustomData =
+                parseCustomData(
+                        campaignContact.getCustomData()
+                );
+
+        Map<String, Object> contactContext =
+                new HashMap<>();
+
+        contactContext.put(
+                "publicId",
+                campaignContact.getPublicId()
+        );
+
+        contactContext.put(
+                "name",
+                campaignContact.getName()
+        );
+
+        contactContext.put(
+                "phoneNumber",
+                campaignContact.getPhoneNumber()
+        );
+
+        contactContext.put(
+                "externalReference",
+                campaignContact.getExternalReference()
+        );
+
+        contactContext.put(
+                "customData",
+                contactCustomData
+        );
+
+        context.put(
+                "campaign",
+                campaignContext
+        );
+
+        context.put(
+                "contact",
+                contactContext
+        );
+
+        /*
+         * Root-level custom variables are supported for prompts
+         * such as:
+         *
+         * {{language}}
+         * {{emi_amount}}
+         * {{due_date}}
+         *
+         * These values originate from Campaign Contact customData.
+         *
+         * Existing nested variables continue to work:
+         *
+         * {{contact.customData.emi_amount}}
+         * {{contact.customData.due_date}}
+         */
+        if (!contactCustomData.isEmpty()) {
+
+            for (
+                    Map.Entry<String, Object> entry :
+                    contactCustomData.entrySet()
+            ) {
+
+                if (entry.getKey() == null
+                        || entry.getKey().isBlank()) {
+                    continue;
+                }
+
+                context.putIfAbsent(
+                        entry.getKey(),
+                        entry.getValue()
+                );
+            }
+        }
+
+        log.debug(
+                "Campaign runtime context added. " +
+                        "callId={}, campaignPublicId={}, " +
+                        "campaignContactPublicId={}",
+                callId,
+                campaign == null
+                        ? null
+                        : campaign.getPublicId(),
+                campaignContact.getPublicId()
+        );
+    }
+
+    private Map<String, Object> parseCustomData(
+            String customData) {
+
+        if (customData == null
+                || customData.isBlank()) {
+
+            return new HashMap<>();
+        }
+
+        try {
+
+            return objectMapper.readValue(
+                    customData,
+                    new TypeReference<
+                            Map<String, Object>>() {
+                    }
+            );
+
+        } catch (Exception exception) {
+
+            log.warn(
+                    "Unable to parse campaign custom data. " +
+                            "Continuing with empty custom data.",
+                    exception
+            );
+
+            return new HashMap<>();
+        }
     }
 }

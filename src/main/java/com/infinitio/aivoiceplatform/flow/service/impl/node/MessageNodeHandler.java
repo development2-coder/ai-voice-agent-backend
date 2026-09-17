@@ -10,7 +10,7 @@ import com.infinitio.aivoiceplatform.flow.service.FlowContextService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionContextKeys;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -66,6 +66,27 @@ public class MessageNodeHandler implements FlowNodeHandler {
                         message,
                         context
                 );
+
+        /*
+         * Store the resolved message in the standard TTS context key.
+         *
+         * When a MESSAGE node is followed by a TTS node, the TTS node
+         * resolves its input from this context value.
+         */
+        context.put(
+                FlowExecutionContextKeys.TTS_TEXT,
+                resolvedMessage
+        );
+
+        log.debug(
+                "Message prepared for TTS. " +
+                        "execution={}, node={}, textLength={}",
+                execution.getPublicId(),
+                node.getNodeKey(),
+                resolvedMessage != null
+                        ? resolvedMessage.length()
+                        : 0
+        );
 
         return FlowNodeExecutionResult.builder()
                 .action("SPEAK")

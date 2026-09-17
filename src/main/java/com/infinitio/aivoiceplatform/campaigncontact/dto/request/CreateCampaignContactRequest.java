@@ -25,6 +25,10 @@ public class CreateCampaignContactRequest {
     )
     private String campaignPublicId;
 
+    @NotBlank(
+            message =
+                    CampaignContactMessages.NAME_REQUIRED
+    )
     @Size(
             max = CampaignContactConstants.NAME_MAX_LENGTH
     )

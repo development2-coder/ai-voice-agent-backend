@@ -43,4 +43,7 @@ public final class CampaignMessages {
 
     public static final String PUBLIC_ID_REQUIRED =
             "Campaign public ID is required.";
+
+    public static final String SAMPLE_EXCEL_GENERATED =
+            "Campaign sample Excel generated successfully.";
 }

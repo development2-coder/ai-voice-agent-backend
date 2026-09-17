@@ -161,7 +161,10 @@ public class ConversationRuntimeConfigurationServiceImpl
                                 flow.getPublicId()
                         )
                         .language(
-                                agentConfig.getLanguage()
+                                resolveEffectiveLanguage(
+                                        agent,
+                                        agentConfig
+                                )
                         )
                         .sttProvider(
                                 agentConfig.getSttProvider()
@@ -611,5 +614,41 @@ public class ConversationRuntimeConfigurationServiceImpl
         );
 
         return flowVersion;
+    }
+
+    /**
+     * Resolves the effective language for the conversation runtime.
+     *
+     * <p>
+     * The language configured directly on the Agent is treated as
+     * the primary language. Agent Configuration language is used as
+     * a fallback for backward compatibility with existing records.
+     * </p>
+     *
+     * @param agent active Agent
+     * @param agentConfig Agent Configuration
+     * @return effective conversation language
+     */
+    private String resolveEffectiveLanguage(
+            Agent agent,
+            AgentConfig agentConfig) {
+
+        if (agent != null
+                && agent.getLanguage() != null
+                && !agent.getLanguage().isBlank()) {
+
+            return agent.getLanguage().trim();
+        }
+
+        if (agentConfig != null
+                && agentConfig.getLanguage() != null
+                && !agentConfig.getLanguage().isBlank()) {
+
+            return agentConfig.getLanguage().trim();
+        }
+
+        throw new IllegalStateException(
+                "Agent language is not configured."
+        );
     }
 }

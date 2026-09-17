@@ -521,22 +521,60 @@ public class TelephonyCallStateServiceImpl
             );
         }
 
-        if (event.getFromNumber() != null
-                && !event
-                .getFromNumber()
-                .isBlank()) {
+        /*
+         * ---------------------------------------------------------
+         * NUMBER HANDLING
+         * ---------------------------------------------------------
+         *
+         * The Call entity stores the platform-level logical
+         * direction:
+         *
+         * OUTBOUND:
+         *     fromNumber = configured caller / Exotel number
+         *     toNumber   = customer destination
+         *
+         * Exotel's outbound Connect webhook represents the
+         * provider call legs differently. Therefore, provider
+         * webhook From/To values must not overwrite the logical
+         * Call numbers for outbound calls.
+         *
+         * The correct numbers were already persisted when the
+         * outbound Call was created.
+         */
+        if (!OUTBOUND.equalsIgnoreCase(
+                call.getDirection()
+        )) {
 
-            call.setFromNumber(
-                    event.getFromNumber()
-            );
-        }
+            if (event.getFromNumber() != null
+                    && !event
+                    .getFromNumber()
+                    .isBlank()) {
 
-        if (event.getToNumber() != null
-                && !event
-                .getToNumber()
-                .isBlank()) {
+                call.setFromNumber(
+                        event.getFromNumber()
+                );
+            }
 
-            call.setToNumber(
+            if (event.getToNumber() != null
+                    && !event
+                    .getToNumber()
+                    .isBlank()) {
+
+                call.setToNumber(
+                        event.getToNumber()
+                );
+            }
+
+        } else {
+
+            log.debug(
+                    "Preserving logical outbound Call numbers. "
+                            + "callPublicId={}, fromNumber={}, toNumber={}, "
+                            + "providerFrom={}, providerTo={}",
+                    call.getPublicId(),
+                    call.getFromNumber(),
+                    call.getToNumber(),
+                    event.getFromNumber(),
                     event.getToNumber()
             );
         }

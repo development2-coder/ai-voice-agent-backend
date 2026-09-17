@@ -12,13 +12,14 @@ import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingService;
 import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingStorageService;
 import com.infinitio.aivoiceplatform.callrecording.validator.CallRecordingValidator;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import org.springframework.core.io.Resource;
 import java.io.IOException;
 
 /**
@@ -337,6 +338,22 @@ public class CallRecordingServiceImpl
          * ---------------------------------------------------------
          */
 
+        Long createdBy =
+                call.getCreatedBy();
+
+        if (createdBy == null) {
+
+            log.error(
+                    "Unable to determine createdBy for call recording. "
+                            + "callPublicId={}",
+                    callPublicId
+            );
+
+            throw new IllegalStateException(
+                    "Unable to determine recording creator."
+            );
+        }
+
         CallRecording recording =
                 CallRecording.builder()
                         .call(call)
@@ -362,6 +379,9 @@ public class CallRecordingServiceImpl
                                 buildDescription(
                                         provider
                                 )
+                        )
+                        .createdBy(
+                                createdBy
                         )
                         .build();
 
@@ -629,5 +649,43 @@ public class CallRecordingServiceImpl
         return "Complete call recording from "
                 + provider
                 + " telephony provider.";
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Resource getRecordingResource(
+            String publicId) {
+
+        log.info(
+                "Loading local call recording. publicId={}",
+                publicId
+        );
+
+        CallRecording recording =
+                callRecordingValidator
+                        .validateAndGet(
+                                publicId
+                        );
+
+        if (recording.getFilePath() == null
+                || recording.getFilePath().isBlank()) {
+
+            log.warn(
+                    "Local recording path is missing. publicId={}",
+                    publicId
+            );
+
+            throw new ResourceNotFoundException(
+                    "Local call recording file not found."
+            );
+        }
+
+        return callRecordingStorageService
+                .load(
+                        recording.getFilePath()
+                );
     }
 }

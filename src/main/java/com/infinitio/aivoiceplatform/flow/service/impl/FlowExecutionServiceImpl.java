@@ -6,8 +6,8 @@ import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.constant.FlowStatus;
-import com.infinitio.aivoiceplatform.flow.dto.request.ContinueApiResponseRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.ContinueAiResponseRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.ContinueApiResponseRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.ContinueFlowExecutionRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.StartFlowExecutionRequest;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
@@ -37,14 +37,16 @@ import java.util.Map;
  * Default implementation of Flow Execution Service.
  *
  * <p>
- * This service owns the Flow execution lifecycle:
+ * This service owns the high-level Flow execution lifecycle:
  * </p>
  *
  * <ul>
  *     <li>Starting a Flow execution</li>
- *     <li>Retrieving an execution</li>
- *     <li>Delegating continuation requests</li>
- *     <li>Cancelling an execution</li>
+ *     <li>Retrieving an existing Flow execution</li>
+ *     <li>Delegating normal continuation</li>
+ *     <li>Delegating API response continuation</li>
+ *     <li>Delegating AI response continuation</li>
+ *     <li>Cancelling a Flow execution</li>
  * </ul>
  *
  * <p>
@@ -55,8 +57,9 @@ import java.util.Map;
  * </p>
  *
  * <p>
- * This separation is required for the n8n-style Flow architecture,
- * where the saved Flow graph determines the next node at runtime.
+ * This separation keeps FlowExecutionServiceImpl focused on the
+ * execution lifecycle while the runtime and continuation services
+ * remain responsible for graph traversal and waiting-state handling.
  * </p>
  *
  * @author Infinitio Digital
@@ -68,6 +71,11 @@ import java.util.Map;
 @Transactional
 public class FlowExecutionServiceImpl
         implements FlowExecutionService {
+
+    /**
+     * Represents an active, non-deleted record.
+     */
+    private static final Integer NOT_DELETED = 0;
 
     private final FlowExecutionRepository
             executionRepository;
@@ -142,17 +150,18 @@ public class FlowExecutionServiceImpl
         }
 
         /*
-         * The Flow must contain exactly one START node.
+         * Retrieve the START node.
          *
          * The Flow validator is responsible for graph-level
-         * validation. This lookup retrieves the node that will
-         * begin runtime execution.
+         * validation. This lookup retrieves the persistent node
+         * that represents the beginning of runtime execution.
          */
         FlowNode startNode =
                 nodeRepository
-                        .findByFlowIdAndNodeType(
+                        .findByFlowIdAndNodeTypeAndIsDeleted(
                                 flow.getId(),
-                                FlowNodeType.START
+                                FlowNodeType.START,
+                                NOT_DELETED
                         )
                         .orElseThrow(() -> {
 
@@ -168,7 +177,10 @@ public class FlowExecutionServiceImpl
                         });
 
         /*
-         * Create initial runtime context.
+         * Create the initial runtime context.
+         *
+         * A copy is created so that the request object is not
+         * modified during Flow execution.
          */
         Map<String, Object> context =
                 request.getContext() == null
@@ -179,9 +191,6 @@ public class FlowExecutionServiceImpl
 
         /*
          * Store identifiers required by runtime nodes.
-         *
-         * The context is intentionally generic because each
-         * tenant's Flow may require different runtime variables.
          */
         if (request.getCallPublicId() != null
                 && !request.getCallPublicId().isBlank()) {
@@ -204,13 +213,8 @@ public class FlowExecutionServiceImpl
         /*
          * Resolve the audit user.
          *
-         * Normal API requests have an authenticated user.
-         * Provider-driven runtime callbacks such as Exotel
-         * WebSocket requests do not have an authenticated
-         * HTTP security context.
-         *
-         * Therefore the configured system user is used when
-         * no authenticated user is available.
+         * Provider-driven runtime requests such as Exotel
+         * callbacks may not have an authenticated HTTP user.
          */
         Long currentUserId =
                 resolveExecutionUserId();
@@ -225,10 +229,10 @@ public class FlowExecutionServiceImpl
         );
 
         /*
-         * Create FlowExecution.
+         * Create the Flow execution.
          *
-         * The execution starts at START. The runtime service
-         * will then determine the next node using the Flow graph.
+         * The execution starts at the START node. The runtime
+         * service owns all subsequent graph traversal.
          */
         FlowExecution execution =
                 FlowExecution.builder()
@@ -276,20 +280,18 @@ public class FlowExecutionServiceImpl
         );
 
         /*
-         * IMPORTANT:
+         * The runtime service owns execution of the START node
+         * and traversal to the next configured node.
          *
-         * Do not execute the START node here manually.
+         * Do not execute START manually here.
          *
-         * The runtime service owns the complete node execution
-         * and transition chain.
-         *
-         * Therefore:
+         * Example:
          *
          * START
          *   ↓
          * FlowTransitionService
          *   ↓
-         * tenant-configured next node
+         * AI_RESPONSE / STT / TTS / API / etc.
          */
         FlowExecutionResult result =
                 runtimeService.execute(
@@ -395,9 +397,9 @@ public class FlowExecutionServiceImpl
         /*
          * getExecution is a read operation.
          *
-         * We intentionally do not execute the current node here.
-         * Executing a node while retrieving state would cause
-         * duplicate LLM/TTS/API execution.
+         * The current node must not be executed here.
+         * Otherwise retrieving execution state could trigger
+         * duplicate LLM, TTS, API, or other node execution.
          */
         Map<String, Object> context =
                 flowContextService.readContext(
@@ -491,6 +493,20 @@ public class FlowExecutionServiceImpl
                 request.getExecutionPublicId()
         );
 
+        /*
+         * AI continuation belongs to the continuation service.
+         *
+         * FlowExecutionServiceImpl must not duplicate:
+         *
+         * - execution lookup
+         * - WAITING_FOR_AI validation
+         * - AI response persistence
+         * - runtime context merging
+         * - next-node resolution
+         * - node execution
+         *
+         * This keeps one source of truth for continuation logic.
+         */
         return continuationService
                 .continueWithAiResponse(
                         request
@@ -569,9 +585,8 @@ public class FlowExecutionServiceImpl
         );
 
         /*
-         * Cancellation can also be triggered by a provider
-         * runtime callback, so do not directly require an
-         * authenticated HTTP user here.
+         * Cancellation may be triggered by provider runtime
+         * callbacks where no authenticated HTTP user exists.
          */
         execution.setUpdatedBy(
                 resolveExecutionUserId()
@@ -598,13 +613,13 @@ public class FlowExecutionServiceImpl
      * <p>
      * Interactive API requests normally have an authenticated user.
      * Provider-driven runtime callbacks such as Exotel WebSocket
-     * requests do not have an authenticated HTTP security context.
+     * requests may not have an authenticated HTTP security context.
      * </p>
      *
      * <p>
-     * When an authenticated user is unavailable, the configured
+     * When no authenticated user is available, the configured
      * system user is used so that runtime execution can continue
-     * without violating the non-null audit fields of the entity.
+     * without violating non-null audit fields.
      * </p>
      *
      * @return authenticated user ID or configured system user ID
@@ -648,8 +663,8 @@ public class FlowExecutionServiceImpl
     // =========================================================
 
     /**
-     * Resolves the current action when returning an existing
-     * Flow execution without executing the node again.
+     * Resolves the current runtime action without executing
+     * the current Flow node.
      *
      * @param execution Flow execution
      * @return current runtime action
@@ -743,9 +758,9 @@ public class FlowExecutionServiceImpl
     // =========================================================
 
     /**
-     * Validates Flow start request.
+     * Validates a Flow start request.
      *
-     * @param request start request
+     * @param request Flow start request
      */
     private void validateStartRequest(
             StartFlowExecutionRequest request) {
@@ -767,9 +782,9 @@ public class FlowExecutionServiceImpl
     }
 
     /**
-     * Validates execution public ID.
+     * Validates an execution public ID.
      *
-     * @param executionPublicId execution identifier
+     * @param executionPublicId Flow execution identifier
      */
     private void validateExecutionPublicId(
             String executionPublicId) {

@@ -60,6 +60,15 @@ public class CampaignContactValidator {
             );
         }
 
+        if (request.getName() == null
+                || request.getName().isBlank()) {
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .NAME_REQUIRED
+            );
+        }
+
         validateCustomData(
                 request.getCustomData()
         );

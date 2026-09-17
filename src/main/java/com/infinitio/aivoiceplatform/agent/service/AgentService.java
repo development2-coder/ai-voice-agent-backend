@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.agent.service;
 
+import com.infinitio.aivoiceplatform.agent.dto.request.CopyAgentRequest;
 import com.infinitio.aivoiceplatform.agent.dto.request.CreateAgentRequest;
 import com.infinitio.aivoiceplatform.agent.dto.request.UpdateAgentRequest;
 import com.infinitio.aivoiceplatform.agent.dto.response.AgentResponse;
@@ -14,19 +15,46 @@ import com.infinitio.aivoiceplatform.common.dto.PageResponse;
  */
 public interface AgentService {
 
-    AgentResponse create(CreateAgentRequest request);
+    AgentResponse create(
+            CreateAgentRequest request
+    );
 
-    AgentResponse update(UpdateAgentRequest request);
+    AgentResponse update(
+            UpdateAgentRequest request
+    );
 
-    AgentResponse getByPublicId(String publicId);
+    /**
+     * Creates a complete copy of an existing Agent.
+     *
+     * @param publicId source Agent public identifier
+     * @param request copy request
+     * @return copied Agent
+     */
+    AgentResponse copy(
+            String publicId,
+            CopyAgentRequest request
+    );
 
-    PageResponse<AgentResponse> getAll(int page, int size);
+    AgentResponse getByPublicId(
+            String publicId
+    );
 
-    void delete(String publicId);
+    PageResponse<AgentResponse> getAll(
+            int page,
+            int size
+    );
 
-    void activate(String publicId);
+    void delete(
+            String publicId
+    );
 
-    void deactivate(String publicId);
+    void activate(
+            String publicId
+    );
+
+    void deactivate(
+            String publicId
+    );
 
     /**
      * Retrieves the complete Agent workspace for the visual

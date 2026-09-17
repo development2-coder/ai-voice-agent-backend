@@ -70,4 +70,10 @@ public final class TranscriptMessages {
 
     public static final String ENDED_AT_INVALID =
             "Transcript end time is invalid.";
+
+    public static final String COMPLETE_TRANSCRIPT_FETCHED =
+            "Complete call transcript fetched successfully.";
+
+    public static final String TRANSCRIPT_ARTIFACT_NOT_FOUND =
+            "Transcript artifact not found.";
 }

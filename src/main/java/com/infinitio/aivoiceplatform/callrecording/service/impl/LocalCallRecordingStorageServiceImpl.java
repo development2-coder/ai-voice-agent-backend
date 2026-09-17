@@ -7,7 +7,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
-
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -202,6 +203,57 @@ public class LocalCallRecordingStorageServiceImpl
         return value.replaceAll(
                 "[^a-zA-Z0-9._-]",
                 "_"
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Resource load(
+            String filePath) {
+
+        if (filePath == null
+                || filePath.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Recording file path is required."
+            );
+        }
+
+        Path targetPath =
+                storageDirectory
+                        .resolve(
+                                Paths.get(
+                                        filePath
+                                ).getFileName()
+                        )
+                        .normalize();
+
+        if (!targetPath.startsWith(
+                storageDirectory
+        )) {
+
+            throw new IllegalArgumentException(
+                    "Invalid recording file path."
+            );
+        }
+
+        if (!Files.exists(targetPath)
+                || !Files.isRegularFile(targetPath)) {
+
+            log.warn(
+                    "Local recording file not found. path={}",
+                    targetPath
+            );
+
+            throw new IllegalStateException(
+                    "Call recording file not found."
+            );
+        }
+
+        return new FileSystemResource(
+                targetPath
         );
     }
 }

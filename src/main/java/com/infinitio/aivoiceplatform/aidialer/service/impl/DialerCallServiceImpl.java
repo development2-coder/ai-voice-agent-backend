@@ -7,10 +7,7 @@ import com.infinitio.aivoiceplatform.aidialer.entity.AiDialer;
 import com.infinitio.aivoiceplatform.aidialer.entity.DialerCall;
 import com.infinitio.aivoiceplatform.aidialer.mapper.AiDialerMapper;
 import com.infinitio.aivoiceplatform.aidialer.repository.DialerCallRepository;
-import com.infinitio.aivoiceplatform.aidialer.service.DialerCallLifecycleService;
-import com.infinitio.aivoiceplatform.aidialer.service.DialerCallRetryService;
-import com.infinitio.aivoiceplatform.aidialer.service.DialerCallService;
-import com.infinitio.aivoiceplatform.aidialer.service.DialerCallValidationService;
+import com.infinitio.aivoiceplatform.aidialer.service.*;
 import com.infinitio.aivoiceplatform.aidialer.validator.AiDialerValidator;
 import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
@@ -153,6 +150,21 @@ public class DialerCallServiceImpl
                                 previousCalls
                         );
 
+        Long createdBy = dialer.getCreatedBy();
+
+        if (createdBy == null) {
+            log.error(
+                    "Unable to create Dialer Call because "
+                            + "Dialer createdBy is null. "
+                            + "dialerPublicId={}",
+                    dialerPublicId
+            );
+
+            throw new BadRequestException(
+                    DialerMessages.DIALER_REQUIRED_FOR_INITIATION
+            );
+        }
+
         DialerCall call =
                 DialerCall.builder()
                         .dialer(dialer)
@@ -168,6 +180,11 @@ public class DialerCallServiceImpl
                         .phoneNumber(
                                 campaignContact
                                         .getPhoneNumber()
+                        )
+                        .createdBy(
+                                resolveCreatedBy(
+                                        dialer
+                                )
                         )
                         .build();
 
@@ -562,4 +579,46 @@ public class DialerCallServiceImpl
                         )
                 );
     }
+
+
+    /**
+     * Resolves the audit user for a DialerCall created by
+     * the AI Dialer scheduler.
+     *
+     * <p>
+     * Scheduled processing does not have an authenticated
+     * HTTP user context. Therefore, the creator of the
+     * AI Dialer is used as the audit user.
+     * </p>
+     *
+     * @param dialer AI Dialer
+     * @return creator user ID
+     */
+    private Long resolveCreatedBy(
+            AiDialer dialer) {
+
+        if (dialer == null
+                || dialer.getCreatedBy() == null) {
+
+            log.error(
+                    "Unable to create DialerCall because "
+                            + "Dialer createdBy is null."
+            );
+
+            throw new IllegalStateException(
+                    "Unable to determine createdBy for AI Dialer."
+            );
+        }
+
+        return dialer.getCreatedBy();
+    }
+
+    /**
+     * Creates and immediately initiates a call
+     * for a campaign contact.
+     *
+     * @param dialerPublicId AI Dialer public identifier
+     * @param campaignContactPublicId campaign contact public identifier
+     * @return initiated dialer call
+     */
 }

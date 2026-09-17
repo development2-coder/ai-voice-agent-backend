@@ -8,6 +8,8 @@ import com.infinitio.aivoiceplatform.campaign.service.CampaignService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
+import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResponse;
+import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -33,6 +35,9 @@ import org.springframework.web.bind.annotation.*;
 public class CampaignController {
 
     private final CampaignService campaignService;
+
+    private final CampaignVariableService
+            campaignVariableService;
 
     @Operation(summary = "Create Campaign")
     @PostMapping
@@ -91,6 +96,32 @@ public class CampaignController {
         return ResponseBuilder.success(
                 response,
                 "Campaign fetched successfully."
+        );
+    }
+
+
+    @Operation(
+            summary = "Get Campaign Flow Variables"
+    )
+    @GetMapping("/{publicId}/variables")
+    public ResponseEntity<
+            ApiResponse<CampaignVariablesResponse>>
+    getVariables(
+            @PathVariable String publicId) {
+
+        log.info(
+                "REST Request : Get Campaign Flow Variables : {}",
+                publicId
+        );
+
+        CampaignVariablesResponse response =
+                campaignVariableService.getVariables(
+                        publicId
+                );
+
+        return ResponseBuilder.success(
+                response,
+                "Campaign Flow variables fetched successfully."
         );
     }
 

@@ -4,6 +4,8 @@ import java.net.http.WebSocket;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -464,6 +466,17 @@ public class SarvamStreamingSession
     /**
      * Closes the provider WebSocket.
      */
+    /**
+     * Closes the provider WebSocket after allowing Sarvam enough time
+     * to emit the final transcript generated from audio that was already
+     * received before the call ended.
+     *
+     * <p>
+     * The end event is sent first. The provider WebSocket is intentionally
+     * not closed immediately because Sarvam may still have a final
+     * transcript event pending for the last caller utterance.
+     * </p>
+     */
     @Override
     public synchronized void close() {
 
@@ -475,13 +488,13 @@ public class SarvamStreamingSession
         closing =
                 true;
 
-        open =
-                false;
-
         WebSocket currentSocket =
                 webSocket;
 
         if (currentSocket == null) {
+
+            open =
+                    false;
 
             log.debug(
                     "Sarvam STT WebSocket already unavailable. " +
@@ -494,10 +507,80 @@ public class SarvamStreamingSession
 
         try {
 
+            /*
+             * Keep the session logically available while Sarvam
+             * processes the end event and emits any pending final
+             * transcript.
+             */
             currentSocket.sendText(
                     buildEndPayload(),
                     true
             ).join();
+
+            log.info(
+                    "Sarvam realtime STT end event sent. " +
+                            "Waiting for final transcript events. " +
+                            "callId={}",
+                    callId
+            );
+
+            /*
+             * Do not immediately send WebSocket close here.
+             *
+             * Sarvam may need a short amount of time to emit the
+             * final transcript for audio received immediately before
+             * the call ended.
+             *
+             * The WebSocket will be closed asynchronously after the
+             * final-transcript grace period.
+             */
+            CompletableFuture
+                    .delayedExecutor(
+                            1500,
+                            TimeUnit.MILLISECONDS
+                    )
+                    .execute(
+                            () -> closeProviderSocket(
+                                    currentSocket
+                            )
+                    );
+
+        } catch (Exception exception) {
+
+            open =
+                    false;
+
+            log.warn(
+                    "Error while sending Sarvam realtime STT end " +
+                            "event. callId={}",
+                    callId,
+                    exception
+            );
+
+            closeProviderSocket(
+                    currentSocket
+            );
+        }
+    }
+
+    /**
+     * Closes the Sarvam provider WebSocket after the final-transcript
+     * grace period.
+     *
+     * @param currentSocket provider WebSocket
+     */
+    private void closeProviderSocket(
+            WebSocket currentSocket) {
+
+        if (currentSocket == null) {
+
+            open =
+                    false;
+
+            return;
+        }
+
+        try {
 
             currentSocket.sendClose(
                     WebSocket.NORMAL_CLOSURE,
@@ -518,6 +601,11 @@ public class SarvamStreamingSession
                     callId,
                     exception
             );
+
+        } finally {
+
+            open =
+                    false;
         }
     }
 

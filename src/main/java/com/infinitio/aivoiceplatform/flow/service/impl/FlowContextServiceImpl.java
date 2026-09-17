@@ -150,25 +150,77 @@ public class FlowContextServiceImpl
 
         String result = text;
 
-        for (Map.Entry<String, Object> entry :
-                context.entrySet()) {
+        java.util.regex.Pattern pattern =
+                java.util.regex.Pattern.compile(
+                        "\\{\\{([^{}]+)}}"
+                );
 
-            String placeholder =
-                    "{{" + entry.getKey() + "}}";
+        java.util.regex.Matcher matcher =
+                pattern.matcher(result);
 
-            String value =
-                    entry.getValue() == null
-                            ? ""
-                            : String.valueOf(
-                            entry.getValue()
+        StringBuffer buffer =
+                new StringBuffer();
+
+        while (matcher.find()) {
+
+            String variablePath =
+                    matcher.group(1).trim();
+
+            Object value =
+                    resolveVariablePath(
+                            context,
+                            variablePath
                     );
 
-            result = result.replace(
-                    placeholder,
-                    value
+            String replacement =
+                    value == null
+                            ? ""
+                            : String.valueOf(value);
+
+            matcher.appendReplacement(
+                    buffer,
+                    java.util.regex.Matcher
+                            .quoteReplacement(
+                                    replacement
+                            )
             );
         }
 
-        return result;
+        matcher.appendTail(buffer);
+
+        return buffer.toString();
+    }
+
+    private Object resolveVariablePath(
+            Map<String, Object> context,
+            String variablePath) {
+
+        if (variablePath == null
+                || variablePath.isBlank()) {
+
+            return null;
+        }
+
+        String[] path =
+                variablePath.split("\\.");
+
+        Object current =
+                context;
+
+        for (String key : path) {
+
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+
+            current =
+                    map.get(key);
+
+            if (current == null) {
+                return null;
+            }
+        }
+
+        return current;
     }
 }

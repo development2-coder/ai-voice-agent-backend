@@ -39,6 +39,10 @@ public interface CampaignMapper {
             target = "phoneNumberPublicId",
             source = "phoneNumber.publicId"
     )
+    @Mapping(
+            target = "contactCount",
+            ignore = true
+    )
     CampaignResponse toResponse(Campaign entity);
 
     @BeanMapping(

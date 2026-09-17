@@ -372,22 +372,20 @@ public class DialerSchedulerServiceImpl
     /**
      * Processes scheduled and running AI Dialers.
      */
+    /**
+     * Processes scheduled and running AI Dialers.
+     *
+     * <p>
+     * No INFO log is generated when there are no running dialers.
+     * Detailed processing logs are generated only when an AI Dialer
+     * is actually being processed.
+     * </p>
+     */
     @Override
     public void processRunningDialers() {
 
-        log.debug(
-                "Starting scheduled AI Dialer processing."
-        );
-
-        /*
-         * First activate scheduled dialers whose
-         * scheduled start time has been reached.
-         */
         activateScheduledDialers();
 
-        /*
-         * Fetch all currently running dialers.
-         */
         List<AiDialer> dialers =
                 aiDialerRepository
                         .findAllByStatusAndIsDeleted(
@@ -396,11 +394,6 @@ public class DialerSchedulerServiceImpl
                         );
 
         if (dialers.isEmpty()) {
-
-            log.debug(
-                    "No RUNNING AI Dialers found."
-            );
-
             return;
         }
 
@@ -414,14 +407,9 @@ public class DialerSchedulerServiceImpl
 
             } catch (Exception exception) {
 
-                /*
-                 * One dialer failure must not stop
-                 * processing of other dialers.
-                 */
                 log.error(
-                        "Error processing dialer {} : {}",
+                        "Error processing AI Dialer {}.",
                         dialer.getPublicId(),
-                        exception.getMessage(),
                         exception
                 );
             }
@@ -496,14 +484,26 @@ public class DialerSchedulerServiceImpl
                     DialerStatus.RUNNING
             );
 
+            dialer.setStartedAt(
+                    now
+            );
+
+            dialer.setPausedAt(null);
+
+            dialer.setCompletedAt(null);
+
             aiDialerRepository.save(
                     dialer
             );
 
             log.info(
                     "Scheduled Dialer {} transitioned "
-                            + "from SCHEDULED to RUNNING.",
-                    dialer.getPublicId()
+                            + "from SCHEDULED to RUNNING. "
+                            + "Scheduled Start : {}, "
+                            + "Actual Start : {}",
+                    dialer.getPublicId(),
+                    dialer.getScheduledStartAt(),
+                    now
             );
         }
     }
@@ -554,9 +554,21 @@ public class DialerSchedulerServiceImpl
     /**
      * Scheduled AI Dialer processing job.
      */
+    /**
+     * Scheduled AI Dialer processing job.
+     */
+    /**
+     * Scheduled AI Dialer processing job.
+     *
+     * <p>
+     * The scheduler continues to run at the configured interval,
+     * but does not generate an INFO log when there is no active
+     * AI Dialer to process.
+     * </p>
+     */
     @Scheduled(
             fixedRateString =
-                    "${ai.dialer.scheduler.interval-ms:60000}"
+                    "${ai.dialer.scheduler.interval-ms:10000}"
     )
     public void scheduledDialerProcessing() {
 
@@ -598,10 +610,11 @@ public class DialerSchedulerServiceImpl
 
         Page<CampaignContact> page =
                 campaignContactRepository
-                        .findByCampaignId(
+                        .findByCampaignIdAndIsDeleted(
                                 dialer
                                         .getCampaign()
                                         .getId(),
+                                0,
                                 pageable
                         );
 

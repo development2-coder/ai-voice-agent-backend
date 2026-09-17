@@ -47,8 +47,21 @@ public interface CampaignContactRepository
      * @param pageable pagination information
      * @return campaign contacts
      */
-    Page<CampaignContact> findByCampaignId(
+    /**
+     * Finds active campaign contacts belonging to a campaign.
+     *
+     * <p>
+     * Soft-deleted contacts are excluded from the result.
+     * </p>
+     *
+     * @param campaignId campaign database identifier
+     * @param isDeleted deleted flag
+     * @param pageable pagination information
+     * @return non-deleted campaign contacts
+     */
+    Page<CampaignContact> findByCampaignIdAndIsDeleted(
             Long campaignId,
+            Integer isDeleted,
             Pageable pageable
     );
 
@@ -90,6 +103,18 @@ public interface CampaignContactRepository
             String status,
             Integer isDeleted,
             Integer isActive
+    );
+
+    /**
+     * Counts non-deleted contacts belonging to a campaign.
+     *
+     * @param campaignId campaign database identifier
+     * @param isDeleted deleted flag
+     * @return number of campaign contacts
+     */
+    long countByCampaignIdAndIsDeleted(
+            Long campaignId,
+            Integer isDeleted
     );
 
 

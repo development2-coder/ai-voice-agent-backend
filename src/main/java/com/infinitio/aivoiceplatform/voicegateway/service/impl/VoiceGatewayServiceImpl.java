@@ -23,7 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
 import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -64,6 +64,9 @@ public class VoiceGatewayServiceImpl
             webSocketSessionRegistry;
 
     private final TtsAudioStreamRegistry ttsAudioStreamRegistry;
+
+    private final RuntimePersistenceService
+            runtimePersistenceService;
 
     /**
      * Stores whether caller speech has been detected by VAD
@@ -294,11 +297,22 @@ public class VoiceGatewayServiceImpl
 
         try {
 
+            Integer sampleRate =
+                    request.getSampleRate() != null
+                            ? request.getSampleRate()
+                            : VoiceGatewayConstants.AUDIO_SAMPLE_RATE;
+
+            String audioEncoding =
+                    request.getAudioEncoding() != null
+                            && !request.getAudioEncoding().isBlank()
+                            ? request.getAudioEncoding()
+                            : VoiceGatewayConstants.AUDIO_ENCODING;
+
             sttRuntimeService.startStreaming(
                     request.getCallId(),
-                    language,
-                    VoiceGatewayConstants.AUDIO_SAMPLE_RATE,
-                    VoiceGatewayConstants.AUDIO_ENCODING,
+                    "auto",
+                    sampleRate,
+                    audioEncoding,
                     buildSttStreamingListener(
                             request.getCallId(),
                             request.getStreamId()
@@ -313,8 +327,8 @@ public class VoiceGatewayServiceImpl
                     request.getCallId(),
                     request.getStreamId(),
                     language,
-                    VoiceGatewayConstants.AUDIO_SAMPLE_RATE,
-                    VoiceGatewayConstants.AUDIO_ENCODING
+                    sampleRate,
+                    audioEncoding
             );
 
         } catch (Exception exception) {
@@ -1192,10 +1206,6 @@ public class VoiceGatewayServiceImpl
                 String detectedLanguage =
                         response.getLanguage();
 
-                /*
-                 * Remove pending VAD state because a final transcript
-                 * has now been produced.
-                 */
                 pendingBargeIns.remove(
                         finalCallId
                 );
@@ -1215,6 +1225,42 @@ public class VoiceGatewayServiceImpl
                         transcript
                 );
 
+                /*
+                 * Persist the caller's final transcript before passing
+                 * it to the conversation orchestrator.
+                 *
+                 * This is required for realtime streaming calls because
+                 * the streaming STT callback does not go through
+                 * RuntimePersistenceService.saveStt().
+                 */
+                try {
+
+                    runtimePersistenceService.saveTranscriptMessage(
+                            finalCallId,
+                            "USER",
+                            transcript,
+                            detectedLanguage,
+                            "STT_STREAMING"
+                    );
+
+                } catch (Exception exception) {
+
+                    /*
+                     * Transcript persistence must not stop the live
+                     * conversation from continuing.
+                     */
+                    log.error(
+                            "{} Failed to persist final STT transcript. " +
+                                    "callId={}",
+                            VoiceGatewayConstants.LOG_PREFIX,
+                            finalCallId,
+                            exception
+                    );
+                }
+
+                /*
+                 * Continue normal conversation processing.
+                 */
                 processFinalTranscript(
                         finalCallId,
                         streamId,

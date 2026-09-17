@@ -208,6 +208,12 @@ public class TtsNodeHandler
     private final VoiceGatewayWebSocketSessionRegistry
             webSocketSessionRegistry;
 
+    private static final String AI_RESPONSE =
+            "aiResponse";
+
+    private static final String LAST_AI_RESPONSE =
+            "lastAiResponse";
+
     /**
      * {@inheritDoc}
      */
@@ -296,6 +302,14 @@ public class TtsNodeHandler
                         configuration,
                         PACE
                 );
+
+        if (pace != null
+                && (pace < 0.5 || pace > 2.0)) {
+
+            throw new IllegalArgumentException(
+                    "TTS pace must be between 0.5 and 2.0."
+            );
+        }
 
         Integer speechSampleRate =
                 resolveInteger(
@@ -570,25 +584,47 @@ public class TtsNodeHandler
      * Resolves the text that should be synthesized.
      *
      * <p>
-     * The client can explicitly configure text on the node.
-     * If no text is configured, runtime values are checked.
+     * Text may come from an explicitly configured TTS value,
+     * a Flow variable, an AI response, or another runtime
+     * response value.
      * </p>
      *
+     * <p>
+     * Resolution order:
+     * </p>
+     *
+     * <ol>
+     *     <li>Explicit TTS node text with Flow variable resolution</li>
+     *     <li>Canonical AI response</li>
+     *     <li>Last AI response</li>
+     *     <li>LLM response</li>
+     *     <li>Runtime TTS text</li>
+     *     <li>Generic runtime response</li>
+     * </ol>
+     *
      * @param configuration TTS node configuration
-     * @param context Flow context
+     * @param context Flow execution context
      * @return text to synthesize
      */
     private String resolveText(
             Map<String, Object> configuration,
             Map<String, Object> context) {
 
+        /*
+         * 1. Explicitly configured TTS text.
+         *
+         * Example:
+         *
+         * {{emiGreetingResponse}}
+         */
         String configuredText =
                 getConfigurationString(
                         configuration,
                         TEXT
                 );
 
-        if (configuredText != null) {
+        if (configuredText != null
+                && !configuredText.isBlank()) {
 
             String resolvedText =
                     flowContextService.replaceVariables(
@@ -601,8 +637,46 @@ public class TtsNodeHandler
 
                 return resolvedText.trim();
             }
+
+            log.debug(
+                    "Configured TTS text resolved to empty value. " +
+                            "Falling back to runtime AI response."
+            );
         }
 
+        /*
+         * 2. Canonical AI response.
+         */
+        String aiResponse =
+                getOptionalContextString(
+                        context,
+                        AI_RESPONSE
+                );
+
+        if (aiResponse != null
+                && !aiResponse.isBlank()) {
+
+            return aiResponse.trim();
+        }
+
+        /*
+         * 3. Last AI response.
+         */
+        String lastAiResponse =
+                getOptionalContextString(
+                        context,
+                        LAST_AI_RESPONSE
+                );
+
+        if (lastAiResponse != null
+                && !lastAiResponse.isBlank()) {
+
+            return lastAiResponse.trim();
+        }
+
+        /*
+         * 4. LLM response.
+         */
         String llmResponse =
                 getOptionalContextString(
                         context,
@@ -612,9 +686,12 @@ public class TtsNodeHandler
         if (llmResponse != null
                 && !llmResponse.isBlank()) {
 
-            return llmResponse;
+            return llmResponse.trim();
         }
 
+        /*
+         * 5. Runtime TTS text.
+         */
         String ttsText =
                 getOptionalContextString(
                         context,
@@ -624,20 +701,25 @@ public class TtsNodeHandler
         if (ttsText != null
                 && !ttsText.isBlank()) {
 
-            return ttsText;
+            return ttsText.trim();
         }
 
+        /*
+         * 6. Generic response.
+         */
         String response =
                 getOptionalContextString(
                         context,
                         RESPONSE
                 );
 
-        if (response != null) {
-            return response;
+        if (response != null
+                && !response.isBlank()) {
+
+            return response.trim();
         }
 
-        log.warn(
+        log.error(
                 "No text available for TTS Flow node. " +
                         "executionContextKeys={}",
                 context.keySet()

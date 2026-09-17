@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.telephony.config.TelephonyMediaProperties;
 import java.time.LocalDateTime;
 
 /**
@@ -69,6 +69,9 @@ public class DialerCallInitiationServiceImpl
 
     private final TelephonyService
             telephonyService;
+
+    private final TelephonyMediaProperties
+            telephonyMediaProperties;
 
     /**
      * Initiates a queued Dialer Call.
@@ -305,6 +308,19 @@ public class DialerCallInitiationServiceImpl
              * STEP 8: Build provider request.
              * -----------------------------------------------------
              */
+            /*
+             * ---------------------------------------------------------
+             * STEP 8: Build application-owned realtime stream URL.
+             * ---------------------------------------------------------
+             *
+             * The Dialer uses the same realtime WebSocket architecture
+             * as direct Agent outbound calls.
+             */
+            String streamUrl =
+                    buildStreamUrl(
+                            callPublicId
+                    );
+
             PlaceOutboundCallRequestDto request =
                     PlaceOutboundCallRequestDto.builder()
                             .callPublicId(
@@ -317,10 +333,20 @@ public class DialerCallInitiationServiceImpl
                                     dialingCall
                                             .getPhoneNumber()
                             )
-                            .callbackUrl(
-                                    null
+                            .streamUrl(
+                                    streamUrl
                             )
                             .build();
+
+            log.info(
+                    "AI Dialer realtime stream URL created. "
+                            + "callPublicId={}, "
+                            + "dialerCallPublicId={}, "
+                            + "streamUrl={}",
+                    callPublicId,
+                    dialingCall.getPublicId(),
+                    streamUrl
+            );
 
             /*
              * -----------------------------------------------------
@@ -703,6 +729,44 @@ public class DialerCallInitiationServiceImpl
                 yield CallAttemptStatus.DIALING;
             }
         };
+    }
+
+    /**
+     * Builds the application-owned media streaming URL.
+     *
+     * <p>
+     * The application Call public ID is appended so that the
+     * Exotel WebSocket handler can correlate the media stream
+     * with the already-created CallSession.
+     * </p>
+     *
+     * @param callPublicId application Call public identifier
+     * @return application-owned WebSocket streaming URL
+     */
+    private String buildStreamUrl(
+            String callPublicId) {
+
+        String configuredUrl =
+                telephonyMediaProperties
+                        .getStreamUrl();
+
+        if (configuredUrl == null
+                || configuredUrl.isBlank()) {
+
+            throw new IllegalStateException(
+                    "Telephony media stream URL is not configured."
+            );
+        }
+
+        String separator =
+                configuredUrl.contains("?")
+                        ? "&"
+                        : "?";
+
+        return configuredUrl
+                + separator
+                + "callPublicId="
+                + callPublicId;
     }
 
     /**

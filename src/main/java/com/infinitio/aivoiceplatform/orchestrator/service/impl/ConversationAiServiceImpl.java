@@ -139,6 +139,19 @@ public class ConversationAiServiceImpl
                 messages.size()
         );
 
+        log.info(
+                "Starting LLM execution. callId={}, executionPublicId={}, " +
+                        "promptPresent={}, messageCount={}, lastUserInputPresent={}",
+                callId,
+                execution.getExecutionPublicId(),
+                prompt != null && !prompt.isBlank(),
+                messages.size(),
+                context.get(LAST_USER_INPUT) != null
+                        && !String.valueOf(
+                        context.get(LAST_USER_INPUT)
+                ).isBlank()
+        );
+
         long startTime =
                 System.currentTimeMillis();
 
@@ -294,6 +307,22 @@ public class ConversationAiServiceImpl
      * @param prompt AI system instruction
      * @return messages for LLM generation
      */
+    /**
+     * Resolves messages for the AI response request.
+     *
+     * <p>
+     * The configured AI prompt is sent as a system instruction.
+     * If customer input is already available, it is added as the
+     * user message. For outbound AI-first flows, where no customer
+     * input exists yet, a generic opening instruction is used so
+     * that the AI can generate the first response without waiting
+     * for customer speech.
+     * </p>
+     *
+     * @param context Flow execution context
+     * @param prompt AI system instruction
+     * @return messages for LLM generation
+     */
     private List<LlmMessageDto> resolveMessages(
             Map<String, Object> context,
             String prompt) {
@@ -302,8 +331,11 @@ public class ConversationAiServiceImpl
                 new ArrayList<>();
 
         /*
-         * The AI node prompt contains instructions for the LLM.
-         * It must NOT be sent as the customer's user message.
+         * The configured AI prompt contains the business
+         * instructions for the LLM.
+         *
+         * It must be sent as a SYSTEM message and must not
+         * be treated as customer input.
          */
         if (prompt != null
                 && !prompt.isBlank()) {
@@ -321,7 +353,8 @@ public class ConversationAiServiceImpl
         }
 
         /*
-         * Preserve existing conversation messages when available.
+         * Preserve existing conversation messages when
+         * available.
          */
         Object configuredMessages =
                 context.get(
@@ -352,30 +385,41 @@ public class ConversationAiServiceImpl
                     if (role != null
                             && content != null) {
 
-                        messages.add(
-                                LlmMessageDto.builder()
-                                        .role(
-                                                String.valueOf(
-                                                        role
-                                                )
-                                        )
-                                        .content(
-                                                String.valueOf(
-                                                        content
-                                                )
-                                        )
-                                        .build()
-                        );
+                        String roleValue =
+                                String.valueOf(
+                                        role
+                                ).trim();
+
+                        String contentValue =
+                                String.valueOf(
+                                        content
+                                ).trim();
+
+                        if (!roleValue.isBlank()
+                                && !contentValue.isBlank()) {
+
+                            messages.add(
+                                    LlmMessageDto.builder()
+                                            .role(
+                                                    roleValue
+                                            )
+                                            .content(
+                                                    contentValue
+                                            )
+                                            .build()
+                            );
+                        }
                     }
                 }
             }
         }
 
         /*
-         * Add the latest caller speech as the actual user message.
+         * Check whether the customer has already spoken.
          *
-         * FlowExecutionContinuationServiceImpl stores caller input
-         * under lastUserInput when CUSTOMER_STT completes.
+         * For an outbound AI-first Flow this value is normally
+         * absent because the AI_RESPONSE node is the first
+         * conversational node.
          */
         Object userInputValue =
                 context.get(
@@ -389,37 +433,66 @@ public class ConversationAiServiceImpl
                         userInputValue
                 ).trim();
 
-        if (userInput == null
-                || userInput.isBlank()) {
+        /*
+         * CUSTOMER-FIRST / SUBSEQUENT TURN
+         *
+         * If customer input exists, use it as the actual
+         * user message.
+         */
+        if (userInput != null
+                && !userInput.isBlank()) {
 
-            log.warn(
-                    "Latest caller input is missing for AI response."
+            messages.add(
+                    LlmMessageDto.builder()
+                            .role(
+                                    USER_ROLE
+                            )
+                            .content(
+                                    userInput
+                            )
+                            .build()
             );
 
-            throw new IllegalStateException(
-                    ConversationOrchestratorMessages
-                            .LLM_RESPONSE_EMPTY
+            log.debug(
+                    "Resolved AI messages with customer input. " +
+                            "systemPromptPresent={}, " +
+                            "userInputLength={}, messageCount={}",
+                    prompt != null
+                            && !prompt.isBlank(),
+                    userInput.length(),
+                    messages.size()
             );
+
+            return messages;
         }
 
+        /*
+         * AI-FIRST OUTBOUND FLOW
+         *
+         * No customer input exists yet. This is expected for
+         * outbound calls where the AI must speak first.
+         *
+         * Add a generic user instruction so that the LLM has
+         * an explicit conversational generation request while
+         * keeping the configured Flow prompt as the system
+         * instruction.
+         */
         messages.add(
                 LlmMessageDto.builder()
                         .role(
                                 USER_ROLE
                         )
                         .content(
-                                userInput
+                                "Start the conversation with the customer."
                         )
                         .build()
         );
 
         log.debug(
-                "Resolved AI conversation messages. " +
-                        "systemPromptPresent={}, userInputLength={}, " +
-                        "messageCount={}",
+                "Resolved AI-first outbound messages. " +
+                        "systemPromptPresent={}, messageCount={}",
                 prompt != null
                         && !prompt.isBlank(),
-                userInput.length(),
                 messages.size()
         );
 
@@ -489,13 +562,26 @@ public class ConversationAiServiceImpl
                 llmResponse.getContent()
         );
 
+        Map<String, Object> aiContext =
+                new java.util.HashMap<>();
+
+        aiContext.put(
+                AI_RESPONSE,
+                llmResponse.getContent()
+        );
+
+        aiContext.put(
+                FlowExecutionContextKeys.LLM_RESPONSE,
+                llmResponse.getContent()
+        );
+
+        aiContext.put(
+                "lastAiResponse",
+                llmResponse.getContent()
+        );
+
         request.setContext(
-                Map.of(
-                        AI_RESPONSE,
-                        llmResponse.getContent(),
-                        FlowExecutionContextKeys.LLM_RESPONSE,
-                        llmResponse.getContent()
-                )
+                aiContext
         );
 
         FlowExecutionResult continuedExecution =

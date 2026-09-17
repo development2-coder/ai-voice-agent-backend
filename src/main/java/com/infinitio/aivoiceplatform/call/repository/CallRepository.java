@@ -1,12 +1,12 @@
 package com.infinitio.aivoiceplatform.call.repository;
 
 import com.infinitio.aivoiceplatform.call.entity.Call;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -15,6 +15,7 @@ import java.util.Optional;
  * @author Infinitio Digital
  * @version 1.0.0
  */
+@Repository
 public interface CallRepository
         extends JpaRepository<Call, Long> {
 
@@ -74,39 +75,99 @@ public interface CallRepository
     );
 
     /**
-     * Finds calls by deleted status.
+     * Finds all non-deleted calls.
+     *
+     * <p>
+     * This method is used only for SUPER_ADMIN access because
+     * SUPER_ADMIN can view calls belonging to all tenants.
+     * </p>
      *
      * @param isDeleted deleted flag
-     * @param pageable pagination information
-     * @return paginated calls
+     * @return all matching calls
      */
-    Page<Call> findByIsDeleted(
-            Integer isDeleted,
-            Pageable pageable
+    List<Call> findAllByIsDeletedOrderByCreatedAtDesc(
+            Integer isDeleted
     );
 
     /**
-     * Finds calls associated with a campaign contact
-     * and deleted status.
+     * Finds all non-deleted calls belonging to a tenant.
+     *
+     * <p>
+     * Campaign calls are resolved through:
+     *
+     * <pre>
+     * Call
+     *  -> CampaignContact
+     *  -> Campaign
+     *  -> Agent
+     *  -> Tenant
+     * </pre>
+     *
+     * <p>
+     * Direct Agent calls do not have a CampaignContact.
+     * Those calls are resolved through the user who created
+     * the call and that user's tenant.
+     * </p>
+     *
+     * @param tenantId tenant database identifier
+     * @param isDeleted deleted flag
+     * @return tenant-scoped calls
+     */
+    @Query("""
+            SELECT call
+            FROM Call call
+            LEFT JOIN call.campaignContact campaignContact
+            LEFT JOIN campaignContact.campaign campaign
+            LEFT JOIN campaign.agent agent
+            LEFT JOIN User creator
+                ON creator.id = call.createdBy
+            WHERE call.isDeleted = :isDeleted
+              AND (
+                    (
+                        campaignContact IS NOT NULL
+                        AND agent.tenant.id = :tenantId
+                    )
+                    OR
+                    (
+                        campaignContact IS NULL
+                        AND creator.tenant.id = :tenantId
+                    )
+              )
+            ORDER BY call.createdAt DESC
+            """)
+    List<Call> findAllByTenantIdAndIsDeleted(
+            @Param("tenantId") Long tenantId,
+            @Param("isDeleted") Integer isDeleted
+    );
+
+    /**
+     * Finds all non-deleted calls associated with a campaign contact
+     * and belonging to a tenant.
      *
      * @param campaignContactId campaign contact database identifier
+     * @param tenantId tenant database identifier
      * @param isDeleted deleted flag
-     * @param pageable pagination information
      * @return matching calls
      */
-    Page<Call> findByCampaignContactIdAndIsDeleted(
-            Long campaignContactId,
-            Integer isDeleted,
-            Pageable pageable
+    @Query("""
+            SELECT call
+            FROM Call call
+            JOIN call.campaignContact campaignContact
+            JOIN campaignContact.campaign campaign
+            JOIN campaign.agent agent
+            WHERE campaignContact.id = :campaignContactId
+              AND agent.tenant.id = :tenantId
+              AND call.isDeleted = :isDeleted
+            ORDER BY call.createdAt DESC
+            """)
+    List<Call> findAllByCampaignContactIdAndTenantIdAndIsDeleted(
+            @Param("campaignContactId") Long campaignContactId,
+            @Param("tenantId") Long tenantId,
+            @Param("isDeleted") Integer isDeleted
     );
 
     /**
      * Finds a call using its provider call identifier.
-     *
-     * <p>
-     * The explicit JPQL query is used so the provider identifier
-     * mapping is unambiguous during Voice Gateway call resolution.
-     * </p>
      *
      * @param providerCallId provider supplied call identifier
      * @return matching call
@@ -123,18 +184,37 @@ public interface CallRepository
     /**
      * Finds a call using a native database comparison.
      *
-     * <p>
-     * This method is intended for Voice Gateway diagnostics and
-     * can be used to verify that the application datasource can
-     * directly resolve the provider identifier from the calls table.
-     * </p>
-     *
      * @param providerCallId provider supplied call identifier
      * @return matching call
      */
     @Query(
             value = """
-                    SELECT *
+                    SELECT id,
+                           public_id,
+                           campaign_contact_id,
+                           provider,
+                           provider_call_id,
+                           transfer_requested,
+                           transfer_destination,
+                           from_number,
+                           to_number,
+                           direction,
+                           status,
+                           started_at,
+                           answered_at,
+                           ended_at,
+                           duration_seconds,
+                           failure_reason,
+                           recording_url,
+                           transcript_file_path,
+                           description,
+                           is_active,
+                           created_at,
+                           created_by,
+                           updated_at,
+                           updated_by,
+                           is_deleted,
+                           deleted_at
                     FROM calls
                     WHERE provider_call_id = :providerCallId
                     LIMIT 1

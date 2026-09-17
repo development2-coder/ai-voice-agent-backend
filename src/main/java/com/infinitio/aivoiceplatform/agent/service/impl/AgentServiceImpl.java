@@ -28,6 +28,8 @@ import com.infinitio.aivoiceplatform.flow.dto.response.FlowDefinitionResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
+import com.infinitio.aivoiceplatform.agent.dto.request.CopyAgentRequest;
+import com.infinitio.aivoiceplatform.agent.service.AgentCopyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -68,6 +70,8 @@ public class AgentServiceImpl implements AgentService {
 
     private final FlowNodeDefinitionService
             flowNodeDefinitionService;
+
+    private final AgentCopyService agentCopyService;
 
     // =========================================================
     // CREATE
@@ -314,6 +318,28 @@ public class AgentServiceImpl implements AgentService {
                         agentPage.isLast()
                 )
                 .build();
+    }
+
+    // =========================================================
+// COPY
+// =========================================================
+
+    /**
+     * Creates a complete copy of an existing Agent.
+     *
+     * @param publicId source Agent public identifier
+     * @param request copy request
+     * @return copied Agent
+     */
+    @Override
+    public AgentResponse copy(
+            String publicId,
+            CopyAgentRequest request) {
+
+        return agentCopyService.copy(
+                publicId,
+                request
+        );
     }
 
 

@@ -51,6 +51,7 @@ public class CampaignContact extends BaseEntity {
 
     @Column(
             name = "name",
+            nullable = false,
             length = CampaignContactConstants.NAME_MAX_LENGTH
     )
     private String name;

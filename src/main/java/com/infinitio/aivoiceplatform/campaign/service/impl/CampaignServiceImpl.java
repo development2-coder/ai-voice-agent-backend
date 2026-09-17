@@ -2,6 +2,7 @@ package com.infinitio.aivoiceplatform.campaign.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
+import com.infinitio.aivoiceplatform.campaign.constant.CampaignConstants;
 import com.infinitio.aivoiceplatform.campaign.dto.request.CreateCampaignRequest;
 import com.infinitio.aivoiceplatform.campaign.dto.request.UpdateCampaignRequest;
 import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignResponse;
@@ -20,7 +21,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
-
+import com.infinitio.aivoiceplatform.campaigncontact.repository.CampaignContactRepository;
 /**
  * Service implementation for Campaign.
  *
@@ -45,6 +46,9 @@ public class CampaignServiceImpl
     private final PhoneNumberValidator phoneNumberValidator;
 
     private final CurrentUserService currentUserService;
+
+    private final CampaignContactRepository
+            campaignContactRepository;
 
     @Override
     public CampaignResponse create(
@@ -71,6 +75,8 @@ public class CampaignServiceImpl
         Campaign campaign =
                 campaignMapper.toEntity(request);
 
+        campaign.setIsActive(0);
+
         campaign.setCreatedBy(
                 currentUserService.getCurrentUserId()
         );
@@ -87,8 +93,11 @@ public class CampaignServiceImpl
                 savedCampaign.getPublicId()
         );
 
-        return campaignMapper.toResponse(
-                savedCampaign
+        return buildCampaignResponse(
+                savedCampaign,
+                campaignMapper.toResponse(
+                        savedCampaign
+                )
         );
     }
 
@@ -155,8 +164,11 @@ public class CampaignServiceImpl
                         publicId
                 );
 
-        return campaignMapper.toResponse(
-                campaign
+        return buildCampaignResponse(
+                campaign,
+                campaignMapper.toResponse(
+                        campaign
+                )
         );
     }
 
@@ -184,7 +196,13 @@ public class CampaignServiceImpl
                         result.getContent()
                                 .stream()
                                 .map(
-                                        campaignMapper::toResponse
+                                        campaign ->
+                                                buildCampaignResponse(
+                                                        campaign,
+                                                        campaignMapper.toResponse(
+                                                                campaign
+                                                        )
+                                                )
                                 )
                                 .toList()
                 )
@@ -233,9 +251,17 @@ public class CampaignServiceImpl
                         publicId
                 );
 
-        campaign.activate(1L);
+        campaign.activate(
+                currentUserService.getCurrentUserId()
+        );
 
-        campaignRepository.save(campaign);
+        campaign.setStatus(
+                CampaignConstants.STATUS_ACTIVE
+        );
+
+        campaignRepository.save(
+                campaign
+        );
 
         log.info(
                 "Campaign activated successfully. Public Id : {}",
@@ -256,13 +282,46 @@ public class CampaignServiceImpl
                         publicId
                 );
 
-        campaign.deactivate(1L);
+        campaign.deactivate(
+                currentUserService.getCurrentUserId()
+        );
 
-        campaignRepository.save(campaign);
+        campaign.setStatus(
+                CampaignConstants.STATUS_INACTIVE
+        );
+
+        campaignRepository.save(
+                campaign
+        );
 
         log.info(
                 "Campaign deactivated successfully. Public Id : {}",
                 publicId
         );
+    }
+
+    /**
+     * Adds the current contact count to a campaign response.
+     *
+     * @param campaign campaign entity
+     * @param response campaign response
+     * @return campaign response containing contact count
+     */
+    private CampaignResponse buildCampaignResponse(
+            Campaign campaign,
+            CampaignResponse response) {
+
+        long contactCount =
+                campaignContactRepository
+                        .countByCampaignIdAndIsDeleted(
+                                campaign.getId(),
+                                0
+                        );
+
+        response.setContactCount(
+                contactCount
+        );
+
+        return response;
     }
 }

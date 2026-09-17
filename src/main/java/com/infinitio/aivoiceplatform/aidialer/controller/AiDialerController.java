@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/ai-dialers")
+@RequestMapping("/api/v1/ai-dialers")
 @RequiredArgsConstructor
 public class AiDialerController {
 
@@ -270,6 +270,37 @@ public class AiDialerController {
                 dialerCallInitiationService.initiateCall(
                         callPublicId
                 )
+        );
+    }
+
+    // =========================================================
+// INITIATE CONTACT CALL
+// =========================================================
+
+    // =========================================================
+// CREATE AND INITIATE CONTACT CALL
+// =========================================================
+
+    @PostMapping(
+            "/{dialerPublicId}/calls/contact/{campaignContactPublicId}"
+    )
+    public ResponseEntity<DialerCallResponse> initiateContactCall(
+            @PathVariable String dialerPublicId,
+            @PathVariable String campaignContactPublicId) {
+
+        DialerCallResponse queuedCall =
+                dialerCallService.createCall(
+                        dialerPublicId,
+                        campaignContactPublicId
+                );
+
+        DialerCallResponse initiatedCall =
+                dialerCallInitiationService.initiateCall(
+                        queuedCall.getPublicId()
+                );
+
+        return ResponseEntity.ok(
+                initiatedCall
         );
     }
 }

@@ -1,5 +1,7 @@
 package com.infinitio.aivoiceplatform.callrecording.service;
 
+import org.springframework.core.io.Resource;
+
 import java.io.IOException;
 
 /**
@@ -39,4 +41,15 @@ public interface CallRecordingStorageService {
             Long sizeBytes
     ) {
     }
+
+
+    /**
+     * Loads a locally stored call recording.
+     *
+     * @param filePath local recording path
+     * @return recording resource
+     */
+    Resource load(
+            String filePath
+    );
 }

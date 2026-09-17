@@ -25,4 +25,19 @@ public final class CallMessages {
 
     public static final String PROVIDER_CALL_ID_ALREADY_EXISTS =
             "Provider call ID already exists.";
+
+    public static final String FETCHED =
+            "Call fetched successfully.";
+
+    public static final String FETCHED_ALL =
+            "Calls fetched successfully.";
+
+    public static final String FETCHED_BY_TENANT =
+            "Tenant calls fetched successfully.";
+
+    public static final String SUPER_ADMIN_REQUIRED =
+            "Only SUPER_ADMIN can access calls by tenant.";
+
+    public static final String INVALID_TENANT_ID =
+            "Tenant ID must be greater than zero.";
 }

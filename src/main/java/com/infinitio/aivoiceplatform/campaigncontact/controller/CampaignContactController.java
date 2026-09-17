@@ -1,14 +1,20 @@
 package com.infinitio.aivoiceplatform.campaigncontact.controller;
 
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactMessages;
+import com.infinitio.aivoiceplatform.campaigncontact.dto.request.CampaignContactExcelConfirmRequest;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.request.CreateCampaignContactRequest;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.request.UpdateCampaignContactRequest;
+import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactExcelPreviewResponse;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactExcelUploadResponse;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactResponse;
+import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExcelService;
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
+import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignSampleExcelService;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -37,6 +43,11 @@ public class CampaignContactController {
 
     private final CampaignContactService
             campaignContactService;
+
+    private final CampaignSampleExcelService
+            campaignSampleExcelService;
+
+    private final CampaignContactExcelService campaignContactExcelService;
 
     @Operation(summary = "Create Campaign Contact")
     @PostMapping
@@ -110,6 +121,40 @@ public class CampaignContactController {
                 CampaignContactMessages
                         .EXCEL_UPLOAD_COMPLETED
         );
+    }
+
+    @Operation(
+            summary = "Generate Campaign Contacts Sample Excel"
+    )
+    @GetMapping(
+            "/sample-excel/{campaignPublicId}"
+    )
+    public ResponseEntity<Resource> generateSampleExcel(
+            @PathVariable String campaignPublicId) {
+
+        log.info(
+                "REST Request : Generate Campaign Contacts "
+                        + "Sample Excel. Campaign : {}",
+                campaignPublicId
+        );
+
+        Resource resource =
+                campaignSampleExcelService
+                        .generateSampleExcel(
+                                campaignPublicId
+                        );
+
+        return ResponseEntity.ok()
+                .contentType(
+                        MediaType.parseMediaType(
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                )
+                .header(
+                        HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"campaign-contacts-sample.xlsx\""
+                )
+                .body(resource);
     }
 
     @Operation(summary = "Get Campaign Contact")
@@ -225,6 +270,54 @@ public class CampaignContactController {
         return ResponseBuilder.success(
                 null,
                 CampaignContactMessages.DEACTIVATED
+        );
+    }
+
+    @PostMapping(
+            value = "/upload/preview",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ApiResponse<CampaignContactExcelPreviewResponse> preview(
+            @RequestParam String campaignPublicId,
+            @RequestPart("file") MultipartFile file) {
+
+        log.info(
+                "REST Request : Preview Campaign Contacts Excel. "
+                        + "Campaign : {}",
+                campaignPublicId
+        );
+
+        CampaignContactExcelPreviewResponse response =
+                campaignContactExcelService.preview(
+                        campaignPublicId,
+                        file
+                );
+
+        return ApiResponse.success(
+                "Campaign contacts Excel preview generated successfully.",
+                response
+        );
+    }
+
+    @PostMapping("/upload/confirm")
+    public ApiResponse<CampaignContactExcelUploadResponse> confirm(
+            @Valid @RequestBody
+            CampaignContactExcelConfirmRequest request) {
+
+        log.info(
+                "REST Request : Confirm Campaign Contacts Excel upload. "
+                        + "Campaign : {}",
+                request.getCampaignPublicId()
+        );
+
+        CampaignContactExcelUploadResponse response =
+                campaignContactExcelService.confirm(
+                        request
+                );
+
+        return ApiResponse.success(
+                "Campaign contacts Excel upload completed successfully.",
+                response
         );
     }
 }

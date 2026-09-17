@@ -47,4 +47,28 @@ public interface RuntimePersistenceService {
             TtsSynthesisRequest request,
             TtsSynthesisResponse response
     );
+
+    /**
+     * Persists a conversation transcript message into the
+     * complete call transcript artifact.
+     *
+     * <p>
+     * This method is used by realtime streaming flows where
+     * the complete STT request object is not available but a
+     * final transcript message has already been produced.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @param speakerType speaker type
+     * @param text transcript text
+     * @param language detected language
+     * @param source transcript source
+     */
+    void saveTranscriptMessage(
+            String callPublicId,
+            String speakerType,
+            String text,
+            String language,
+            String source
+    );
 }

@@ -232,7 +232,10 @@ public class SecurityConfig {
                 List.of(
                         "http://localhost:3000",
                         "http://localhost:5173",
-                        "http://localhost:5174"
+                        "http://localhost:5174",
+                        "http://localhost:6111",
+                        "http://45.114.143.153:6111",
+                        "https://Infitalk.infinitiodigital.com"
                 )
         );
 

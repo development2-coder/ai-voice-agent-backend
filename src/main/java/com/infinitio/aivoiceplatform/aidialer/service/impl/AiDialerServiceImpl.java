@@ -22,7 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -58,6 +58,10 @@ public class AiDialerServiceImpl
     private final AgentValidator agentValidator;
 
     private final FlowValidator flowValidator;
+
+
+    private final CurrentUserService
+            currentUserService;
 
 
     // =========================================================
@@ -96,6 +100,10 @@ public class AiDialerServiceImpl
                 aiDialerMapper.toEntity(
                         request
                 );
+
+        dialer.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
 
         /*
          * Relationship entities are resolved through
@@ -216,12 +224,6 @@ public class AiDialerServiceImpl
                         publicId
                 );
 
-        /*
-         * Map only normal scalar fields.
-         *
-         * Relationship fields are ignored by MapStruct
-         * and resolved separately below.
-         */
         aiDialerMapper.updateEntity(
                 request,
                 dialer
@@ -263,6 +265,59 @@ public class AiDialerServiceImpl
 
             dialer.setFlow(
                     flow
+            );
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * UPDATE DIALER STATUS
+         * ---------------------------------------------------------
+         *
+         * If the user provides a schedule, the dialer must
+         * become SCHEDULED so that DialerSchedulerServiceImpl
+         * can pick it up automatically.
+         */
+        if (request.getScheduledStartAt() != null) {
+
+            dialer.setStatus(
+                    DialerStatus.SCHEDULED
+            );
+
+            dialer.setStartedAt(null);
+            dialer.setPausedAt(null);
+            dialer.setCompletedAt(null);
+
+            log.info(
+                    "AI Dialer scheduled successfully. "
+                            + "Public Id : {}, "
+                            + "Start : {}, "
+                            + "End : {}",
+                    publicId,
+                    request.getScheduledStartAt(),
+                    request.getScheduledEndAt()
+            );
+
+        } else if (
+                dialer.getStatus()
+                        == DialerStatus.SCHEDULED
+        ) {
+
+            /*
+             * If schedule is removed from an existing
+             * scheduled dialer, return it to DRAFT.
+             */
+            dialer.setStatus(
+                    DialerStatus.DRAFT
+            );
+
+            dialer.setStartedAt(null);
+            dialer.setCompletedAt(null);
+
+            log.info(
+                    "AI Dialer schedule removed. "
+                            + "Moving dialer to DRAFT. "
+                            + "Public Id : {}",
+                    publicId
             );
         }
 

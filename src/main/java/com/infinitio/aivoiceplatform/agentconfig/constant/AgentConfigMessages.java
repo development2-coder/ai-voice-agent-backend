@@ -37,4 +37,7 @@ public final class AgentConfigMessages {
 
     public static final String CONFIG_ALREADY_EXISTS =
             "Configuration already exists for this agent.";
+
+    public static final String OPTIONS_FETCHED =
+            "Agent configuration options fetched successfully.";
 }

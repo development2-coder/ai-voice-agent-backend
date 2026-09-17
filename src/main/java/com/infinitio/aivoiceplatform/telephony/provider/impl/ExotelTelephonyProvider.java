@@ -457,6 +457,12 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
      * @param formData Exotel form data
      * @param request outbound call request
      */
+    /**
+     * Adds Exotel callback configuration.
+     *
+     * @param formData Exotel form data
+     * @param request outbound call request
+     */
     private void addCallbackConfiguration(
             MultiValueMap<String, String> formData,
             PlaceOutboundCallRequestDto request) {
@@ -480,21 +486,6 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         formData.add(
                 FIELD_STATUS_CALLBACK,
                 callbackUrl
-        );
-
-        formData.add(
-                FIELD_STATUS_CALLBACK_EVENTS,
-                "answered"
-        );
-
-        formData.add(
-                FIELD_STATUS_CALLBACK_EVENTS,
-                "terminal"
-        );
-
-        formData.add(
-                FIELD_STATUS_CALLBACK_EVENTS,
-                "ringing"
         );
     }
 

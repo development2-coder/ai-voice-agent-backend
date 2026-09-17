@@ -198,11 +198,35 @@ public class GlobalExceptionHandler {
                 exception
         );
 
+        String databaseMessage =
+                exception.getMostSpecificCause() != null
+                        ? exception.getMostSpecificCause().getMessage()
+                        : exception.getMessage();
+
+        String errorMessage;
+
+        if (databaseMessage != null
+                && databaseMessage.contains(
+                "Column 'name' cannot be null")) {
+
+            errorMessage = "Name is required.";
+
+        } else if (databaseMessage != null
+                && databaseMessage.contains(
+                "Duplicate")) {
+
+            errorMessage = "Duplicate record found.";
+
+        } else {
+
+            errorMessage = "Database integrity violation.";
+        }
+
         ErrorResponse response =
                 buildErrorResponse(
                         HttpStatus.CONFLICT,
                         ErrorCode.CONFLICT,
-                        "Duplicate record found.",
+                        errorMessage,
                         request.getRequestURI(),
                         null
                 );

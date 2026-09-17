@@ -73,4 +73,16 @@ public final class CampaignContactMessages {
 
     public static final String EXCEL_FILE_TYPE_NOT_SUPPORTED =
             "Only XLS and XLSX files are supported.";
+
+    public static final String EXCEL_UNEXPECTED_HEADER =
+            "Excel file contains a column that is not used by the Campaign Flow prompt.";
+
+    public static final String EXCEL_REQUIRED_VARIABLE_COLUMN =
+            "Excel file is missing a required column used by the Campaign Flow prompt.";
+
+    public static final String NAME_REQUIRED =
+            "Name is required.";
+
+    public static final String EXCEL_NAME_COLUMN_REQUIRED =
+            "Excel file must contain a name column.";
 }

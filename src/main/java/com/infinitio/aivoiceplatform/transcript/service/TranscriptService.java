@@ -1,7 +1,7 @@
 package com.infinitio.aivoiceplatform.transcript.service;
 
 import java.util.List;
-
+import com.infinitio.aivoiceplatform.transcript.dto.response.CallTranscriptResponse;
 import com.infinitio.aivoiceplatform.transcript.dto.request.CreateTranscriptRequest;
 import com.infinitio.aivoiceplatform.transcript.dto.request.UpdateTranscriptRequest;
 import com.infinitio.aivoiceplatform.transcript.dto.response.TranscriptResponse;
@@ -103,5 +103,16 @@ public interface TranscriptService {
     TranscriptResponse finalizeCallTranscript(
             String callPublicId,
             String callRecordingPublicId
+    );
+
+    /**
+     * Retrieves the complete conversation transcript stored
+     * in the compressed transcript artifact for a call.
+     *
+     * @param callPublicId call public identifier
+     * @return complete call transcript
+     */
+    CallTranscriptResponse getCompleteCallTranscript(
+            String callPublicId
     );
 }

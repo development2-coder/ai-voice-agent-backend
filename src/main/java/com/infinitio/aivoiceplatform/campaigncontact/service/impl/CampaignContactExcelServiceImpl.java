@@ -1,20 +1,31 @@
 package com.infinitio.aivoiceplatform.campaigncontact.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResponse;
 import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
+import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import com.infinitio.aivoiceplatform.campaign.validator.CampaignValidator;
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactConstants;
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactMessages;
+import com.infinitio.aivoiceplatform.campaigncontact.dto.request.CampaignContactExcelConfirmRequest;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.request.CreateCampaignContactRequest;
+import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactExcelPreviewResponse;
+import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactExcelPreviewRowResponse;
 import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContactExcelUploadResponse;
 import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
 import com.infinitio.aivoiceplatform.campaigncontact.mapper.CampaignContactMapper;
 import com.infinitio.aivoiceplatform.campaigncontact.repository.CampaignContactRepository;
+import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExcelPreviewService;
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExcelService;
+import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignExcelService;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.FormulaEvaluator;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,30 +33,18 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Service implementation for Campaign Contact Excel upload.
+ * Default implementation of Campaign Contact Excel Service.
  *
  * <p>
- * Supports standard campaign contact columns together with
- * dynamic campaign-specific columns.
- * </p>
- *
- * <p>
- * Standard columns:
- * phone_number,
- * name,
- * external_reference,
- * priority,
- * description.
- * </p>
- *
- * <p>
- * Any additional column is stored inside customData so that
- * different campaign types can use different Excel columns.
+ * Coordinates Campaign Contact Excel upload, preview and
+ * confirmation. Excel-specific parsing is delegated to the
+ * dedicated Excel services.
  * </p>
  *
  * @author Infinitio Digital
@@ -58,7 +57,8 @@ import java.util.Map;
 public class CampaignContactExcelServiceImpl
         implements CampaignContactExcelService {
 
-    private static final int HEADER_ROW_INDEX = 0;
+    private static final String CUSTOM_DATA_PREFIX =
+            "contact.customData.";
 
     private final CampaignValidator campaignValidator;
 
@@ -71,25 +71,27 @@ public class CampaignContactExcelServiceImpl
     private final CampaignContactMapper
             campaignContactMapper;
 
+    private final CurrentUserService
+            currentUserService;
+
+    private final CampaignVariableService
+            campaignVariableService;
+
+    private final CampaignExcelService
+            campaignExcelService;
+
+    private final CampaignContactExcelPreviewService
+            campaignContactExcelPreviewService;
+
     private final ObjectMapper objectMapper;
 
     /**
-     * Uploads campaign contacts from an Excel file.
-     *
-     * @param campaignPublicId campaign public identifier
-     * @param file Excel file
-     * @return upload result
+     * {@inheritDoc}
      */
     @Override
     public CampaignContactExcelUploadResponse upload(
             String campaignPublicId,
             MultipartFile file) {
-
-        log.info(
-                "Starting Campaign Contact Excel upload. "
-                        + "Campaign : {}",
-                campaignPublicId
-        );
 
         Campaign campaign =
                 campaignValidator.validateAndGet(
@@ -98,12 +100,18 @@ public class CampaignContactExcelServiceImpl
 
         validateFile(file);
 
+        Set<String> promptVariables =
+                resolvePromptVariables(
+                        campaignVariableService.getVariables(
+                                campaignPublicId
+                        )
+                );
+
         List<String> errors =
                 new ArrayList<>();
 
         int totalRows = 0;
         int importedRows = 0;
-        int failedRows = 0;
 
         try (
                 Workbook workbook =
@@ -112,24 +120,10 @@ public class CampaignContactExcelServiceImpl
                         )
         ) {
 
-            if (workbook.getNumberOfSheets() == 0) {
+            validateWorkbook(workbook);
 
-                throw new BadRequestException(
-                        CampaignContactMessages
-                                .EXCEL_FILE_EMPTY
-                );
-            }
-
-            Sheet sheet =
+            var sheet =
                     workbook.getSheetAt(0);
-
-            if (sheet.getPhysicalNumberOfRows() <= 1) {
-
-                throw new BadRequestException(
-                        CampaignContactMessages
-                                .EXCEL_FILE_EMPTY
-                );
-            }
 
             DataFormatter formatter =
                     new DataFormatter();
@@ -140,20 +134,16 @@ public class CampaignContactExcelServiceImpl
                             .createFormulaEvaluator();
 
             List<String> headers =
-                    readHeaders(
-                            sheet.getRow(
-                                    HEADER_ROW_INDEX
-                            ),
+                    campaignExcelService.readHeaders(
+                            sheet.getRow(0),
                             formatter,
                             evaluator
                     );
 
-            validateHeaders(headers);
-
-            Map<String, Integer> headerIndexMap =
-                    buildHeaderIndexMap(
-                            headers
-                    );
+            campaignExcelService.validateHeaders(
+                    headers,
+                    promptVariables
+            );
 
             for (
                     int rowIndex = 1;
@@ -161,10 +151,10 @@ public class CampaignContactExcelServiceImpl
                     rowIndex++
             ) {
 
-                Row row =
+                var row =
                         sheet.getRow(rowIndex);
 
-                if (isEmptyRow(
+                if (campaignExcelService.isEmptyRow(
                         row,
                         headers,
                         formatter,
@@ -179,11 +169,11 @@ public class CampaignContactExcelServiceImpl
                 try {
 
                     CreateCampaignContactRequest request =
-                            buildContactRequest(
+                            campaignExcelService.mapRow(
                                     campaignPublicId,
                                     row,
                                     headers,
-                                    headerIndexMap,
+                                    promptVariables,
                                     formatter,
                                     evaluator
                             );
@@ -196,8 +186,6 @@ public class CampaignContactExcelServiceImpl
                     importedRows++;
 
                 } catch (Exception exception) {
-
-                    failedRows++;
 
                     errors.add(
                             "Row "
@@ -229,68 +217,505 @@ public class CampaignContactExcelServiceImpl
             );
         }
 
-        log.info(
-                "Campaign Contact Excel upload completed. "
-                        + "Campaign : {}, Total : {}, "
-                        + "Imported : {}, Failed : {}",
+        return buildUploadResponse(
                 campaignPublicId,
                 totalRows,
                 importedRows,
-                failedRows
+                errors.size(),
+                errors
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public CampaignContactExcelPreviewResponse preview(
+            String campaignPublicId,
+            MultipartFile file) {
+
+        return campaignContactExcelPreviewService.preview(
+                campaignPublicId,
+                file
+        );
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public CampaignContactExcelUploadResponse confirm(
+            CampaignContactExcelConfirmRequest request) {
+
+        if (request == null) {
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .EXCEL_FILE_INVALID
+            );
+        }
+
+        String campaignPublicId =
+                request.getCampaignPublicId();
+
+        Campaign campaign =
+                campaignValidator.validateAndGet(
+                        campaignPublicId
+                );
+
+        List<CampaignContactExcelPreviewRowResponse>
+                rows =
+                request.getRows();
+
+        if (rows == null
+                || rows.isEmpty()) {
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .EXCEL_FILE_EMPTY
+            );
+        }
+
+        Set<String> promptVariables =
+                resolvePromptVariables(
+                        campaignVariableService.getVariables(
+                                campaignPublicId
+                        )
+                );
+
+        List<String> errors =
+                new ArrayList<>();
+
+        List<CreateCampaignContactRequest>
+                requests =
+                new ArrayList<>();
+
+        Set<String> phoneNumbers =
+                new LinkedHashSet<>();
+
+        /*
+         * Validate every row before saving any row.
+         */
+        for (
+                CampaignContactExcelPreviewRowResponse row :
+                rows
+        ) {
+
+            if (row == null) {
+
+                errors.add(
+                        "Invalid empty preview row."
+                );
+
+                continue;
+            }
+
+            List<String> missingFields =
+                    findMissingFields(
+                            row.getValues(),
+                            promptVariables
+                    );
+
+            if (!missingFields.isEmpty()) {
+
+                errors.add(
+                        "Row "
+                                + row.getRowNumber()
+                                + ": Missing values: "
+                                + String.join(
+                                ", ",
+                                missingFields
+                        )
+                );
+
+                continue;
+            }
+
+            try {
+
+                CreateCampaignContactRequest contactRequest =
+                        buildContactRequest(
+                                campaignPublicId,
+                                row.getValues(),
+                                promptVariables
+                        );
+
+                String phoneNumber =
+                        contactRequest.getPhoneNumber();
+
+                if (!phoneNumbers.add(
+                        phoneNumber
+                )) {
+
+                    throw new BadRequestException(
+                            CampaignContactMessages
+                                    .PHONE_ALREADY_EXISTS
+                    );
+                }
+
+                campaignContactValidator
+                        .validateForCreate(
+                                contactRequest,
+                                campaign.getId()
+                        );
+
+                requests.add(
+                        contactRequest
+                );
+
+            } catch (Exception exception) {
+
+                errors.add(
+                        "Row "
+                                + row.getRowNumber()
+                                + ": "
+                                + resolveErrorMessage(
+                                exception
+                        )
+                );
+            }
+        }
+
+        /*
+         * Do not partially import the Excel.
+         */
+        if (!errors.isEmpty()) {
+
+            return buildUploadResponse(
+                    campaignPublicId,
+                    rows.size(),
+                    0,
+                    errors.size(),
+                    errors
+            );
+        }
+
+        /*
+         * Every row is valid.
+         * Save all contacts.
+         */
+        for (
+                CreateCampaignContactRequest contactRequest :
+                requests
+        ) {
+
+            saveContactWithoutValidation(
+                    contactRequest,
+                    campaign
+            );
+        }
+
+        log.info(
+                "Campaign Contact Excel confirmation completed. "
+                        + "Campaign : {}, Imported : {}",
+                campaignPublicId,
+                requests.size()
         );
 
-        return CampaignContactExcelUploadResponse
+        return buildUploadResponse(
+                campaignPublicId,
+                rows.size(),
+                requests.size(),
+                0,
+                new ArrayList<>()
+        );
+    }
+
+    private Set<String> resolvePromptVariables(
+            CampaignVariablesResponse response) {
+
+        Set<String> variables =
+                new LinkedHashSet<>();
+
+        if (response == null
+                || response.getVariables() == null) {
+
+            return variables;
+        }
+
+        for (String variable :
+                response.getVariables()) {
+
+            if (variable == null
+                    || variable.isBlank()) {
+
+                continue;
+            }
+
+            String normalized =
+                    variable.trim();
+
+            if (!isPhoneVariable(
+                    normalized
+            )) {
+
+                variables.add(
+                        normalized
+                );
+            }
+        }
+
+        return variables;
+    }
+
+    private boolean isPhoneVariable(
+            String variable) {
+
+        return "phone_number".equals(variable)
+                || "phoneNumber".equals(variable)
+                || "contact.phoneNumber"
+                .equals(variable);
+    }
+
+    private List<String> findMissingFields(
+            Map<String, String> values,
+            Set<String> promptVariables) {
+
+        List<String> missingFields =
+                new ArrayList<>();
+
+        String phoneNumber =
+                values == null
+                        ? null
+                        : values.get(
+                        CampaignContactConstants
+                                .EXCEL_PHONE_NUMBER_HEADER
+                );
+
+        if (phoneNumber == null
+                || phoneNumber.isBlank()) {
+
+            missingFields.add(
+                    CampaignContactConstants
+                            .EXCEL_PHONE_NUMBER_HEADER
+            );
+        }
+
+        String name =
+                values == null
+                        ? null
+                        : values.get(
+                        CampaignContactConstants
+                                .EXCEL_NAME_HEADER
+                );
+
+        if (name == null
+                || name.isBlank()) {
+
+            missingFields.add(
+                    CampaignContactConstants
+                            .EXCEL_NAME_HEADER
+            );
+        }
+
+        for (String variable :
+                promptVariables) {
+
+            String value =
+                    values == null
+                            ? null
+                            : values.get(variable);
+
+            if (value == null
+                    || value.isBlank()) {
+
+                missingFields.add(variable);
+            }
+        }
+
+        return missingFields;
+    }
+
+    private CreateCampaignContactRequest
+    buildContactRequest(
+            String campaignPublicId,
+            Map<String, String> values,
+            Set<String> promptVariables) {
+
+        String phoneNumber =
+                values.get(
+                        CampaignContactConstants
+                                .EXCEL_PHONE_NUMBER_HEADER
+                );
+
+        String name =
+                values.get(
+                        CampaignContactConstants
+                                .EXCEL_NAME_HEADER
+                );
+
+        if (name == null
+                || name.isBlank()) {
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .NAME_REQUIRED
+            );
+        }
+
+        String externalReference =
+                values.get(
+                        CampaignContactConstants
+                                .EXCEL_EXTERNAL_REFERENCE_HEADER
+                );
+
+        Map<String, Object> customData =
+                new LinkedHashMap<>();
+
+        for (String variable :
+                promptVariables) {
+
+            String value =
+                    values.get(variable);
+
+            if (value == null
+                    || value.isBlank()) {
+
+                throw new BadRequestException(
+                        CampaignContactMessages
+                                .EXCEL_REQUIRED_VARIABLE_COLUMN
+                                + " Value is missing for: "
+                                + variable
+                );
+            }
+
+            if ("name".equals(variable)
+                    || "contact.name"
+                    .equals(variable)) {
+
+                name = value;
+
+            } else if (
+                    "externalReference"
+                            .equals(variable)
+                            || "contact.externalReference"
+                            .equals(variable)
+            ) {
+
+                externalReference =
+                        value;
+
+            } else if (
+                    variable.startsWith(
+                            CUSTOM_DATA_PREFIX
+                    )
+            ) {
+
+                String key =
+                        variable.substring(
+                                CUSTOM_DATA_PREFIX
+                                        .length()
+                        );
+
+                if (!key.isBlank()) {
+
+                    customData.put(
+                            key,
+                            value
+                    );
+                }
+
+            } else {
+
+                /*
+                 * Root-level variables such as
+                 * {{language}} are stored as customData.
+                 */
+                customData.put(
+                        variable,
+                        value
+                );
+            }
+        }
+
+        return CreateCampaignContactRequest
                 .builder()
                 .campaignPublicId(
                         campaignPublicId
                 )
-                .totalRows(
-                        totalRows
+                .name(name)
+                .phoneNumber(
+                        phoneNumber.trim()
                 )
-                .importedRows(
-                        importedRows
+                .externalReference(
+                        externalReference
                 )
-                .failedRows(
-                        failedRows
-                )
-                .errors(
-                        errors
+                .priority(null)
+                .description(null)
+                .customData(
+                        serializeCustomData(
+                                customData
+                        )
                 )
                 .build();
     }
 
-    /**
-     * Saves a campaign contact without calling
-     * CampaignContactService.
-     *
-     * <p>
-     * This is intentional because CampaignContactService
-     * already depends on CampaignContactExcelService.
-     * Calling it here would create a circular dependency.
-     * </p>
-     */
+    private String serializeCustomData(
+            Map<String, Object> customData) {
+
+        if (customData.isEmpty()) {
+            return null;
+        }
+
+        try {
+
+            return objectMapper
+                    .writeValueAsString(
+                            customData
+                    );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to serialize Campaign Contact "
+                            + "custom data.",
+                    exception
+            );
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .CUSTOM_DATA_INVALID
+            );
+        }
+    }
+
     private void saveContact(
             CreateCampaignContactRequest request,
             Campaign campaign) {
 
-        campaignContactValidator.validateForCreate(
+        campaignContactValidator
+                .validateForCreate(
+                        request,
+                        campaign.getId()
+                );
+
+        saveContactWithoutValidation(
                 request,
-                campaign.getId()
+                campaign
         );
+    }
+
+    private void saveContactWithoutValidation(
+            CreateCampaignContactRequest request,
+            Campaign campaign) {
 
         CampaignContact contact =
-                campaignContactMapper.toEntity(
-                        request
-                );
+                campaignContactMapper
+                        .toEntity(request);
+
+        contact.setCreatedBy(
+                currentUserService
+                        .getCurrentUserId()
+        );
 
         contact.setCampaign(
                 campaign
         );
 
         CampaignContact savedContact =
-                campaignContactRepository.save(
-                        contact
-                );
+                campaignContactRepository
+                        .save(contact);
 
         log.debug(
                 "Campaign Contact imported successfully. "
@@ -299,11 +724,30 @@ public class CampaignContactExcelServiceImpl
         );
     }
 
-    /**
-     * Validates uploaded Excel file.
-     *
-     * @param file uploaded file
-     */
+    private CampaignContactExcelUploadResponse
+    buildUploadResponse(
+            String campaignPublicId,
+            int totalRows,
+            int importedRows,
+            int failedRows,
+            List<String> errors) {
+
+        return CampaignContactExcelUploadResponse
+                .builder()
+                .campaignPublicId(
+                        campaignPublicId
+                )
+                .totalRows(totalRows)
+                .importedRows(
+                        importedRows
+                )
+                .failedRows(
+                        failedRows
+                )
+                .errors(errors)
+                .build();
+    }
+
     private void validateFile(
             MultipartFile file) {
 
@@ -330,7 +774,7 @@ public class CampaignContactExcelServiceImpl
 
         String lowerFileName =
                 fileName.toLowerCase(
-                        Locale.ROOT
+                        java.util.Locale.ROOT
                 );
 
         if (!lowerFileName.endsWith(".xlsx")
@@ -343,535 +787,37 @@ public class CampaignContactExcelServiceImpl
         }
     }
 
-    /**
-     * Reads Excel headers.
-     *
-     * @param headerRow header row
-     * @param formatter Excel formatter
-     * @param evaluator formula evaluator
-     * @return normalized headers
-     */
-    private List<String> readHeaders(
-            Row headerRow,
-            DataFormatter formatter,
-            FormulaEvaluator evaluator) {
+    private void validateWorkbook(
+            Workbook workbook) {
 
-        if (headerRow == null) {
+        if (workbook == null
+                || workbook.getNumberOfSheets() == 0) {
 
             throw new BadRequestException(
                     CampaignContactMessages
-                            .EXCEL_PHONE_COLUMN_REQUIRED
+                            .EXCEL_FILE_EMPTY
             );
         }
 
-        List<String> headers =
-                new ArrayList<>();
+        var sheet =
+                workbook.getSheetAt(0);
 
-        for (
-                int columnIndex = 0;
-                columnIndex < headerRow.getLastCellNum();
-                columnIndex++
-        ) {
-
-            Cell cell =
-                    headerRow.getCell(
-                            columnIndex,
-                            Row.MissingCellPolicy
-                                    .RETURN_BLANK_AS_NULL
-                    );
-
-            String header =
-                    getCellValue(
-                            cell,
-                            formatter,
-                            evaluator
-                    );
-
-            headers.add(
-                    normalizeHeader(header)
-            );
-        }
-
-        return headers;
-    }
-
-    /**
-     * Validates Excel headers.
-     *
-     * @param headers Excel headers
-     */
-    private void validateHeaders(
-            List<String> headers) {
-
-        List<String> uniqueHeaders =
-                new ArrayList<>();
-
-        for (String header : headers) {
-
-            if (header == null
-                    || header.isBlank()) {
-
-                continue;
-            }
-
-            if (uniqueHeaders.contains(
-                    header
-            )) {
-
-                throw new BadRequestException(
-                        CampaignContactMessages
-                                .EXCEL_DUPLICATE_HEADER
-                );
-            }
-
-            uniqueHeaders.add(
-                    header
-            );
-        }
-
-        if (!headers.contains(
-                CampaignContactConstants
-                        .EXCEL_PHONE_NUMBER_HEADER
-        )) {
+        if (sheet == null
+                || sheet.getPhysicalNumberOfRows()
+                <= 1) {
 
             throw new BadRequestException(
                     CampaignContactMessages
-                            .EXCEL_PHONE_COLUMN_REQUIRED
+                            .EXCEL_FILE_EMPTY
             );
         }
     }
 
-    /**
-     * Creates header-to-column mapping.
-     *
-     * @param headers Excel headers
-     * @return header index map
-     */
-    private Map<String, Integer>
-    buildHeaderIndexMap(
-            List<String> headers) {
-
-        Map<String, Integer> headerIndexMap =
-                new LinkedHashMap<>();
-
-        for (
-                int index = 0;
-                index < headers.size();
-                index++
-        ) {
-
-            String header =
-                    headers.get(index);
-
-            if (header != null
-                    && !header.isBlank()) {
-
-                headerIndexMap.put(
-                        header,
-                        index
-                );
-            }
-        }
-
-        return headerIndexMap;
-    }
-
-    /**
-     * Builds contact request from an Excel row.
-     *
-     * @param campaignPublicId campaign public identifier
-     * @param row Excel row
-     * @param headers headers
-     * @param headerIndexMap header mapping
-     * @param formatter Excel formatter
-     * @param evaluator formula evaluator
-     * @return contact request
-     */
-    private CreateCampaignContactRequest
-    buildContactRequest(
-            String campaignPublicId,
-            Row row,
-            List<String> headers,
-            Map<String, Integer> headerIndexMap,
-            DataFormatter formatter,
-            FormulaEvaluator evaluator) {
-
-        String phoneNumber =
-                getValueByHeader(
-                        row,
-                        headerIndexMap,
-                        CampaignContactConstants
-                                .EXCEL_PHONE_NUMBER_HEADER,
-                        formatter,
-                        evaluator
-                );
-
-        if (phoneNumber == null
-                || phoneNumber.isBlank()) {
-
-            throw new BadRequestException(
-                    CampaignContactMessages
-                            .PHONE_NUMBER_REQUIRED
-            );
-        }
-
-        String name =
-                getValueByHeader(
-                        row,
-                        headerIndexMap,
-                        CampaignContactConstants
-                                .EXCEL_NAME_HEADER,
-                        formatter,
-                        evaluator
-                );
-
-        String externalReference =
-                getValueByHeader(
-                        row,
-                        headerIndexMap,
-                        CampaignContactConstants
-                                .EXCEL_EXTERNAL_REFERENCE_HEADER,
-                        formatter,
-                        evaluator
-                );
-
-        String priorityValue =
-                getValueByHeader(
-                        row,
-                        headerIndexMap,
-                        CampaignContactConstants
-                                .EXCEL_PRIORITY_HEADER,
-                        formatter,
-                        evaluator
-                );
-
-        Integer priority =
-                parsePriority(
-                        priorityValue
-                );
-
-        String description =
-                getValueByHeader(
-                        row,
-                        headerIndexMap,
-                        CampaignContactConstants
-                                .EXCEL_DESCRIPTION_HEADER,
-                        formatter,
-                        evaluator
-                );
-
-        Map<String, Object> customData =
-                new LinkedHashMap<>();
-
-        for (String header : headers) {
-
-            if (header == null
-                    || header.isBlank()
-                    || isStandardHeader(header)) {
-
-                continue;
-            }
-
-            Integer columnIndex =
-                    headerIndexMap.get(
-                            header
-                    );
-
-            if (columnIndex == null) {
-
-                continue;
-            }
-
-            Cell cell =
-                    row.getCell(
-                            columnIndex,
-                            Row.MissingCellPolicy
-                                    .RETURN_BLANK_AS_NULL
-                    );
-
-            String value =
-                    getCellValue(
-                            cell,
-                            formatter,
-                            evaluator
-                    );
-
-            if (value != null
-                    && !value.isBlank()) {
-
-                customData.put(
-                        header,
-                        value
-                );
-            }
-        }
-
-        String customDataJson = null;
-
-        if (!customData.isEmpty()) {
-
-            try {
-
-                customDataJson =
-                        objectMapper.writeValueAsString(
-                                customData
-                        );
-
-            } catch (Exception exception) {
-
-                log.error(
-                        "Failed to convert Excel custom data "
-                                + "to JSON.",
-                        exception
-                );
-
-                throw new BadRequestException(
-                        CampaignContactMessages
-                                .CUSTOM_DATA_INVALID
-                );
-            }
-        }
-
-        return CreateCampaignContactRequest
-                .builder()
-                .campaignPublicId(
-                        campaignPublicId
-                )
-                .name(name)
-                .phoneNumber(phoneNumber)
-                .externalReference(
-                        externalReference
-                )
-                .priority(priority)
-                .description(description)
-                .customData(
-                        customDataJson
-                )
-                .build();
-    }
-
-    /**
-     * Determines whether a header is a standard field.
-     *
-     * @param header normalized header
-     * @return true if standard field
-     */
-    private boolean isStandardHeader(
-            String header) {
-
-        return CampaignContactConstants
-                .EXCEL_PHONE_NUMBER_HEADER
-                .equals(header)
-
-                || CampaignContactConstants
-                .EXCEL_NAME_HEADER
-                .equals(header)
-
-                || CampaignContactConstants
-                .EXCEL_EXTERNAL_REFERENCE_HEADER
-                .equals(header)
-
-                || CampaignContactConstants
-                .EXCEL_PRIORITY_HEADER
-                .equals(header)
-
-                || CampaignContactConstants
-                .EXCEL_DESCRIPTION_HEADER
-                .equals(header);
-    }
-
-    /**
-     * Gets a value from an Excel row by header.
-     *
-     * @param row Excel row
-     * @param headerIndexMap header mapping
-     * @param header header name
-     * @param formatter formatter
-     * @param evaluator evaluator
-     * @return cell value
-     */
-    private String getValueByHeader(
-            Row row,
-            Map<String, Integer> headerIndexMap,
-            String header,
-            DataFormatter formatter,
-            FormulaEvaluator evaluator) {
-
-        Integer columnIndex =
-                headerIndexMap.get(
-                        header
-                );
-
-        if (columnIndex == null) {
-
-            return null;
-        }
-
-        Cell cell =
-                row.getCell(
-                        columnIndex,
-                        Row.MissingCellPolicy
-                                .RETURN_BLANK_AS_NULL
-                );
-
-        return getCellValue(
-                cell,
-                formatter,
-                evaluator
-        );
-    }
-
-    /**
-     * Reads an Excel cell as String.
-     *
-     * @param cell Excel cell
-     * @param formatter formatter
-     * @param evaluator evaluator
-     * @return cell value
-     */
-    private String getCellValue(
-            Cell cell,
-            DataFormatter formatter,
-            FormulaEvaluator evaluator) {
-
-        if (cell == null) {
-
-            return null;
-        }
-
-        String value =
-                formatter.formatCellValue(
-                        cell,
-                        evaluator
-                );
-
-        if (value == null
-                || value.isBlank()) {
-
-            return null;
-        }
-
-        return value.trim();
-    }
-
-    /**
-     * Checks whether Excel row is empty.
-     *
-     * @param row Excel row
-     * @param headers headers
-     * @param formatter formatter
-     * @param evaluator evaluator
-     * @return true if empty
-     */
-    private boolean isEmptyRow(
-            Row row,
-            List<String> headers,
-            DataFormatter formatter,
-            FormulaEvaluator evaluator) {
-
-        if (row == null) {
-
-            return true;
-        }
-
-        for (
-                int index = 0;
-                index < headers.size();
-                index++
-        ) {
-
-            Cell cell =
-                    row.getCell(
-                            index,
-                            Row.MissingCellPolicy
-                                    .RETURN_BLANK_AS_NULL
-                    );
-
-            String value =
-                    getCellValue(
-                            cell,
-                            formatter,
-                            evaluator
-                    );
-
-            if (value != null
-                    && !value.isBlank()) {
-
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Converts priority value to Integer.
-     *
-     * @param priorityValue Excel priority
-     * @return priority
-     */
-    private Integer parsePriority(
-            String priorityValue) {
-
-        if (priorityValue == null
-                || priorityValue.isBlank()) {
-
-            return null;
-        }
-
-        try {
-
-            return Integer.valueOf(
-                    priorityValue.trim()
-            );
-
-        } catch (NumberFormatException exception) {
-
-            throw new BadRequestException(
-                    CampaignContactMessages
-                            .PRIORITY_INVALID
-            );
-        }
-    }
-
-    /**
-     * Normalizes Excel header.
-     *
-     * @param header original header
-     * @return normalized header
-     */
-    private String normalizeHeader(
-            String header) {
-
-        if (header == null) {
-
-            return null;
-        }
-
-        return header
-                .trim()
-                .toLowerCase(
-                        Locale.ROOT
-                )
-                .replaceAll(
-                        "[\\s\\-]+",
-                        "_"
-                );
-    }
-
-    /**
-     * Resolves row processing error.
-     *
-     * @param exception exception
-     * @return error message
-     */
     private String resolveErrorMessage(
             Exception exception) {
 
         if (exception.getMessage() != null
-                && !exception
-                .getMessage()
-                .isBlank()) {
+                && !exception.getMessage().isBlank()) {
 
             return exception.getMessage();
         }

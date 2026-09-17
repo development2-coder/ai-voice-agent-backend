@@ -32,4 +32,6 @@ public class CampaignResponse {
     private String description;
 
     private Integer isActive;
+
+    private Long contactCount;
 }

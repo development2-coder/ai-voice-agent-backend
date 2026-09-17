@@ -472,6 +472,41 @@ public class SarvamTtsProvider implements TtsProvider {
                     TtsMessages.LANGUAGE_REQUIRED
             );
         }
+
+        Double pace =
+                request.getPace() != null
+                        ? request.getPace()
+                        : ttsProperties.getDefaultPace();
+
+        Double minPace =
+                ttsProperties.getMinPace();
+
+        Double maxPace =
+                ttsProperties.getMaxPace();
+
+        if (pace != null
+                && minPace != null
+                && pace < minPace) {
+
+            throw new IllegalArgumentException(
+                    "TTS pace must be between "
+                            + minPace
+                            + " and "
+                            + maxPace
+            );
+        }
+
+        if (pace != null
+                && maxPace != null
+                && pace > maxPace) {
+
+            throw new IllegalArgumentException(
+                    "TTS pace must be between "
+                            + minPace
+                            + " and "
+                            + maxPace
+            );
+        }
     }
 
     /**

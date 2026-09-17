@@ -1,6 +1,7 @@
 package com.infinitio.aivoiceplatform.call.service.impl;
 
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.call.constant.CallMessages;
 import com.infinitio.aivoiceplatform.call.dto.request.CreateCallRequest;
 import com.infinitio.aivoiceplatform.call.dto.request.UpdateCallRequest;
 import com.infinitio.aivoiceplatform.call.dto.response.CallResponse;
@@ -11,13 +12,16 @@ import com.infinitio.aivoiceplatform.call.service.CallService;
 import com.infinitio.aivoiceplatform.call.validator.CallValidator;
 import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
-import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
+import com.infinitio.aivoiceplatform.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 /**
  * Service implementation for Call.
@@ -50,6 +54,9 @@ public class CallServiceImpl
     // CREATE
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CallResponse create(
             CreateCallRequest request) {
@@ -102,6 +109,9 @@ public class CallServiceImpl
     // UPDATE
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CallResponse update(
             UpdateCallRequest request) {
@@ -154,6 +164,9 @@ public class CallServiceImpl
     // GET BY PUBLIC ID
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional(readOnly = true)
     public CallResponse getByPublicId(
@@ -169,6 +182,10 @@ public class CallServiceImpl
                         publicId
                 );
 
+        validateTenantAccess(
+                call
+        );
+
         return callMapper.toResponse(
                 call
         );
@@ -179,28 +196,107 @@ public class CallServiceImpl
     // GET ALL
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CallResponse> getAll(
-            int page,
-            int size) {
+    public List<CallResponse> getAll() {
+
+        User currentUser =
+                currentUserService.getCurrentUser();
+
+        String roleCode =
+                currentUser
+                        .getRole()
+                        .getRoleCode();
 
         log.info(
-                "Fetching Calls. Page : {}, Size : {}",
-                page,
-                size
+                "Fetching Calls for authenticated role."
         );
 
-        Page<Call> result =
-                callRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
+        List<Call> calls;
 
-        return buildPageResponse(result);
+        if (RoleConstants.SUPER_ADMIN.equalsIgnoreCase(
+                roleCode)) {
+
+            log.info(
+                    "SUPER_ADMIN access granted for all tenant calls."
+            );
+
+            calls =
+                    callRepository
+                            .findAllByIsDeletedOrderByCreatedAtDesc(
+                                    NOT_DELETED
+                            );
+
+        } else {
+
+            Long tenantId =
+                    currentUser
+                            .getTenant()
+                            .getId();
+
+            log.info(
+                    "Fetching Calls for authenticated tenant."
+            );
+
+            calls =
+                    callRepository
+                            .findAllByTenantIdAndIsDeleted(
+                                    tenantId,
+                                    NOT_DELETED
+                            );
+        }
+
+        return calls
+                .stream()
+                .map(
+                        callMapper::toResponse
+                )
+                .toList();
+    }
+
+
+    // =========================================================
+    // GET BY TENANT ID
+    // =========================================================
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<CallResponse> getByTenantId(
+            Long tenantId) {
+
+        validateSuperAdminAccess();
+
+        if (tenantId == null
+                || tenantId <= 0) {
+
+            throw new BadRequestException(
+                    CallMessages.INVALID_TENANT_ID
+            );
+        }
+
+        log.info(
+                "SUPER_ADMIN fetching Calls for selected tenant."
+        );
+
+        List<Call> calls =
+                callRepository
+                        .findAllByTenantIdAndIsDeleted(
+                                tenantId,
+                                NOT_DELETED
+                        );
+
+        return calls
+                .stream()
+                .map(
+                        callMapper::toResponse
+                )
+                .toList();
     }
 
 
@@ -208,19 +304,16 @@ public class CallServiceImpl
     // GET BY CAMPAIGN CONTACT
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CallResponse>
-    getByCampaignContact(
-            String campaignContactPublicId,
-            int page,
-            int size) {
+    public List<CallResponse> getByCampaignContact(
+            String campaignContactPublicId) {
 
         log.info(
-                "Fetching Calls for Campaign Contact : {}, Page : {}, Size : {}",
-                campaignContactPublicId,
-                page,
-                size
+                "Fetching Calls for Campaign Contact."
         );
 
         CampaignContact campaignContact =
@@ -228,58 +321,144 @@ public class CallServiceImpl
                         campaignContactPublicId
                 );
 
-        Page<Call> result =
+        Long tenantId =
+                currentUserService
+                        .getCurrentUser()
+                        .getTenant()
+                        .getId();
+
+        List<Call> calls =
                 callRepository
-                        .findByCampaignContactIdAndIsDeleted(
+                        .findAllByCampaignContactIdAndTenantIdAndIsDeleted(
                                 campaignContact.getId(),
-                                NOT_DELETED,
-                                PageRequest.of(
-                                        page,
-                                        size
-                                )
+                                tenantId,
+                                NOT_DELETED
                         );
 
-        return buildPageResponse(result);
+        return calls
+                .stream()
+                .map(
+                        callMapper::toResponse
+                )
+                .toList();
     }
 
 
     // =========================================================
-    // BUILD PAGE RESPONSE
+    // TENANT ACCESS VALIDATION
     // =========================================================
 
-    private PageResponse<CallResponse>
-    buildPageResponse(
-            Page<Call> result) {
+    /**
+     * Validates whether the current user can access
+     * the supplied Call.
+     *
+     * @param call call being accessed
+     */
+    private void validateTenantAccess(
+            Call call) {
 
-        return PageResponse
-                .<CallResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        callMapper::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
-                .totalPages(
-                        result.getTotalPages()
-                )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
-                .build();
+        User currentUser =
+                currentUserService.getCurrentUser();
+
+        String roleCode =
+                currentUser
+                        .getRole()
+                        .getRoleCode();
+
+        /*
+         * SUPER_ADMIN can access calls belonging
+         * to any tenant.
+         */
+        if (RoleConstants.SUPER_ADMIN.equalsIgnoreCase(
+                roleCode)) {
+
+            return;
+        }
+
+        Long currentTenantId =
+                currentUser
+                        .getTenant()
+                        .getId();
+
+        boolean accessible =
+                isCallAccessibleToTenant(
+                        call,
+                        currentTenantId
+                );
+
+        if (!accessible) {
+
+            throw new ForbiddenException(
+                    "You do not have permission to access this call."
+            );
+        }
+    }
+
+
+    /**
+     * Determines whether a Call belongs to the supplied tenant.
+     *
+     * @param call call being checked
+     * @param tenantId tenant database identifier
+     * @return true when the call belongs to the tenant
+     */
+    private boolean isCallAccessibleToTenant(
+            Call call,
+            Long tenantId) {
+
+        if (call.getCampaignContact() != null
+                && call.getCampaignContact()
+                .getCampaign() != null
+                && call.getCampaignContact()
+                .getCampaign()
+                .getAgent() != null
+                && call.getCampaignContact()
+                .getCampaign()
+                .getAgent()
+                .getTenant() != null) {
+
+            return tenantId.equals(
+                    call.getCampaignContact()
+                            .getCampaign()
+                            .getAgent()
+                            .getTenant()
+                            .getId()
+            );
+        }
+
+        return call.getCreatedBy() != null
+                && currentUserService
+                .getCurrentUserId()
+                .equals(call.getCreatedBy());
+    }
+
+
+    /**
+     * Validates that the authenticated user is SUPER_ADMIN.
+     *
+     * @throws ForbiddenException when the current user is not SUPER_ADMIN
+     */
+    private void validateSuperAdminAccess() {
+
+        User currentUser =
+                currentUserService.getCurrentUser();
+
+        String roleCode =
+                currentUser
+                        .getRole()
+                        .getRoleCode();
+
+        if (!RoleConstants.SUPER_ADMIN.equalsIgnoreCase(
+                roleCode)) {
+
+            log.warn(
+                    "Unauthorized tenant call access attempt."
+            );
+
+            throw new ForbiddenException(
+                    CallMessages.SUPER_ADMIN_REQUIRED
+            );
+        }
     }
 
 
@@ -287,6 +466,9 @@ public class CallServiceImpl
     // DELETE
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void delete(
             String publicId) {
@@ -302,7 +484,7 @@ public class CallServiceImpl
                 );
 
         call.markAsDeleted(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         callRepository.save(
@@ -320,6 +502,9 @@ public class CallServiceImpl
     // ACTIVATE
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void activate(
             String publicId) {
@@ -335,7 +520,7 @@ public class CallServiceImpl
                 );
 
         call.activate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         callRepository.save(
@@ -353,6 +538,9 @@ public class CallServiceImpl
     // DEACTIVATE
     // =========================================================
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void deactivate(
             String publicId) {
@@ -368,7 +556,7 @@ public class CallServiceImpl
                 );
 
         call.deactivate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         callRepository.save(

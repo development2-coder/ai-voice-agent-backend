@@ -15,6 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
  * Implementation responsible for persisting normalized
  * telephony provider events.
  *
+ * <p>
+ * The audit user for a telephony event is inherited from
+ * the associated Call because provider webhook requests may
+ * not contain an authenticated application user.
+ * </p>
+ *
  * @author Infinitio Digital
  * @version 1.0.0
  */
@@ -30,6 +36,19 @@ public class TelephonyCallEventServiceImpl
     private final TelephonyCallMapper
             telephonyCallMapper;
 
+    /**
+     * Persists a normalized telephony provider event.
+     *
+     * <p>
+     * The createdBy value is inherited from the associated
+     * Call. The Call is created in the authenticated user
+     * context, while the provider event is received later
+     * through a webhook request.
+     * </p>
+     *
+     * @param call associated call
+     * @param event normalized provider event
+     */
     @Override
     @Transactional
     public void save(
@@ -38,6 +57,11 @@ public class TelephonyCallEventServiceImpl
 
         if (call == null
                 || event == null) {
+
+            log.warn(
+                    "Unable to persist telephony call event. "
+                            + "Call or event is null."
+            );
 
             return;
         }
@@ -61,22 +85,52 @@ public class TelephonyCallEventServiceImpl
             return;
         }
 
+        Long createdBy =
+                call.getCreatedBy();
+
+        if (createdBy == null) {
+
+            log.error(
+                    "Unable to persist telephony call event. "
+                            + "createdBy is null for callPublicId={}, "
+                            + "providerCallId={}",
+                    call.getPublicId(),
+                    event.getProviderCallId()
+            );
+
+            throw new IllegalStateException(
+                    "Unable to determine createdBy for telephony call event."
+            );
+        }
+
         TelephonyCallEvent callEvent =
                 telephonyCallMapper.toEntity(
                         event,
                         call
                 );
 
+        /*
+         * The provider webhook is a system-to-system request.
+         * Therefore, inherit the audit user from the original
+         * Call instead of reading the current SecurityContext.
+         */
+        callEvent.setCreatedBy(
+                createdBy
+        );
+
         telephonyCallEventRepository.save(
                 callEvent
         );
 
-        log.debug(
-                "Telephony call event persisted. "
-                        + "providerCallId={}, providerEventId={}, event={}",
+        log.info(
+                "Telephony call event persisted successfully. "
+                        + "callPublicId={}, providerCallId={}, "
+                        + "providerEventId={}, event={}, createdBy={}",
+                call.getPublicId(),
                 event.getProviderCallId(),
                 event.getProviderEventId(),
-                event.getEvent()
+                event.getEvent(),
+                createdBy
         );
     }
 }

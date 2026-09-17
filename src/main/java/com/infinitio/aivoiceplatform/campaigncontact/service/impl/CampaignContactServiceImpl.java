@@ -210,8 +210,9 @@ public class CampaignContactServiceImpl
                 );
 
         Page<CampaignContact> result =
-                campaignContactRepository.findByCampaignId(
+                campaignContactRepository.findByCampaignIdAndIsDeleted(
                         campaign.getId(),
+                        0,
                         PageRequest.of(
                                 page,
                                 size

@@ -2,10 +2,16 @@ package com.infinitio.aivoiceplatform.transcript.service.impl;
 
 import java.util.List;
 
+import com.infinitio.aivoiceplatform.transcript.repository.TranscriptArtifactRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import java.util.LinkedHashMap;
+import java.util.Map;
+import com.infinitio.aivoiceplatform.transcript.entity.TranscriptArtifact;
+import com.infinitio.aivoiceplatform.transcript.repository.TranscriptArtifactRepository;
+import com.infinitio.aivoiceplatform.transcript.dto.response.CallTranscriptMessageResponse;
+import com.infinitio.aivoiceplatform.transcript.dto.response.CallTranscriptResponse;
 import com.infinitio.aivoiceplatform.call.entity.Call;
 import com.infinitio.aivoiceplatform.call.repository.CallRepository;
 import com.infinitio.aivoiceplatform.exception.ConflictException;
@@ -23,6 +29,12 @@ import com.infinitio.aivoiceplatform.transcript.validator.TranscriptValidator;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import com.infinitio.aivoiceplatform.callsession.dto.CallConversationMessageDto;
+import com.infinitio.aivoiceplatform.callsession.entity.CallSession;
+import com.infinitio.aivoiceplatform.callsession.repository.CallSessionRepository;
+import com.infinitio.aivoiceplatform.callsession.storage.ConversationStorageService;
 
 import com.infinitio.aivoiceplatform.callrecording.entity.CallRecording;
 import com.infinitio.aivoiceplatform.callrecording.repository.CallRecordingRepository;
@@ -73,6 +85,15 @@ public class TranscriptServiceImpl
 
     private final TranscriptArtifactService
             transcriptArtifactService;
+
+    private final TranscriptArtifactRepository
+            transcriptArtifactRepository;
+
+    private final CallSessionRepository
+            callSessionRepository;
+
+    private final ConversationStorageService
+            conversationStorageService;
 
     /**
      * {@inheritDoc}
@@ -486,14 +507,29 @@ public class TranscriptServiceImpl
     /**
      * {@inheritDoc}
      */
+    /**
+     * Finalizes the complete transcript for a call.
+     *
+     * <p>
+     * The runtime transcript artifact is the primary source of truth
+     * because it receives every final USER and ASSISTANT message during
+     * the live conversation. The CallSession conversation storage is
+     * used only as a backward-compatible fallback for calls created
+     * before runtime transcript artifact persistence was enabled.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @param callRecordingPublicId call recording public identifier
+     * @return finalized transcript response
+     */
     @Override
     public TranscriptResponse finalizeCallTranscript(
             String callPublicId,
             String callRecordingPublicId) {
 
         log.info(
-                "Finalizing complete call transcript. "
-                        + "callPublicId={}, callRecordingPublicId={}",
+                "Finalizing complete call transcript. " +
+                        "callPublicId={}, callRecordingPublicId={}",
                 callPublicId,
                 callRecordingPublicId
         );
@@ -502,6 +538,14 @@ public class TranscriptServiceImpl
                 getCall(
                         callPublicId
                 );
+
+        CallSession callSession =
+                callSessionRepository
+                        .findByCallIdAndIsDeleted(
+                                callPublicId,
+                                NOT_DELETED
+                        )
+                        .orElse(null);
 
         CallRecording callRecording =
                 callRecordingRepository
@@ -524,31 +568,128 @@ public class TranscriptServiceImpl
             );
         }
 
+        /*
+         * The runtime transcript artifact is the primary source of
+         * truth for the complete conversation.
+         *
+         * Every final USER transcript is appended by the Voice Gateway
+         * and every final ASSISTANT response is appended by the LLM
+         * runtime persistence layer.
+         */
         List<Map<String, Object>> messages =
                 transcriptArtifactService.readMessages(
                         callPublicId
                 );
 
+        /*
+         * Backward-compatible fallback.
+         *
+         * Existing calls created before the runtime transcript artifact
+         * was available may still have their conversation in the
+         * CallSession conversation storage.
+         */
         if (messages.isEmpty()) {
 
             log.warn(
-                    "No transcript messages found for completed call. "
-                            + "callPublicId={}",
+                    "Transcript artifact contains no messages. " +
+                            "Falling back to CallSession conversation storage. " +
+                            "callPublicId={}",
+                    callPublicId
+            );
+
+            messages =
+                    readConversationStorageMessages(
+                            callPublicId
+                    );
+        }
+
+        /*
+         * Remove invalid/empty messages while preserving the exact
+         * runtime conversation order.
+         */
+        List<Map<String, Object>> validMessages =
+                new ArrayList<>();
+
+        for (Map<String, Object> message :
+                messages) {
+
+            if (message == null) {
+                continue;
+            }
+
+            Object textValue =
+                    message.get(
+                            "text"
+                    );
+
+            if (textValue == null
+                    || String.valueOf(
+                    textValue
+            ).isBlank()) {
+
+                continue;
+            }
+
+            Map<String, Object> normalizedMessage =
+                    new LinkedHashMap<>(
+                            message
+                    );
+
+            normalizedMessage.put(
+                    "speakerType",
+                    normalizeSpeakerType(
+                            String.valueOf(
+                                    message.getOrDefault(
+                                            "speakerType",
+                                            "UNKNOWN"
+                                    )
+                            )
+                    )
+            );
+
+            validMessages.add(
+                    normalizedMessage
+            );
+        }
+
+        if (validMessages.isEmpty()) {
+
+            log.warn(
+                    "No conversation messages found for completed call. " +
+                            "callPublicId={}",
                     callPublicId
             );
 
             return null;
         }
 
+        log.info(
+                "Complete conversation loaded for transcript finalization. " +
+                        "callPublicId={}, messageCount={}",
+                callPublicId,
+                validMessages.size()
+        );
+
         String completeText =
                 buildCompleteTranscriptText(
-                        messages
+                        validMessages
                 );
 
         String language =
                 resolveLanguage(
-                        messages
+                        validMessages
                 );
+
+        /*
+         * Use the CallSession language only when the runtime
+         * transcript artifact does not contain a language.
+         */
+        if (language == null
+                || language.isBlank()) {
+
+            language =
+                    callSession.getLanguage();
+        }
 
         Transcript transcript =
                 transcriptRepository
@@ -613,18 +754,136 @@ public class TranscriptServiceImpl
                 );
 
         log.info(
-                "Complete call transcript finalized successfully. "
-                        + "transcriptPublicId={}, callPublicId={}, "
-                        + "recordingPublicId={}, messageCount={}",
+                "Complete call transcript finalized successfully. " +
+                        "transcriptPublicId={}, callPublicId={}, " +
+                        "recordingPublicId={}, messageCount={}",
                 savedTranscript.getPublicId(),
                 callPublicId,
                 callRecordingPublicId,
-                messages.size()
+                validMessages.size()
         );
 
         return transcriptMapper.toResponse(
                 savedTranscript
         );
+    }
+
+    /**
+     * Reads conversation messages from the legacy CallSession
+     * conversation storage.
+     *
+     * <p>
+     * This method exists only as a backward-compatible fallback.
+     * New calls should normally be read from the runtime transcript
+     * artifact.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @return conversation messages
+     */
+    private List<Map<String, Object>> readConversationStorageMessages(
+            String callPublicId) {
+
+        CallSession callSession =
+                callSessionRepository
+                        .findByCallIdAndIsDeleted(
+                                callPublicId,
+                                NOT_DELETED
+                        )
+                        .orElse(null);
+
+        if (callSession == null) {
+
+            log.warn(
+                    "Call session not found while reading fallback " +
+                            "conversation storage. callPublicId={}",
+                    callPublicId
+            );
+
+            return new ArrayList<>();
+        }
+
+        String storageKey =
+                callSession.getConversationStorageKey();
+
+        if (storageKey == null
+                || storageKey.isBlank()) {
+
+            log.warn(
+                    "Conversation storage key is not available. " +
+                            "callPublicId={}",
+                    callPublicId
+            );
+
+            return new ArrayList<>();
+        }
+
+        List<CallConversationMessageDto> conversationMessages =
+                conversationStorageService.readMessages(
+                        storageKey
+                );
+
+        List<Map<String, Object>> messages =
+                new ArrayList<>();
+
+        for (CallConversationMessageDto message :
+                conversationMessages) {
+
+            if (message == null
+                    || message.getText() == null
+                    || message.getText().isBlank()) {
+
+                continue;
+            }
+
+            Map<String, Object> transcriptMessage =
+                    new LinkedHashMap<>();
+
+            transcriptMessage.put(
+                    "speakerType",
+                    normalizeSpeakerType(
+                            message.getRole()
+                    )
+            );
+
+            transcriptMessage.put(
+                    "text",
+                    message.getText()
+            );
+
+            transcriptMessage.put(
+                    "language",
+                    callSession.getLanguage()
+            );
+
+            transcriptMessage.put(
+                    "source",
+                    "CALL_SESSION_FALLBACK"
+            );
+
+            transcriptMessage.put(
+                    "timestamp",
+                    message.getTimestamp()
+            );
+
+            transcriptMessage.put(
+                    "sequenceNumber",
+                    messages.size() + 1
+            );
+
+            messages.add(
+                    transcriptMessage
+            );
+        }
+
+        log.info(
+                "Fallback conversation storage loaded. " +
+                        "callPublicId={}, messageCount={}",
+                callPublicId,
+                messages.size()
+        );
+
+        return messages;
     }
 
     /**
@@ -712,5 +971,264 @@ public class TranscriptServiceImpl
         }
 
         return null;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    /**
+     * {@inheritDoc}
+     */
+    /**
+     * Retrieves the complete conversation transcript for a call.
+     *
+     * <p>
+     * The runtime transcript artifact is used as the primary source
+     * because it contains the complete sequence of final USER and
+     * ASSISTANT messages captured during the live call.
+     * </p>
+     *
+     * <p>
+     * CallSession conversation storage is used only as a fallback
+     * for older calls whose runtime transcript artifact is unavailable.
+     * </p>
+     *
+     * @param callPublicId call public identifier
+     * @return complete call transcript
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public CallTranscriptResponse getCompleteCallTranscript(
+            String callPublicId) {
+
+        log.info(
+                "Fetching complete call transcript. callPublicId={}",
+                callPublicId
+        );
+
+        /*
+         * Validate that the Call exists.
+         */
+        getCall(
+                callPublicId
+        );
+
+        /*
+         * Primary source:
+         *
+         * Runtime transcript artifact.
+         *
+         * This contains the complete live conversation:
+         *
+         * USER
+         * ASSISTANT
+         * USER
+         * ASSISTANT
+         * USER
+         * ASSISTANT
+         */
+        List<Map<String, Object>> messages =
+                transcriptArtifactService.readMessages(
+                        callPublicId
+                );
+
+        /*
+         * Backward-compatible fallback for older calls.
+         */
+        if (messages.isEmpty()) {
+
+            log.warn(
+                    "Runtime transcript artifact is empty. " +
+                            "Using CallSession conversation storage fallback. " +
+                            "callPublicId={}",
+                    callPublicId
+            );
+
+            messages =
+                    readConversationStorageMessages(
+                            callPublicId
+                    );
+        }
+
+        List<CallTranscriptMessageResponse>
+                responseMessages =
+                new ArrayList<>();
+
+        int sequenceNumber = 1;
+
+        for (Map<String, Object> message :
+                messages) {
+
+            if (message == null) {
+                continue;
+            }
+
+            Object textValue =
+                    message.get(
+                            "text"
+                    );
+
+            if (textValue == null
+                    || String.valueOf(
+                    textValue
+            ).isBlank()) {
+
+                continue;
+            }
+
+            Object speakerValue =
+                    message.get(
+                            "speakerType"
+                    );
+
+            Object languageValue =
+                    message.get(
+                            "language"
+                    );
+
+            Object sourceValue =
+                    message.get(
+                            "source"
+                    );
+
+            Object timestampValue =
+                    message.get(
+                            "timestamp"
+                    );
+
+            responseMessages.add(
+                    CallTranscriptMessageResponse
+                            .builder()
+                            .sequenceNumber(
+                                    sequenceNumber++
+                            )
+                            .speakerType(
+                                    normalizeSpeakerType(
+                                            speakerValue == null
+                                                    ? null
+                                                    : String.valueOf(
+                                                    speakerValue
+                                            )
+                                    )
+                            )
+                            .text(
+                                    String.valueOf(
+                                            textValue
+                                    )
+                            )
+                            .language(
+                                    languageValue == null
+                                            ? null
+                                            : String.valueOf(
+                                            languageValue
+                                    )
+                            )
+                            .source(
+                                    sourceValue == null
+                                            ? null
+                                            : String.valueOf(
+                                            sourceValue
+                                    )
+                            )
+                            .timestamp(
+                                    timestampValue == null
+                                            ? null
+                                            : String.valueOf(
+                                            timestampValue
+                                    )
+                            )
+                            .build()
+            );
+        }
+
+        /*
+         * Runtime transcript artifact file name.
+         */
+        String fileName =
+                callPublicId + ".json.gz";
+
+        log.info(
+                "Complete call transcript fetched successfully. " +
+                        "callPublicId={}, messageCount={}, fileName={}",
+                callPublicId,
+                responseMessages.size(),
+                fileName
+        );
+
+        return CallTranscriptResponse
+                .builder()
+                .callPublicId(
+                        callPublicId
+                )
+                .available(
+                        !responseMessages.isEmpty()
+                )
+                .fileName(
+                        fileName
+                )
+                .sizeBytes(
+                        null
+                )
+                .messages(
+                        responseMessages
+                )
+                .build();
+    }
+
+    /**
+     * Converts conversation role into the speaker type expected
+     * by the Calls frontend.
+     *
+     * @param role conversation role
+     * @return normalized speaker type
+     */
+    private String normalizeSpeakerType(
+            String role) {
+
+        if (role == null
+                || role.isBlank()) {
+
+            return "UNKNOWN";
+        }
+
+        if ("user".equalsIgnoreCase(role)) {
+
+            return "USER";
+        }
+
+        if ("assistant".equalsIgnoreCase(role)) {
+
+            return "ASSISTANT";
+        }
+
+        return role.toUpperCase();
+    }
+
+    /**
+     * Extracts the file name from a conversation storage key.
+     *
+     * @param storageKey conversation storage key
+     * @return file name
+     */
+    private String extractFileName(
+            String storageKey) {
+
+        if (storageKey == null
+                || storageKey.isBlank()) {
+
+            return null;
+        }
+
+        int separatorIndex =
+                storageKey.lastIndexOf('/');
+
+        if (separatorIndex < 0) {
+
+            return storageKey;
+        }
+
+        return storageKey.substring(
+                separatorIndex + 1
+        );
     }
 }
