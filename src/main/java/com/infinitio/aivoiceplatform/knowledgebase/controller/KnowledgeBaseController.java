@@ -94,18 +94,15 @@ public class KnowledgeBaseController {
     @Operation(summary = "Get All Knowledge Bases")
     @GetMapping
     public ResponseEntity<
-            ApiResponse<PageResponse<KnowledgeBaseResponse>>> getAll(
-            @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+            ApiResponse<PageResponse<KnowledgeBaseResponse>>>
+    getAll() {
 
         log.info(
-                "REST Request : Get All Knowledge Bases. Page : {}, Size : {}",
-                page,
-                size
+                "REST Request : Get All Knowledge Bases"
         );
 
         PageResponse<KnowledgeBaseResponse> response =
-                knowledgeBaseService.getAll(page, size);
+                knowledgeBaseService.getAll();
 
         return ResponseBuilder.success(
                 response,

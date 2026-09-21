@@ -80,4 +80,6 @@ public class ExotelProperties {
      * API path used to perform an action on a specific call leg.
      */
     private String callLegPath;
+
+    private String callLegsPath;
 }

@@ -146,18 +146,12 @@ public class AgentController {
 
     @Operation(summary = "Get All Agents")
     @GetMapping
-    public ResponseEntity<ApiResponse<PageResponse<AgentResponse>>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+    public ResponseEntity<ApiResponse<PageResponse<AgentResponse>>> getAll() {
 
-        log.info(
-                "REST Request : Get All Agents | Page : {} | Size : {}",
-                page,
-                size
-        );
+        log.info("REST Request : Get All Agents");
 
         PageResponse<AgentResponse> response =
-                agentService.getAll(page, size);
+                agentService.getAll();
 
         return ResponseBuilder.success(
                 response,

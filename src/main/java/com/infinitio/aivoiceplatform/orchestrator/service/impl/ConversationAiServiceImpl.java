@@ -17,7 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.callsession.dto.CallConversationMessageDto;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -122,8 +122,15 @@ public class ConversationAiServiceImpl
                         context
                 );
 
+        prompt =
+                applyLanguageInstruction(
+                        prompt,
+                        language
+                );
+
         List<LlmMessageDto> messages =
                 resolveMessages(
+                        callId,
                         context,
                         prompt
                 );
@@ -323,19 +330,39 @@ public class ConversationAiServiceImpl
      * @param prompt AI system instruction
      * @return messages for LLM generation
      */
+    /**
+     * Resolves the messages that should be sent to the LLM.
+     *
+     * <p>
+     * The configured AI prompt is always sent as the SYSTEM message.
+     * Existing conversation history is then loaded from the call-session
+     * conversation storage so the LLM can understand previous turns.
+     * </p>
+     *
+     * <p>
+     * The latest caller transcript is already persisted by
+     * ConversationInputService before this method is called. Therefore,
+     * when persisted history is available, the latest user message must
+     * not be added again from lastUserInput.
+     * </p>
+     *
+     * @param callId call public identifier
+     * @param context Flow execution context
+     * @param prompt AI system instruction
+     * @return messages for LLM generation
+     */
     private List<LlmMessageDto> resolveMessages(
+            String callId,
             Map<String, Object> context,
             String prompt) {
+
+        final int MAX_HISTORY_MESSAGES = 20;
 
         List<LlmMessageDto> messages =
                 new ArrayList<>();
 
         /*
-         * The configured AI prompt contains the business
-         * instructions for the LLM.
-         *
-         * It must be sent as a SYSTEM message and must not
-         * be treated as customer input.
+         * The configured AI prompt is the SYSTEM instruction.
          */
         if (prompt != null
                 && !prompt.isBlank()) {
@@ -353,8 +380,93 @@ public class ConversationAiServiceImpl
         }
 
         /*
-         * Preserve existing conversation messages when
-         * available.
+         * Primary source:
+         *
+         * Read the actual persisted conversation history.
+         *
+         * ConversationInputService stores the customer's message
+         * before Flow execution reaches the AI node.
+         *
+         * ConversationAiServiceImpl also stores every AI response.
+         */
+        List<CallConversationMessageDto> storedMessages =
+                callSessionConversationService
+                        .getConversationMessages(
+                                callId
+                        );
+
+        if (storedMessages != null
+                && !storedMessages.isEmpty()) {
+
+            int startIndex =
+                    Math.max(
+                            0,
+                            storedMessages.size()
+                                    - MAX_HISTORY_MESSAGES
+                    );
+
+            for (int index = startIndex;
+                 index < storedMessages.size();
+                 index++) {
+
+                CallConversationMessageDto storedMessage =
+                        storedMessages.get(
+                                index
+                        );
+
+                if (storedMessage == null
+                        || storedMessage.getRole() == null
+                        || storedMessage.getText() == null
+                        || storedMessage.getText().isBlank()) {
+
+                    continue;
+                }
+
+                String role =
+                        storedMessage
+                                .getRole()
+                                .trim();
+
+                if (!USER_ROLE.equals(role)
+                        && !ASSISTANT_ROLE.equals(role)) {
+
+                    continue;
+                }
+
+                messages.add(
+                        LlmMessageDto.builder()
+                                .role(
+                                        role
+                                )
+                                .content(
+                                        storedMessage
+                                                .getText()
+                                )
+                                .build()
+                );
+            }
+
+            log.info(
+                    "Loaded conversation history for LLM. " +
+                            "callId={}, storedMessages={}, " +
+                            "usedMessages={}, messageCount={}",
+                    callId,
+                    storedMessages.size(),
+                    Math.min(
+                            storedMessages.size(),
+                            MAX_HISTORY_MESSAGES
+                    ),
+                    messages.size()
+            );
+
+            return messages;
+        }
+
+        /*
+         * Fallback:
+         *
+         * Some executions may already contain conversationMessages
+         * inside the Flow context.
          */
         Object configuredMessages =
                 context.get(
@@ -367,9 +479,14 @@ public class ConversationAiServiceImpl
 
                 if (item instanceof LlmMessageDto message) {
 
-                    messages.add(
-                            message
-                    );
+                    if (message.getRole() != null
+                            && message.getContent() != null
+                            && !message.getContent().isBlank()) {
+
+                        messages.add(
+                                message
+                        );
+                    }
 
                     continue;
                 }
@@ -396,7 +513,9 @@ public class ConversationAiServiceImpl
                                 ).trim();
 
                         if (!roleValue.isBlank()
-                                && !contentValue.isBlank()) {
+                                && !contentValue.isBlank()
+                                && (USER_ROLE.equals(roleValue)
+                                || ASSISTANT_ROLE.equals(roleValue))) {
 
                             messages.add(
                                     LlmMessageDto.builder()
@@ -412,14 +531,25 @@ public class ConversationAiServiceImpl
                     }
                 }
             }
+
+            if (messages.size() > 1) {
+
+                log.info(
+                        "Using conversation messages from Flow context. " +
+                                "callId={}, messageCount={}",
+                        callId,
+                        messages.size()
+                );
+
+                return messages;
+            }
         }
 
         /*
-         * Check whether the customer has already spoken.
+         * Final fallback:
          *
-         * For an outbound AI-first Flow this value is normally
-         * absent because the AI_RESPONSE node is the first
-         * conversational node.
+         * Use lastUserInput when no persisted conversation history
+         * or Flow-context history is available.
          */
         Object userInputValue =
                 context.get(
@@ -433,12 +563,6 @@ public class ConversationAiServiceImpl
                         userInputValue
                 ).trim();
 
-        /*
-         * CUSTOMER-FIRST / SUBSEQUENT TURN
-         *
-         * If customer input exists, use it as the actual
-         * user message.
-         */
         if (userInput != null
                 && !userInput.isBlank()) {
 
@@ -454,12 +578,9 @@ public class ConversationAiServiceImpl
             );
 
             log.debug(
-                    "Resolved AI messages with customer input. " +
-                            "systemPromptPresent={}, " +
-                            "userInputLength={}, messageCount={}",
-                    prompt != null
-                            && !prompt.isBlank(),
-                    userInput.length(),
+                    "Resolved AI messages using lastUserInput fallback. " +
+                            "callId={}, messageCount={}",
+                    callId,
                     messages.size()
             );
 
@@ -467,15 +588,10 @@ public class ConversationAiServiceImpl
         }
 
         /*
-         * AI-FIRST OUTBOUND FLOW
+         * AI-FIRST outbound flow.
          *
-         * No customer input exists yet. This is expected for
-         * outbound calls where the AI must speak first.
-         *
-         * Add a generic user instruction so that the LLM has
-         * an explicit conversational generation request while
-         * keeping the configured Flow prompt as the system
-         * instruction.
+         * No customer input exists yet, so give the LLM an explicit
+         * instruction to start the conversation.
          */
         messages.add(
                 LlmMessageDto.builder()
@@ -490,57 +606,15 @@ public class ConversationAiServiceImpl
 
         log.debug(
                 "Resolved AI-first outbound messages. " +
-                        "systemPromptPresent={}, messageCount={}",
+                        "callId={}, systemPromptPresent={}, " +
+                        "messageCount={}",
+                callId,
                 prompt != null
                         && !prompt.isBlank(),
                 messages.size()
         );
 
         return messages;
-    }
-
-    /**
-     * Stores generated AI response in conversation history.
-     */
-    private void storeAiMessage(
-            String callId,
-            String response) {
-
-        try {
-
-            callSessionConversationService
-                    .addConversationMessage(
-                            callId,
-                            AddConversationMessageRequestDto.builder()
-                                    .role(
-                                            ASSISTANT_ROLE
-                                    )
-                                    .text(
-                                            response
-                                    )
-                                    .build()
-                    );
-
-            log.debug(
-                    "AI response stored in conversation history. " +
-                            "callId={}",
-                    callId
-            );
-
-        } catch (Exception exception) {
-
-            /*
-             * Conversation-history persistence failure should not
-             * prevent the Flow from continuing after a successful
-             * LLM response.
-             */
-            log.warn(
-                    "Unable to store AI response in conversation history. " +
-                            "callId={}",
-                    callId,
-                    exception
-            );
-        }
     }
 
     /**
@@ -671,5 +745,151 @@ public class ConversationAiServiceImpl
                             .LLM_RESPONSE_EMPTY
             );
         }
+    }
+
+    /**
+     * Stores the AI-generated response in the call conversation history.
+     *
+     * @param callId public call identifier
+     * @param response AI-generated response text
+     */
+    private void storeAiMessage(
+            String callId,
+            String response) {
+
+        if (callId == null || callId.isBlank()) {
+            log.warn(
+                    "Cannot store AI message because callId is missing."
+            );
+            return;
+        }
+
+        if (response == null || response.isBlank()) {
+            log.warn(
+                    "Cannot store empty AI response. callId={}",
+                    callId
+            );
+            return;
+        }
+
+        callSessionConversationService
+                .addConversationMessage(
+                        callId,
+                        AddConversationMessageRequestDto
+                                .builder()
+                                .role(
+                                        ConversationOrchestratorConstants
+                                                .ROLE_ASSISTANT
+                                )
+                                .text(
+                                        response
+                                )
+                                .build()
+                );
+
+        log.debug(
+                "AI response stored in conversation history. " +
+                        "callId={}, responseLength={}",
+                callId,
+                response.length()
+        );
+    }
+
+    /**
+     * Adds the runtime language instruction to the AI prompt.
+     *
+     * @param prompt configured AI prompt
+     * @param language detected conversation language
+     * @return prompt with runtime language instruction
+     */
+    private String applyLanguageInstruction(
+            String prompt,
+            String language) {
+
+        if (prompt == null
+                || prompt.isBlank()) {
+
+            return prompt;
+        }
+
+        String languageName =
+                resolveLanguageName(
+                        language
+                );
+
+        return prompt
+                + "\n\n"
+                + "IMPORTANT LANGUAGE RULE:\n"
+                + "Respond to the customer only in "
+                + languageName
+                + ".\n"
+                + "Use the customer's detected language for this turn. "
+                + "Do not continue using the previous language if the "
+                + "customer has switched languages.";
+    }
+
+    /**
+     * Converts language code into a language name understood by the LLM.
+     *
+     * @param language language code
+     * @return language name
+     */
+    private String resolveLanguageName(
+            String language) {
+
+        if (language == null
+                || language.isBlank()) {
+
+            return "the customer's language";
+        }
+
+        String normalized =
+                language
+                        .trim()
+                        .toLowerCase(
+                                java.util.Locale.ROOT
+                        );
+
+        if (normalized.startsWith("mr")) {
+
+            return "Marathi";
+        }
+
+        if (normalized.startsWith("en")) {
+
+            return "English";
+        }
+
+        if (normalized.startsWith("hi")) {
+
+            return "Hindi";
+        }
+
+        if (normalized.startsWith("ta")) {
+
+            return "Tamil";
+        }
+
+        if (normalized.startsWith("te")) {
+
+            return "Telugu";
+        }
+
+        if (normalized.startsWith("kn")) {
+
+            return "Kannada";
+        }
+
+        if (normalized.startsWith("gu")) {
+
+            return "Gujarati";
+        }
+
+        if (normalized.startsWith("bn")) {
+
+            return "Bengali";
+        }
+
+        return language;
     }
 }

@@ -27,5 +27,7 @@ public final class CampaignConstants {
 
     public static final String STATUS_INACTIVE = "INACTIVE";
 
+    public static final String STATUS_COMPLETED = "COMPLETED";
+
     public static final int CUSTOM_DATA_MAX_LENGTH = 10000;
 }

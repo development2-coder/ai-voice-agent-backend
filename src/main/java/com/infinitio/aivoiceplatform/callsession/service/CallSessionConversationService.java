@@ -28,4 +28,15 @@ public interface CallSessionConversationService {
             String callId,
             AddConversationMessageRequestDto request
     );
+
+    /**
+     * Reads the current conversation history for a call.
+     *
+     * @param callId public call identifier
+     * @return conversation messages in chronological order
+     */
+    java.util.List<com.infinitio.aivoiceplatform.callsession.dto.CallConversationMessageDto>
+    getConversationMessages(
+            String callId
+    );
 }

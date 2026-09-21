@@ -22,6 +22,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * Service implementation for Agent Configuration.
  *
@@ -95,6 +97,20 @@ public class AgentConfigServiceImpl
 
         config.setAgent(
                 agent
+        );
+
+        /*
+         * The UI explicitly sends ACTIVE when Create Agent
+         * is clicked and DRAFT when Save Draft is clicked.
+         *
+         * Keep DRAFT as the backend fallback when status is
+         * not provided.
+         */
+        config.setStatus(
+                request.getStatus() == null
+                        || request.getStatus().isBlank()
+                        ? AgentConfigConstants.STATUS_DRAFT
+                        : request.getStatus().trim().toUpperCase()
         );
 
         /*
@@ -177,6 +193,22 @@ public class AgentConfigServiceImpl
         config.setAgent(
                 agent
         );
+
+        /*
+         * The UI explicitly sends the desired configuration status.
+         *
+         * Update Agent -> ACTIVE
+         * Save Draft   -> DRAFT
+         */
+        if (request.getStatus() != null
+                && !request.getStatus().isBlank()) {
+
+            config.setStatus(
+                    request.getStatus()
+                            .trim()
+                            .toUpperCase()
+            );
+        }
 
         /*
          * Preserve the original createdBy value.
@@ -290,60 +322,46 @@ public class AgentConfigServiceImpl
      * @param size page size
      * @return paginated Agent Configurations
      */
+    // =========================================================
+// GET ALL
+// =========================================================
+
+    /**
+     * Fetches all non-deleted Agent Configurations.
+     *
+     * @return all Agent Configurations
+     */
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<AgentConfigResponse> getAll(
-            int page,
-            int size) {
-
-        agentConfigValidator.validatePagination(
-                page,
-                size
-        );
+    public PageResponse<AgentConfigResponse> getAll() {
 
         log.info(
-                "Fetching Agent Configurations. Page : {}, Size : {}",
-                page,
-                size
+                "Fetching all Agent Configurations"
         );
 
-        Page<AgentConfig> result =
+        List<AgentConfig> agentConfigs =
                 agentConfigRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+                        NOT_DELETED
                 );
+
+        List<AgentConfigResponse> content =
+                agentConfigs.stream()
+                        .map(
+                                agentConfigMapper::toResponse
+                        )
+                        .toList();
 
         return PageResponse
                 .<AgentConfigResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        agentConfigMapper::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
+                .content(content)
+                .pageNumber(0)
+                .pageSize(content.size())
                 .totalPages(
-                        result.getTotalPages()
+                        content.isEmpty() ? 0 : 1
                 )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
+                .totalElements(content.size())
+                .first(true)
+                .last(true)
                 .build();
     }
 

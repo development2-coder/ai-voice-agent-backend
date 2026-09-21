@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -60,8 +61,7 @@ public interface CallRecordingRepository
      * @param pageable pagination configuration
      * @return paginated recordings
      */
-    Page<CallRecording> findByCallId(
-            Long callId,
-            Pageable pageable
+    List<CallRecording> findByCallId(
+            Long callId
     );
 }

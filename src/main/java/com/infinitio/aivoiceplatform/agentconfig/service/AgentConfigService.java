@@ -29,10 +29,7 @@ public interface AgentConfigService {
             String agentPublicId
     );
 
-    PageResponse<AgentConfigResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<AgentConfigResponse> getAll();
 
     void delete(String publicId);
 

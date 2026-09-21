@@ -869,7 +869,8 @@ public class SarvamSttProvider
 
             case "slin",
                  "linear16",
-                 "pcm_s16le" ->
+                 "pcm_s16le",
+                 "base64" ->
                     "linear16";
 
             case "linear32" ->

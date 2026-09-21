@@ -25,14 +25,18 @@ public interface CampaignService {
             String publicId
     );
 
-    PageResponse<CampaignResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<CampaignResponse> getAll();
 
     void delete(String publicId);
 
     void activate(String publicId);
 
     void deactivate(String publicId);
+
+    /**
+     * Marks a campaign as completed by its scheduler lifecycle.
+     *
+     * @param publicId campaign public identifier
+     */
+    void complete(String publicId);
 }

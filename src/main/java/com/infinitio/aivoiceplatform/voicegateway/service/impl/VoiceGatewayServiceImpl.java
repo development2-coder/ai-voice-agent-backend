@@ -5,6 +5,8 @@ import com.infinitio.aivoiceplatform.orchestrator.dto.request.ProcessTranscriptR
 import com.infinitio.aivoiceplatform.orchestrator.dto.request.StartConversationRequestDto;
 import com.infinitio.aivoiceplatform.orchestrator.dto.response.ConversationOrchestratorResponseDto;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationOrchestratorService;
+import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
+import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import com.infinitio.aivoiceplatform.stt.provider.SttStreamingListener;
 import com.infinitio.aivoiceplatform.stt.service.SttRuntimeService;
 import com.infinitio.aivoiceplatform.tts.streaming.TtsAudioStreamRegistry;
@@ -18,14 +20,15 @@ import com.infinitio.aivoiceplatform.voicegateway.dto.response.VoiceGatewayRespo
 import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayCallContextService;
 import com.infinitio.aivoiceplatform.voicegateway.service.VoiceGatewayService;
 import com.infinitio.aivoiceplatform.voicegateway.websocket.VoiceGatewayWebSocketSessionRegistry;
-import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.infinitio.aivoiceplatform.runtimepersistence.RuntimePersistenceService;
+
 import java.util.Base64;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -68,6 +71,12 @@ public class VoiceGatewayServiceImpl
     private final RuntimePersistenceService
             runtimePersistenceService;
 
+    private final Map<String, String> lastProcessedTranscript =
+            new ConcurrentHashMap<>();
+
+    private final Map<String, Long> lastTranscriptTime =
+            new ConcurrentHashMap<>();
+
     /**
      * Stores whether caller speech has been detected by VAD
      * and is waiting for STT confirmation.
@@ -81,12 +90,40 @@ public class VoiceGatewayServiceImpl
             pendingBargeIns =
             new ConcurrentHashMap<>();
 
+    /**
+     * Tracks whether the initial conversation has been started
+     * for the active call.
+     */
+    private final Map<String, Boolean>
+            conversationStarted =
+            new ConcurrentHashMap<>();
+
+    /**
+     * Last final STT transcript processed for each call.
+     */
+    private final Map<String, String>
+            lastProcessedTranscripts =
+            new ConcurrentHashMap<>();
+
+    /**
+     * Timestamp of the last final STT transcript processed.
+     */
+    private final Map<String, Long>
+            lastProcessedTranscriptTimes =
+            new ConcurrentHashMap<>();
+
     // =========================================================
     // START STREAM
     // =========================================================
 
     /**
      * Starts the Voice Gateway stream.
+     *
+     * <p>
+     * The WebSocket session is already registered by the Exotel
+     * WebSocket handler before this method is invoked. Therefore
+     * the initial conversation can be started immediately after
+     * the STT/TTS runtime has been initialized.
      *
      * @param request Voice Gateway start request
      * @return Voice Gateway response
@@ -125,7 +162,9 @@ public class VoiceGatewayServiceImpl
             );
         }
 
-        validateRuntimeContext(callSession);
+        validateRuntimeContext(
+                callSession
+        );
 
         String tenantId =
                 callSession.getTenantId();
@@ -155,13 +194,31 @@ public class VoiceGatewayServiceImpl
                 language
         );
 
+        /*
+         * Register TTS before starting the conversation.
+         *
+         * The initial conversation may immediately execute the
+         * Message/TTS nodes. Therefore the listener must already
+         * exist before ConversationOrchestratorService.start()
+         * is called.
+         */
         registerTtsListener(
                 request.getCallId(),
                 request.getStreamId()
         );
 
         /*
-         * Reset interruption state before the conversation starts.
+         * Store the provider stream ID before the initial
+         * conversation starts so flush/clear operations can
+         * resolve it later.
+         */
+        webSocketSessionRegistry.registerStreamId(
+                request.getCallId(),
+                request.getStreamId()
+        );
+
+        /*
+         * Reset TTS interruption state before starting the call.
          */
         ttsAudioStreamRegistry.resetInterruption(
                 request.getCallId()
@@ -174,77 +231,204 @@ public class VoiceGatewayServiceImpl
                 request.getCallId()
         );
 
+        /*
+         * Reset conversation-start state.
+         */
+        conversationStarted.remove(
+                request.getCallId()
+        );
+
+        /*
+         * Start streaming STT before starting the initial
+         * conversation so that the call is ready to receive
+         * caller audio while the greeting is being generated.
+         */
         startSttStreaming(
                 request,
                 language
         );
 
-        StartConversationRequestDto conversationRequest =
-                StartConversationRequestDto.builder()
-                        .callId(
-                                request.getCallId()
-                        )
-                        .tenantId(
-                                tenantId
-                        )
-                        .agentId(
-                                agentId
-                        )
-                        .agentVersion(
-                                agentVersion
-                        )
-                        .flowPublicId(
-                                flowPublicId
-                        )
-                        .language(
-                                language
-                        )
-                        .build();
+        /*
+         * Start the initial conversation asynchronously.
+         *
+         * The WebSocket has already been registered by the
+         * Exotel handler before startStream() is invoked.
+         *
+         * Starting asynchronously prevents the Exotel START
+         * handler from being blocked while the initial TTS
+         * response is generated.
+         *
+         * The caller therefore does not need to say "hello"
+         * before the AI greeting is generated.
+         */
+        startInitialConversationAsync(
+                request.getCallId()
+        );
 
-        ConversationOrchestratorResponseDto
-                orchestratorResponse;
+        log.info(
+                "{} Voice stream initialized. " +
+                        "Initial conversation startup triggered immediately. " +
+                        "callId={}, streamId={}",
+                VoiceGatewayConstants.LOG_PREFIX,
+                request.getCallId(),
+                request.getStreamId()
+        );
+
+        return VoiceGatewayResponseDto.builder()
+                .callId(
+                        request.getCallId()
+                )
+                .streamId(
+                        request.getStreamId()
+                )
+                .action(
+                        VoiceGatewayConstants.ACTION_LISTEN
+                )
+                .listen(true)
+                .build();
+    }
+
+    // =========================================================
+    // INITIAL CONVERSATION
+    // =========================================================
+
+    /**
+     * Starts the initial conversation asynchronously.
+     *
+     * <p>
+     * The method uses an atomic map operation to make sure
+     * concurrent START/MEDIA processing cannot start the same
+     * conversation more than once.
+     *
+     * @param callId application Call ID
+     */
+    private void startInitialConversationAsync(
+            String callId) {
+
+        if (callId == null
+                || callId.isBlank()) {
+
+            return;
+        }
+
+        /*
+         * Prevent duplicate conversation startup.
+         */
+        if (conversationStarted.putIfAbsent(
+                callId,
+                Boolean.TRUE
+        ) != null) {
+
+            log.debug(
+                    "{} Initial conversation already started or " +
+                            "being started. callId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId
+            );
+
+            return;
+        }
+
+        CompletableFuture.delayedExecutor(
+                500,
+                java.util.concurrent.TimeUnit.MILLISECONDS
+        ).execute(
+                () -> startInitialConversation(
+                        callId
+                )
+        );
+    }
+
+    /**
+     * Starts the initial conversation.
+     *
+     * @param callId application Call ID
+     */
+    private void startInitialConversation(
+            String callId) {
 
         try {
 
-            orchestratorResponse =
-                    conversationOrchestratorService.start(
-                            conversationRequest
+            CallSessionResponseDto callSession =
+                    callContextService.resolveCallSession(
+                            callId
                     );
+
+            if (callSession == null) {
+
+                conversationStarted.remove(
+                        callId
+                );
+
+                throw new IllegalStateException(
+                        VoiceGatewayMessages.RUNTIME_STATE_UNAVAILABLE
+                );
+            }
+
+            validateRuntimeContext(
+                    callSession
+            );
+
+            StartConversationRequestDto request =
+                    StartConversationRequestDto.builder()
+                            .callId(
+                                    callId
+                            )
+                            .tenantId(
+                                    callSession.getTenantId()
+                            )
+                            .agentId(
+                                    callSession.getAgentId()
+                            )
+                            .agentVersion(
+                                    callSession.getAgentVersion()
+                            )
+                            .flowPublicId(
+                                    callSession.getFlowPublicId()
+                            )
+                            .language(
+                                    callSession.getLanguage()
+                            )
+                            .build();
+
+            log.info(
+                    "{} Starting initial conversation immediately. " +
+                            "callId={}, flowPublicId={}, language={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId,
+                    callSession.getFlowPublicId(),
+                    callSession.getLanguage()
+            );
+
+            conversationOrchestratorService.start(
+                    request
+            );
+
+            log.info(
+                    "{} Initial conversation started successfully. " +
+                            "callId={}",
+                    VoiceGatewayConstants.LOG_PREFIX,
+                    callId
+            );
 
         } catch (Exception exception) {
 
+            /*
+             * Allow a retry only if the conversation could not
+             * actually be started.
+             */
+            conversationStarted.remove(
+                    callId
+            );
+
             log.error(
-                    "{} Conversation initialization failed. " +
-                            "callId={}, flowPublicId={}",
+                    "{} Failed to start initial conversation. " +
+                            "callId={}",
                     VoiceGatewayConstants.LOG_PREFIX,
-                    request.getCallId(),
-                    flowPublicId,
+                    callId,
                     exception
             );
-
-            stopRuntimeResources(
-                    request.getCallId()
-            );
-
-            throw exception;
         }
-
-        log.info(
-                "{} Voice conversation initialized. " +
-                        "callId={}, tenantId={}, agentId={}, " +
-                        "flowPublicId={}",
-                VoiceGatewayConstants.LOG_PREFIX,
-                request.getCallId(),
-                tenantId,
-                agentId,
-                flowPublicId
-        );
-
-        return buildResponse(
-                request.getCallId(),
-                request.getStreamId(),
-                orchestratorResponse
-        );
     }
 
     // =========================================================
@@ -358,6 +542,12 @@ public class VoiceGatewayServiceImpl
     /**
      * Processes an incoming media packet.
      *
+     * <p>
+     * The initial conversation is no longer started here.
+     * It is started during the Exotel START event. MEDIA packets
+     * are therefore responsible only for forwarding caller audio
+     * to the streaming STT runtime.
+     *
      * @param request Voice Gateway media request
      * @return Voice Gateway response
      */
@@ -459,9 +649,15 @@ public class VoiceGatewayServiceImpl
         );
 
         return VoiceGatewayResponseDto.builder()
-                .callId(request.getCallId())
-                .streamId(request.getStreamId())
-                .action(VoiceGatewayConstants.ACTION_LISTEN)
+                .callId(
+                        request.getCallId()
+                )
+                .streamId(
+                        request.getStreamId()
+                )
+                .action(
+                        VoiceGatewayConstants.ACTION_LISTEN
+                )
                 .listen(true)
                 .build();
     }
@@ -499,9 +695,15 @@ public class VoiceGatewayServiceImpl
         );
 
         return VoiceGatewayResponseDto.builder()
-                .callId(request.getCallId())
-                .streamId(request.getStreamId())
-                .action(VoiceGatewayConstants.ACTION_END)
+                .callId(
+                        request.getCallId()
+                )
+                .streamId(
+                        request.getStreamId()
+                )
+                .action(
+                        VoiceGatewayConstants.ACTION_END
+                )
                 .endCall(true)
                 .build();
     }
@@ -515,6 +717,10 @@ public class VoiceGatewayServiceImpl
             String callId) {
 
         pendingBargeIns.remove(
+                callId
+        );
+
+        conversationStarted.remove(
                 callId
         );
 
@@ -1016,7 +1222,6 @@ public class VoiceGatewayServiceImpl
      * VAD speech-start events are treated only as possible
      * caller speech. TTS interruption happens after STT
      * provides actual transcript content.
-     * </p>
      *
      * @param callId application call identifier
      * @param streamId provider stream identifier
@@ -1031,12 +1236,6 @@ public class VoiceGatewayServiceImpl
 
             /**
              * Handles partial STT transcription.
-             *
-             * <p>
-             * A partial transcript confirms that the audio
-             * detected by VAD contains speech recognized by
-             * the STT engine. Only then is TTS interrupted.
-             * </p>
              *
              * @param partialCallId application call identifier
              * @param transcript partial transcript
@@ -1137,8 +1336,8 @@ public class VoiceGatewayServiceImpl
              * Determines whether a partial transcript contains enough
              * meaningful speech to be considered a barge-in.
              *
-             * @param transcript partial STT transcript
-             * @return {@code true} when the transcript is meaningful
+             * @param transcript partial transcript
+             * @return true when transcript is meaningful
              */
             private boolean isMeaningfulBargeInTranscript(
                     String transcript) {
@@ -1152,39 +1351,20 @@ public class VoiceGatewayServiceImpl
                 String normalizedTranscript =
                         transcript.trim();
 
-                /*
-                 * Ignore extremely short STT fragments.
-                 */
                 if (normalizedTranscript.length() < 3) {
+
                     return false;
                 }
 
                 String[] words =
                         normalizedTranscript.split("\\s+");
 
-                /*
-                 * Accept either a multi-word phrase or a sufficiently
-                 * long single recognized word.
-                 */
                 return words.length >= 2
                         || normalizedTranscript.length() >= 8;
             }
 
             /**
              * Handles final STT transcription.
-             *
-             * @param finalCallId application call identifier
-             * @param transcript final transcript
-             */
-            /**
-             * Handles final STT transcription.
-             *
-             * <p>
-             * The detected language returned by the STT provider is
-             * propagated to the conversation Flow so that subsequent
-             * AI and TTS nodes can respond in the customer's current
-             * language.
-             * </p>
              *
              * @param response final STT response
              */
@@ -1193,7 +1373,6 @@ public class VoiceGatewayServiceImpl
                     SttTranscriptionResponse response) {
 
                 if (response == null) {
-
                     return;
                 }
 
@@ -1210,8 +1389,39 @@ public class VoiceGatewayServiceImpl
                         finalCallId
                 );
 
-                if (transcript == null
+                if (finalCallId == null
+                        || finalCallId.isBlank()
+                        || transcript == null
                         || transcript.isBlank()) {
+
+                    return;
+                }
+
+                String normalizedTranscript =
+                        normalizeTranscript(
+                                transcript
+                        );
+
+                if (normalizedTranscript.isBlank()) {
+                    return;
+                }
+
+                /*
+                 * Prevent the same final STT transcript from being
+                 * processed repeatedly within a short period.
+                 */
+                if (isDuplicateFinalTranscript(
+                        finalCallId,
+                        normalizedTranscript
+                )) {
+
+                    log.info(
+                            "{} Ignoring duplicate final STT transcript. " +
+                                    "callId={}, transcript={}",
+                            VoiceGatewayConstants.LOG_PREFIX,
+                            finalCallId,
+                            normalizedTranscript
+                    );
 
                     return;
                 }
@@ -1226,12 +1436,7 @@ public class VoiceGatewayServiceImpl
                 );
 
                 /*
-                 * Persist the caller's final transcript before passing
-                 * it to the conversation orchestrator.
-                 *
-                 * This is required for realtime streaming calls because
-                 * the streaming STT callback does not go through
-                 * RuntimePersistenceService.saveStt().
+                 * Persist only after duplicate validation.
                  */
                 try {
 
@@ -1245,10 +1450,6 @@ public class VoiceGatewayServiceImpl
 
                 } catch (Exception exception) {
 
-                    /*
-                     * Transcript persistence must not stop the live
-                     * conversation from continuing.
-                     */
                     log.error(
                             "{} Failed to persist final STT transcript. " +
                                     "callId={}",
@@ -1259,7 +1460,9 @@ public class VoiceGatewayServiceImpl
                 }
 
                 /*
-                 * Continue normal conversation processing.
+                 * IMPORTANT:
+                 * processFinalTranscript() in your existing backend
+                 * requires FOUR parameters.
                  */
                 processFinalTranscript(
                         finalCallId,
@@ -1271,12 +1474,6 @@ public class VoiceGatewayServiceImpl
 
             /**
              * Handles caller speech start.
-             *
-             * <p>
-             * VAD speech-start is intentionally not treated
-             * as a confirmed barge-in. Background noise,
-             * music, echo, or another speaker can trigger VAD.
-             * </p>
              *
              * @param speechCallId application call identifier
              */
@@ -1306,11 +1503,6 @@ public class VoiceGatewayServiceImpl
             public void onSpeechEnd(
                     String speechCallId) {
 
-                /*
-                 * If no transcript was produced while the speech
-                 * segment was active, consider it noise/background
-                 * audio and discard the pending barge-in.
-                 */
                 pendingBargeIns.remove(
                         speechCallId
                 );
@@ -1408,5 +1600,106 @@ public class VoiceGatewayServiceImpl
                     exception
             );
         }
+    }
+
+    private boolean isDuplicateTranscript(String callId, String transcript) {
+
+        String normalized = normalizeTranscript(transcript);
+
+        String previous = lastProcessedTranscript.get(callId);
+        Long previousTime = lastTranscriptTime.get(callId);
+
+        long now = System.currentTimeMillis();
+
+        if (previous != null
+                && previous.equals(normalized)
+                && previousTime != null
+                && (now - previousTime) < 5000) {
+
+            return true;
+        }
+
+        lastProcessedTranscript.put(callId, normalized);
+        lastTranscriptTime.put(callId, now);
+
+        return false;
+    }
+
+    /**
+     * Normalizes transcript text for duplicate comparison.
+     *
+     * @param transcript transcript text
+     * @return normalized transcript
+     */
+    private String normalizeTranscript(
+            String transcript) {
+
+        if (transcript == null) {
+            return "";
+        }
+
+        return transcript
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll(
+                        "\\s+",
+                        " "
+                );
+    }
+
+    /**
+     * Checks whether the same final STT transcript was already
+     * processed recently for the same call.
+     *
+     * @param callId call identifier
+     * @param normalizedTranscript normalized transcript
+     * @return true when transcript is a recent duplicate
+     */
+    private boolean isDuplicateFinalTranscript(
+            String callId,
+            String normalizedTranscript) {
+
+        if (callId == null
+                || callId.isBlank()
+                || normalizedTranscript == null
+                || normalizedTranscript.isBlank()) {
+
+            return false;
+        }
+
+        long currentTime =
+                System.currentTimeMillis();
+
+        String previousTranscript =
+                lastProcessedTranscripts.get(
+                        callId
+                );
+
+        Long previousTime =
+                lastProcessedTranscriptTimes.get(
+                        callId
+                );
+
+        if (previousTranscript != null
+                && previousTranscript.equals(
+                normalizedTranscript
+        )
+                && previousTime != null
+                && currentTime - previousTime < 5000L) {
+
+            return true;
+        }
+
+        lastProcessedTranscripts.put(
+                callId,
+                normalizedTranscript
+        );
+
+        lastProcessedTranscriptTimes.put(
+                callId,
+                currentTime
+        );
+
+        return false;
     }
 }

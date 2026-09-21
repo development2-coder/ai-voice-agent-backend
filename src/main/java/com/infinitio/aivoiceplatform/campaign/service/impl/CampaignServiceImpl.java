@@ -22,6 +22,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.campaigncontact.repository.CampaignContactRepository;
+
+import java.util.List;
+
 /**
  * Service implementation for Campaign.
  *
@@ -174,44 +177,46 @@ public class CampaignServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CampaignResponse> getAll(
-            int page,
-            int size) {
+    public PageResponse<CampaignResponse> getAll() {
 
         log.info(
-                "Fetching Campaigns. Page : {}, Size : {}",
-                page,
-                size
+                "Fetching all Campaigns"
         );
 
-        Page<Campaign> result =
+        List<Campaign> campaigns =
                 campaignRepository.findByIsDeleted(
-                        0,
-                        PageRequest.of(page, size)
+                        0
                 );
+
+        List<CampaignResponse> content =
+                campaigns.stream()
+                        .map(
+                                campaign ->
+                                        buildCampaignResponse(
+                                                campaign,
+                                                campaignMapper.toResponse(
+                                                        campaign
+                                                )
+                                        )
+                        )
+                        .toList();
+
+        int totalElements =
+                content.size();
 
         return PageResponse
                 .<CampaignResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        campaign ->
-                                                buildCampaignResponse(
-                                                        campaign,
-                                                        campaignMapper.toResponse(
-                                                                campaign
-                                                        )
-                                                )
-                                )
-                                .toList()
+                .content(content)
+                .pageNumber(0)
+                .pageSize(totalElements)
+                .totalPages(
+                        totalElements == 0
+                                ? 0
+                                : 1
                 )
-                .pageNumber(result.getNumber())
-                .pageSize(result.getSize())
-                .totalPages(result.getTotalPages())
-                .totalElements(result.getTotalElements())
-                .first(result.isFirst())
-                .last(result.isLast())
+                .totalElements(totalElements)
+                .first(true)
+                .last(true)
                 .build();
     }
 
@@ -296,6 +301,39 @@ public class CampaignServiceImpl
 
         log.info(
                 "Campaign deactivated successfully. Public Id : {}",
+                publicId
+        );
+    }
+
+    @Override
+    public void complete(String publicId) {
+
+        log.info(
+                "Completing Campaign from scheduler. Public Id : {}",
+                publicId
+        );
+
+        Campaign campaign =
+                campaignValidator.validateAndGet(
+                        publicId
+                );
+
+        if (CampaignConstants.STATUS_COMPLETED.equalsIgnoreCase(
+                campaign.getStatus()
+        )) {
+            return;
+        }
+
+        campaign.setStatus(
+                CampaignConstants.STATUS_COMPLETED
+        );
+
+        campaign.setIsActive(0);
+
+        campaignRepository.save(campaign);
+
+        log.info(
+                "Campaign marked COMPLETED. Public Id : {}",
                 publicId
         );
     }

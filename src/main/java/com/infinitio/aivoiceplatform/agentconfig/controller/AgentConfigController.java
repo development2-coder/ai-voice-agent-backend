@@ -170,28 +170,14 @@ public class AgentConfigController {
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<AgentConfigResponse>>>
-    getAll(
-            @RequestParam(
-                    defaultValue = "0"
-            )
-            Integer page,
-
-            @RequestParam(
-                    defaultValue = "10"
-            )
-            Integer size) {
+    getAll() {
 
         log.info(
-                "REST Request : Get All Agent Configurations. Page : {}, Size : {}",
-                page,
-                size
+                "REST Request : Get All Agent Configurations"
         );
 
         PageResponse<AgentConfigResponse> response =
-                agentConfigService.getAll(
-                        page,
-                        size
-                );
+                agentConfigService.getAll();
 
         return ResponseBuilder.success(
                 response,

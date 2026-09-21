@@ -129,21 +129,14 @@ public class CampaignController {
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<CampaignResponse>>>
-    getAll(
-            @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+    getAll() {
 
         log.info(
-                "REST Request : Get All Campaigns. Page : {}, Size : {}",
-                page,
-                size
+                "REST Request : Get All Campaigns"
         );
 
         PageResponse<CampaignResponse> response =
-                campaignService.getAll(
-                        page,
-                        size
-                );
+                campaignService.getAll();
 
         return ResponseBuilder.success(
                 response,

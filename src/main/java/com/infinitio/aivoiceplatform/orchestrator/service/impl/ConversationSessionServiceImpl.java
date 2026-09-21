@@ -1449,6 +1449,31 @@ public class ConversationSessionServiceImpl
         );
 
         /*
+         * Expose commonly used contact fields at the root level
+         * so Flow Builder prompts can use simple variables such as:
+         *
+         * {{name}}
+         * {{phoneNumber}}
+         * {{externalReference}}
+         *
+         * Nested variables such as {{contact.name}} continue to work.
+         */
+        context.putIfAbsent(
+                "name",
+                campaignContact.getName()
+        );
+
+        context.putIfAbsent(
+                "phoneNumber",
+                campaignContact.getPhoneNumber()
+        );
+
+        context.putIfAbsent(
+                "externalReference",
+                campaignContact.getExternalReference()
+        );
+
+        /*
          * Root-level custom variables are supported for prompts
          * such as:
          *

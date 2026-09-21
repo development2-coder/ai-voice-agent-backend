@@ -1191,15 +1191,21 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         String callSid =
                 request.getProviderCallId();
 
-        List<String> activeLegSids =
-                getActiveLegSids(
+        log.info(
+                "Starting Exotel call hangup. callId={}",
+                callSid
+        );
+
+        List<String> legSids =
+                getCallLegSids(
                         callSid
                 );
 
-        if (activeLegSids.isEmpty()) {
+        if (legSids == null
+                || legSids.isEmpty()) {
 
-            log.info(
-                    "No active Exotel legs found for call. "
+            log.warn(
+                    "No Exotel call legs found. "
                             + "callId={}",
                     callSid
             );
@@ -1209,7 +1215,13 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
 
         int successfulHangups = 0;
 
-        for (String legSid : activeLegSids) {
+        for (String legSid : legSids) {
+
+            if (legSid == null
+                    || legSid.isBlank()) {
+
+                continue;
+            }
 
             try {
 
@@ -1219,6 +1231,13 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 );
 
                 successfulHangups++;
+
+                log.info(
+                        "Exotel call leg hangup successful. "
+                                + "callId={}, legId={}",
+                        callSid,
+                        legSid
+                );
 
             } catch (Exception exception) {
 
@@ -1235,16 +1254,16 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         if (successfulHangups == 0) {
 
             throw new IllegalStateException(
-                    "Unable to hang up any active Exotel call leg."
+                    "Unable to hang up any Exotel call leg."
             );
         }
 
         log.info(
                 "Exotel call hangup completed. "
-                        + "callId={}, activeLegs={}, "
+                        + "callId={}, totalLegs={}, "
                         + "successfulHangups={}",
                 callSid,
-                activeLegSids.size(),
+                legSids.size(),
                 successfulHangups
         );
     }
@@ -1823,14 +1842,13 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
             );
         }
 
-        if (exotelProperties.getActiveCallLegsPath() == null
+        if (exotelProperties.getCallLegsPath() == null
                 || exotelProperties
-                .getActiveCallLegsPath()
+                .getCallLegsPath()
                 .isBlank()) {
 
             throw new IllegalStateException(
-                    "Exotel active call legs path "
-                            + "is not configured."
+                    "Exotel call legs path is not configured."
             );
         }
 
@@ -1840,7 +1858,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 .isBlank()) {
 
             throw new IllegalStateException(
-                    "Exotel call leg path is not configured."
+                    "Exotel call leg action path is not configured."
             );
         }
     }
@@ -1852,12 +1870,194 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
      * @param callSid Exotel CallSid
      * @return active leg identifiers
      */
-    private List<String> getActiveLegSids(
+//    private List<String> getActiveLegSids(
+//            String callSid) {
+//
+//        String path =
+//                exotelProperties
+//                        .getActiveCallLegsPath()
+//                        .replace(
+//                                "{accountSid}",
+//                                exotelProperties.getAccountSid()
+//                        )
+//                        .replace(
+//                                "{callSid}",
+//                                callSid
+//                        );
+//
+//        String requestUrl =
+//                exotelProperties.getBaseUrl() + path;
+//
+//        log.info(
+//                "Fetching active Exotel call legs. "
+//                        + "callId={}",
+//                callSid
+//        );
+//
+//        try {
+//
+//            String response =
+//                    exotelRestClient
+//                            .get()
+//                            .uri(requestUrl)
+//                            .headers(
+//                                    headers ->
+//                                            headers.setBasicAuth(
+//                                                    exotelProperties.getApiKey(),
+//                                                    exotelProperties.getApiToken()
+//                                            )
+//                            )
+//                            .retrieve()
+//                            .body(String.class);
+//
+//            return parseActiveLegSids(
+//                    response
+//            );
+//
+//        } catch (RestClientResponseException exception) {
+//
+//            String exotelError =
+//                    parseExotelErrorResponse(
+//                            exception.getResponseBodyAsString()
+//                    );
+//
+//            log.error(
+//                    "Unable to retrieve active Exotel call legs. "
+//                            + "callId={}, httpStatus={}, error={}",
+//                    callSid,
+//                    exception.getStatusCode().value(),
+//                    exotelError
+//            );
+//
+//            throw new IllegalStateException(
+//                    "Unable to retrieve active Exotel call legs. "
+//                            + exotelError,
+//                    exception
+//            );
+//
+//        } catch (Exception exception) {
+//
+//            log.error(
+//                    "Unexpected error while retrieving active "
+//                            + "Exotel call legs. callId={}",
+//                    callSid,
+//                    exception
+//            );
+//
+//            throw new IllegalStateException(
+//                    "Unable to retrieve active Exotel call legs.",
+//                    exception
+//            );
+//        }
+//    }
+//
+//
+//    /**
+//     * Parses active leg identifiers from the Exotel response.
+//     *
+//     * @param response raw Exotel active-legs response
+//     * @return active leg identifiers
+//     */
+//    private List<String> parseActiveLegSids(
+//            String response) {
+//
+//        if (response == null
+//                || response.isBlank()) {
+//
+//            return List.of();
+//        }
+//
+//        try {
+//
+//            JsonNode rootNode =
+//                    objectMapper.readTree(
+//                            response
+//                    );
+//
+//            JsonNode legsNode =
+//                    rootNode.path("Legs");
+//
+//            if (!legsNode.isArray()) {
+//
+//                /*
+//                 * Support lowercase response variants as well.
+//                 */
+//                legsNode =
+//                        rootNode.path("legs");
+//            }
+//
+//            if (!legsNode.isArray()) {
+//
+//                log.warn(
+//                        "Exotel active-legs response does not "
+//                                + "contain a Legs array."
+//                );
+//
+//                return List.of();
+//            }
+//
+//            List<String> legSids =
+//                    new ArrayList<>();
+//
+//            for (JsonNode legNode : legsNode) {
+//
+//                String legSid =
+//                        legNode
+//                                .path("Sid")
+//                                .asText(null);
+//
+//                if (legSid == null
+//                        || legSid.isBlank()) {
+//
+//                    legSid =
+//                            legNode
+//                                    .path("sid")
+//                                    .asText(null);
+//                }
+//
+//                if (legSid != null
+//                        && !legSid.isBlank()) {
+//
+//                    legSids.add(
+//                            legSid
+//                    );
+//                }
+//            }
+//
+//            return legSids;
+//
+//        } catch (Exception exception) {
+//
+//            log.error(
+//                    "Failed to parse Exotel active-legs response.",
+//                    exception
+//            );
+//
+//            throw new IllegalStateException(
+//                    "Unable to parse Exotel active call legs.",
+//                    exception
+//            );
+//        }
+//    }
+
+    /**
+     * Retrieves all leg identifiers for an Exotel call.
+     *
+     * <p>
+     * This method intentionally uses the regular Legs API instead
+     * of the ActiveLegs API because ActiveLegs may not be enabled
+     * for every Exotel account.
+     * </p>
+     *
+     * @param callSid Exotel CallSid
+     * @return list of Exotel leg SIDs
+     */
+    private List<String> getCallLegSids(
             String callSid) {
 
         String path =
                 exotelProperties
-                        .getActiveCallLegsPath()
+                        .getCallLegsPath()
                         .replace(
                                 "{accountSid}",
                                 exotelProperties.getAccountSid()
@@ -1871,8 +2071,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 exotelProperties.getBaseUrl() + path;
 
         log.info(
-                "Fetching active Exotel call legs. "
-                        + "callId={}",
+                "Fetching Exotel call legs. callId={}",
                 callSid
         );
 
@@ -1892,7 +2091,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                             .retrieve()
                             .body(String.class);
 
-            return parseActiveLegSids(
+            return parseCallLegSids(
                     response
             );
 
@@ -1904,7 +2103,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                     );
 
             log.error(
-                    "Unable to retrieve active Exotel call legs. "
+                    "Unable to retrieve Exotel call legs. "
                             + "callId={}, httpStatus={}, error={}",
                     callSid,
                     exception.getStatusCode().value(),
@@ -1912,7 +2111,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
             );
 
             throw new IllegalStateException(
-                    "Unable to retrieve active Exotel call legs. "
+                    "Unable to retrieve Exotel call legs. "
                             + exotelError,
                     exception
             );
@@ -1920,27 +2119,26 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         } catch (Exception exception) {
 
             log.error(
-                    "Unexpected error while retrieving active "
+                    "Unexpected error while retrieving "
                             + "Exotel call legs. callId={}",
                     callSid,
                     exception
             );
 
             throw new IllegalStateException(
-                    "Unable to retrieve active Exotel call legs.",
+                    "Unable to retrieve Exotel call legs.",
                     exception
             );
         }
     }
 
-
     /**
-     * Parses active leg identifiers from the Exotel response.
+     * Parses leg identifiers from the Exotel Legs API response.
      *
-     * @param response raw Exotel active-legs response
-     * @return active leg identifiers
+     * @param response raw Exotel legs response
+     * @return list of leg SIDs
      */
-    private List<String> parseActiveLegSids(
+    private List<String> parseCallLegSids(
             String response) {
 
         if (response == null
@@ -1957,22 +2155,35 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                     );
 
             JsonNode legsNode =
-                    rootNode.path("Legs");
+                    rootNode.path("legs");
+
+            if (!legsNode.isArray()) {
+
+                legsNode =
+                        rootNode.path("Legs");
+            }
 
             if (!legsNode.isArray()) {
 
                 /*
-                 * Support lowercase response variants as well.
+                 * Some responses may wrap the legs
+                 * inside another object.
                  */
-                legsNode =
-                        rootNode.path("legs");
+                JsonNode nestedNode =
+                        rootNode.path("response");
+
+                if (nestedNode.isObject()) {
+
+                    legsNode =
+                            nestedNode.path("legs");
+                }
             }
 
             if (!legsNode.isArray()) {
 
                 log.warn(
-                        "Exotel active-legs response does not "
-                                + "contain a Legs array."
+                        "Exotel legs response does not "
+                                + "contain a legs array."
                 );
 
                 return List.of();
@@ -1984,18 +2195,23 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
             for (JsonNode legNode : legsNode) {
 
                 String legSid =
-                        legNode
-                                .path("Sid")
-                                .asText(null);
+                        firstNonBlank(
+                                legNode
+                                        .path("sid")
+                                        .asText(null),
 
-                if (legSid == null
-                        || legSid.isBlank()) {
+                                legNode
+                                        .path("Sid")
+                                        .asText(null),
 
-                    legSid =
-                            legNode
-                                    .path("sid")
-                                    .asText(null);
-                }
+                                legNode
+                                        .path("legsid")
+                                        .asText(null),
+
+                                legNode
+                                        .path("LegSid")
+                                        .asText(null)
+                        );
 
                 if (legSid != null
                         && !legSid.isBlank()) {
@@ -2006,17 +2222,23 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 }
             }
 
+            log.info(
+                    "Exotel call legs retrieved. "
+                            + "totalLegs={}",
+                    legSids.size()
+            );
+
             return legSids;
 
         } catch (Exception exception) {
 
             log.error(
-                    "Failed to parse Exotel active-legs response.",
+                    "Failed to parse Exotel call legs response.",
                     exception
             );
 
             throw new IllegalStateException(
-                    "Unable to parse Exotel active call legs.",
+                    "Unable to parse Exotel call legs.",
                     exception
             );
         }

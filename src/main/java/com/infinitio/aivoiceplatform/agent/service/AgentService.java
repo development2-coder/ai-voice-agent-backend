@@ -39,10 +39,7 @@ public interface AgentService {
             String publicId
     );
 
-    PageResponse<AgentResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<AgentResponse> getAll();
 
     void delete(
             String publicId

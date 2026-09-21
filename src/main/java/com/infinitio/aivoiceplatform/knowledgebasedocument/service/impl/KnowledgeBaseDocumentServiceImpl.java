@@ -18,6 +18,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * Service implementation for Knowledge Base Document.
  *
@@ -140,37 +142,38 @@ public class KnowledgeBaseDocumentServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<KnowledgeBaseDocumentResponse> getAll(
-            int page,
-            int size) {
+    public PageResponse<KnowledgeBaseDocumentResponse> getAll() {
 
         log.info(
-                "Fetching Knowledge Base Documents. Page : {}, Size : {}",
-                page,
-                size
+                "Fetching all Knowledge Base Documents"
         );
 
-        Page<KnowledgeBaseDocument> result =
-                knowledgeBaseDocumentRepository.findAll(
-                        PageRequest.of(page, size)
-                );
+        List<KnowledgeBaseDocument> documents =
+                knowledgeBaseDocumentRepository.findAll();
+
+        List<KnowledgeBaseDocumentResponse> content =
+                documents.stream()
+                        .map(
+                                knowledgeBaseDocumentMapper::toResponse
+                        )
+                        .toList();
+
+        int totalElements =
+                content.size();
 
         return PageResponse
                 .<KnowledgeBaseDocumentResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        knowledgeBaseDocumentMapper::toResponse
-                                )
-                                .toList()
+                .content(content)
+                .pageNumber(0)
+                .pageSize(totalElements)
+                .totalPages(
+                        totalElements == 0
+                                ? 0
+                                : 1
                 )
-                .pageNumber(result.getNumber())
-                .pageSize(result.getSize())
-                .totalPages(result.getTotalPages())
-                .totalElements(result.getTotalElements())
-                .first(result.isFirst())
-                .last(result.isLast())
+                .totalElements(totalElements)
+                .first(true)
+                .last(true)
                 .build();
     }
 

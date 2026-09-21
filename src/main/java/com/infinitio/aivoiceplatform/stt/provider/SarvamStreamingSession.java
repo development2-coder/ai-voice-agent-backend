@@ -3,14 +3,15 @@ package com.infinitio.aivoiceplatform.stt.provider;
 import java.net.http.WebSocket;
 import java.util.Base64;
 import java.util.Objects;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
-import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infinitio.aivoiceplatform.stt.constant.SarvamStreamingConstants;
 import com.infinitio.aivoiceplatform.stt.constant.SttMessages;
+import com.infinitio.aivoiceplatform.stt.dto.runtime.SttTranscriptionResponse;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,13 +22,6 @@ import lombok.extern.slf4j.Slf4j;
  * One instance is created for each active telephone call.
  * Audio chunks are forwarded to Sarvam and transcription
  * events are delivered through the streaming listener.
- * </p>
- *
- * <p>
- * Runtime provider configuration is handled by
- * {@link SarvamSttProvider}. This class is responsible only
- * for the lifecycle and communication of an established
- * provider-side WebSocket session.
  * </p>
  *
  * @author Infinitio Digital
@@ -64,7 +58,7 @@ public class SarvamStreamingSession
     private final ObjectMapper objectMapper;
 
     /**
-     * Incoming fragmented text message buffer.
+     * Incoming fragmented provider message buffer.
      */
     private final StringBuilder messageBuffer =
             new StringBuilder();
@@ -75,23 +69,40 @@ public class SarvamStreamingSession
     private volatile WebSocket webSocket;
 
     /**
-     * Indicates whether the session is open.
+     * Indicates that the WebSocket connection is open.
      */
     private volatile boolean open;
 
     /**
-     * Indicates whether close processing has already started.
+     * Indicates that the application is intentionally closing
+     * the session.
      */
     private volatile boolean closing;
 
     /**
-     * Indicates that the provider WebSocket connection failed
-     * during initialization.
+     * Indicates that the provider connection failed.
      */
     private volatile boolean connectionFailed;
 
     /**
-     * Callback invoked when the Sarvam WebSocket becomes ready.
+     * Indicates that Sarvam has sent session.begin.
+     *
+     * <p>
+     * This is deliberately different from the WebSocket
+     * handshake state. Audio must not be sent before the
+     * Sarvam realtime session is initialized.
+     * </p>
+     */
+    private volatile boolean providerSessionReady;
+
+    /**
+     * Prevents duplicate error callbacks when both WebSocket
+     * error and close callbacks are received.
+     */
+    private volatile boolean failureNotified;
+
+    /**
+     * Runtime callback invoked when the provider session is ready.
      */
     private volatile Runnable readyListener;
 
@@ -152,17 +163,14 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Handles successful WebSocket connection establishment.
+     * Handles successful WebSocket handshake.
      *
-     * @param webSocket provider WebSocket
-     */
-    /**
-     * Handles successful provider WebSocket connection establishment.
-     *
-     * @param webSocket provider WebSocket
-     */
-    /**
-     * Handles successful provider WebSocket connection establishment.
+     * <p>
+     * IMPORTANT:
+     * The WebSocket handshake does not mean that the Sarvam
+     * realtime STT session is ready. The runtime waits for the
+     * provider's session.begin event before forwarding audio.
+     * </p>
      *
      * @param webSocket provider WebSocket
      */
@@ -182,6 +190,12 @@ public class SarvamStreamingSession
         this.connectionFailed =
                 false;
 
+        this.providerSessionReady =
+                false;
+
+        this.failureNotified =
+                false;
+
         log.info(
                 "Sarvam realtime STT WebSocket connected. " +
                         "callId={}, language={}, sampleRate={}",
@@ -190,16 +204,20 @@ public class SarvamStreamingSession
                 sampleRate
         );
 
+        /*
+         * Request the next provider frame.
+         */
         webSocket.request(1);
 
         /*
-         * Notify the runtime that audio can now be forwarded.
+         * DO NOT call onReady() here.
          *
-         * The STT runtime uses this callback to flush audio
-         * packets that arrived while the Sarvam connection
-         * was being established.
+         * Sarvam still has to send:
+         *
+         *     session.begin
+         *
+         * Only after that event do we flush buffered audio.
          */
-        onReady();
     }
 
     /**
@@ -207,7 +225,7 @@ public class SarvamStreamingSession
      *
      * @param webSocket provider WebSocket
      * @param data received message fragment
-     * @param last indicates whether this is the final fragment
+     * @param last indicates final fragment
      * @return completion stage
      */
     @Override
@@ -250,11 +268,6 @@ public class SarvamStreamingSession
     /**
      * Marks the provider connection as failed.
      *
-     * <p>
-     * This method is called by the provider connection future when
-     * the WebSocket handshake cannot be established.
-     * </p>
-     *
      * @param error provider connection error
      */
     public void markConnectionFailure(
@@ -266,14 +279,17 @@ public class SarvamStreamingSession
         this.open =
                 false;
 
+        this.providerSessionReady =
+                false;
+
         log.error(
-                "Sarvam realtime STT connection failed. callId={}",
+                "Sarvam realtime STT connection failed. " +
+                        "callId={}",
                 callId,
                 error
         );
 
-        listener.onError(
-                callId,
+        notifyFailure(
                 error
         );
     }
@@ -295,16 +311,46 @@ public class SarvamStreamingSession
         open =
                 false;
 
-        closing =
-                true;
+        providerSessionReady =
+                false;
 
-        log.info(
-                "Sarvam realtime STT WebSocket closed. " +
-                        "callId={}, statusCode={}, reason={}",
-                callId,
-                statusCode,
-                reason
-        );
+        if (closing) {
+            log.info(
+                    "Sarvam realtime STT WebSocket closed normally. " +
+                            "callId={}, statusCode={}, reason={}",
+                    callId,
+                    statusCode,
+                    reason
+            );
+        } else {
+            log.error(
+                    "Sarvam realtime STT WebSocket CLOSED unexpectedly. " +
+                            "callId={}, statusCode={}, reason={}",
+                    callId,
+                    statusCode,
+                    reason
+            );
+        }
+
+        /*
+         * Do not treat an application-requested close as a failure.
+         */
+        if (!closing
+                && !connectionFailed) {
+
+            connectionFailed =
+                    true;
+
+            notifyFailure(
+                    new IllegalStateException(
+                            "Sarvam STT WebSocket closed. " +
+                                    "statusCode=" +
+                                    statusCode +
+                                    ", reason=" +
+                                    reason
+                    )
+            );
+        }
 
         return null;
     }
@@ -323,42 +369,26 @@ public class SarvamStreamingSession
         open =
                 false;
 
+        providerSessionReady =
+                false;
+
+        connectionFailed =
+                true;
+
         log.error(
-                "Sarvam realtime STT WebSocket error. callId={}",
+                "Sarvam realtime STT WebSocket ERROR. " +
+                        "callId={}",
                 callId,
                 error
         );
 
-        listener.onError(
-                callId,
+        notifyFailure(
                 error
         );
     }
 
     /**
      * Sends an audio chunk to Sarvam.
-     *
-     * <p>
-     * The raw audio bytes are Base64 encoded and wrapped
-     * inside the Sarvam realtime {@code audio_input} event.
-     * </p>
-     *
-     * @param audio audio bytes
-     */
-    /**
-     * Sends an audio chunk to Sarvam.
-     *
-     * <p>
-     * The provider WebSocket must be open before audio can be
-     * transmitted. Runtime-level buffering prevents normal Exotel
-     * startup races from reaching this method, but this validation
-     * remains as a final provider-level safety check.
-     * </p>
-     *
-     * @param audio audio bytes
-     */
-    /**
-     * Sends an audio chunk to Sarvam realtime STT.
      *
      * @param audio audio bytes
      */
@@ -382,6 +412,12 @@ public class SarvamStreamingSession
         WebSocket currentSocket =
                 webSocket;
 
+        /*
+         * isOpen() now means both:
+         *
+         * 1. WebSocket is connected
+         * 2. Sarvam session.begin was received
+         */
         if (!isOpen()
                 || currentSocket == null) {
 
@@ -417,11 +453,24 @@ public class SarvamStreamingSession
 
         } catch (Exception exception) {
 
+            open =
+                    false;
+
+            providerSessionReady =
+                    false;
+
+            connectionFailed =
+                    true;
+
             log.error(
                     "Unable to send audio to Sarvam realtime STT. " +
                             "callId={}, audioSizeBytes={}",
                     callId,
                     audio.length,
+                    exception
+            );
+
+            notifyFailure(
                     exception
             );
 
@@ -436,9 +485,8 @@ public class SarvamStreamingSession
      * Signals a turn boundary.
      *
      * <p>
-     * When Sarvam VAD endpointing is configured, the provider
-     * detects speech boundaries automatically. Therefore no
-     * explicit turn-end message is sent here.
+     * Sarvam VAD handles turn boundaries when endpointing is
+     * configured as VAD.
      * </p>
      */
     @Override
@@ -448,7 +496,7 @@ public class SarvamStreamingSession
 
             log.debug(
                     "Ignoring STT turn boundary because session " +
-                            "is not open. callId={}",
+                            "is not ready. callId={}",
                     callId
             );
 
@@ -466,17 +514,6 @@ public class SarvamStreamingSession
     /**
      * Closes the provider WebSocket.
      */
-    /**
-     * Closes the provider WebSocket after allowing Sarvam enough time
-     * to emit the final transcript generated from audio that was already
-     * received before the call ended.
-     *
-     * <p>
-     * The end event is sent first. The provider WebSocket is intentionally
-     * not closed immediately because Sarvam may still have a final
-     * transcript event pending for the last caller utterance.
-     * </p>
-     */
     @Override
     public synchronized void close() {
 
@@ -488,13 +525,16 @@ public class SarvamStreamingSession
         closing =
                 true;
 
+        open =
+                false;
+
+        providerSessionReady =
+                false;
+
         WebSocket currentSocket =
                 webSocket;
 
         if (currentSocket == null) {
-
-            open =
-                    false;
 
             log.debug(
                     "Sarvam STT WebSocket already unavailable. " +
@@ -507,11 +547,6 @@ public class SarvamStreamingSession
 
         try {
 
-            /*
-             * Keep the session logically available while Sarvam
-             * processes the end event and emits any pending final
-             * transcript.
-             */
             currentSocket.sendText(
                     buildEndPayload(),
                     true
@@ -524,16 +559,6 @@ public class SarvamStreamingSession
                     callId
             );
 
-            /*
-             * Do not immediately send WebSocket close here.
-             *
-             * Sarvam may need a short amount of time to emit the
-             * final transcript for audio received immediately before
-             * the call ended.
-             *
-             * The WebSocket will be closed asynchronously after the
-             * final-transcript grace period.
-             */
             CompletableFuture
                     .delayedExecutor(
                             1500,
@@ -547,12 +572,9 @@ public class SarvamStreamingSession
 
         } catch (Exception exception) {
 
-            open =
-                    false;
-
             log.warn(
-                    "Error while sending Sarvam realtime STT end " +
-                            "event. callId={}",
+                    "Error while sending Sarvam realtime STT " +
+                            "end event. callId={}",
                     callId,
                     exception
             );
@@ -564,7 +586,7 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Closes the Sarvam provider WebSocket after the final-transcript
+     * Closes the provider WebSocket after the final-transcript
      * grace period.
      *
      * @param currentSocket provider WebSocket
@@ -573,9 +595,6 @@ public class SarvamStreamingSession
             WebSocket currentSocket) {
 
         if (currentSocket == null) {
-
-            open =
-                    false;
 
             return;
         }
@@ -601,32 +620,35 @@ public class SarvamStreamingSession
                     callId,
                     exception
             );
-
         } finally {
 
             open =
+                    false;
+
+            providerSessionReady =
                     false;
         }
     }
 
     /**
-     * Checks whether the provider WebSocket is open.
+     * Checks whether the provider session is ready for audio.
      *
-     * @return true when the WebSocket is open
+     * @return true when Sarvam session is fully ready
      */
     @Override
     public boolean isOpen() {
 
         return open
+                && providerSessionReady
                 && !closing
                 && !connectionFailed
                 && webSocket != null;
     }
 
     /**
-     * Builds the Sarvam audio input message.
+     * Builds Sarvam audio input payload.
      *
-     * @param encodedAudio Base64 encoded audio
+     * @param encodedAudio Base64 audio
      * @return JSON payload
      */
     private String buildAudioPayload(
@@ -659,7 +681,7 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Builds the provider session end message.
+     * Builds Sarvam end payload.
      *
      * @return JSON end payload
      */
@@ -691,7 +713,7 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Processes one complete provider message.
+     * Processes one complete Sarvam provider message.
      *
      * @param message provider JSON message
      */
@@ -730,11 +752,26 @@ public class SarvamStreamingSession
                 case SarvamStreamingConstants
                              .EVENT_SESSION_BEGIN -> {
 
+                    providerSessionReady =
+                            true;
+
+                    open =
+                            true;
+
+                    connectionFailed =
+                            false;
+
                     log.info(
-                            "Sarvam realtime STT session initialized. " +
-                                    "callId={}",
+                            "Sarvam realtime STT session initialized " +
+                                    "and ready for audio. callId={}",
                             callId
                     );
+
+                    /*
+                     * IMPORTANT:
+                     * Buffered Exotel audio is flushed only now.
+                     */
+                    onReady();
                 }
 
                 case SarvamStreamingConstants
@@ -771,11 +808,28 @@ public class SarvamStreamingSession
                     open =
                             false;
 
-                    log.info(
+                    providerSessionReady =
+                            false;
+
+                    log.warn(
                             "Sarvam realtime STT session ended. " +
-                                    "callId={}",
-                            callId
+                                    "callId={}, intentionalClose={}",
+                            callId,
+                            closing
                     );
+
+                    if (!closing
+                            && !connectionFailed) {
+
+                        connectionFailed =
+                                true;
+
+                        notifyFailure(
+                                new IllegalStateException(
+                                        "Sarvam realtime STT session ended."
+                                )
+                        );
+                    }
                 }
 
                 case SarvamStreamingConstants
@@ -806,8 +860,7 @@ public class SarvamStreamingSession
                     exception
             );
 
-            listener.onError(
-                    callId,
+            notifyFailure(
                     exception
             );
         }
@@ -815,12 +868,6 @@ public class SarvamStreamingSession
 
     /**
      * Processes a partial transcript.
-     *
-     * <p>
-     * Partial transcripts are forwarded immediately to the
-     * streaming listener so downstream runtime components can
-     * react to realtime transcription updates.
-     * </p>
      *
      * @param root provider event
      */
@@ -855,17 +902,6 @@ public class SarvamStreamingSession
      * Processes a final transcript.
      *
      * @param root provider event
-     */
-    /**
-     * Processes a final Sarvam transcript event.
-     *
-     * <p>
-     * The detected language is preserved together with the
-     * transcript so that downstream conversation and Flow
-     * execution can dynamically switch the response language.
-     * </p>
-     *
-     * @param root provider JSON response
      */
     private void processFinalTranscript(
             JsonNode root) {
@@ -924,13 +960,7 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Processes a Sarvam VAD speech-start event.
-     *
-     * <p>
-     * This event is important for barge-in handling. When the
-     * caller starts speaking while TTS audio is being played,
-     * the downstream Voice Gateway can interrupt the current
-     * TTS playback.
+     * Processes speech-start event.
      */
     private void processSpeechStart() {
 
@@ -945,7 +975,7 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Processes a Sarvam VAD speech-end event.
+     * Processes speech-end event.
      */
     private void processSpeechEnd() {
 
@@ -962,28 +992,71 @@ public class SarvamStreamingSession
     /**
      * Handles a provider error event.
      *
-     * @param message provider message
+     * @param message provider error message
      */
     private void handleProviderError(
             String message) {
 
+        open =
+                false;
+
+        providerSessionReady =
+                false;
+
+        connectionFailed =
+                true;
+
         log.error(
-                "Sarvam realtime STT provider error. " +
+                "Sarvam realtime STT PROVIDER ERROR. " +
                         "callId={}, message={}",
                 callId,
                 message
         );
 
-        listener.onError(
-                callId,
+        notifyFailure(
                 new IllegalStateException(
-                        message
+                        "Sarvam realtime STT provider error: "
+                                + message
                 )
         );
     }
 
     /**
-     * Extracts transcript text from a provider event.
+     * Notifies the runtime about a provider failure only once.
+     *
+     * @param error failure
+     */
+    private synchronized void notifyFailure(
+            Throwable error) {
+
+        if (failureNotified) {
+
+            return;
+        }
+
+        failureNotified =
+                true;
+
+        try {
+
+            listener.onError(
+                    callId,
+                    error
+            );
+
+        } catch (Exception listenerException) {
+
+            log.error(
+                    "STT failure listener threw an exception. " +
+                            "callId={}",
+                    callId,
+                    listenerException
+            );
+        }
+    }
+
+    /**
+     * Extracts transcript text.
      *
      * @param root provider JSON
      * @return transcript or null
@@ -993,8 +1066,7 @@ public class SarvamStreamingSession
 
         JsonNode textNode =
                 root.get(
-                        SarvamStreamingConstants
-                                .FIELD_TEXT
+                        SarvamStreamingConstants.FIELD_TEXT
                 );
 
         if (textNode != null
@@ -1005,8 +1077,7 @@ public class SarvamStreamingSession
 
         JsonNode transcriptNode =
                 root.get(
-                        SarvamStreamingConstants
-                                .FIELD_TRANSCRIPT
+                        SarvamStreamingConstants.FIELD_TRANSCRIPT
                 );
 
         if (transcriptNode != null
@@ -1019,30 +1090,17 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Extracts transcript language.
+     * Extracts detected language.
      *
      * @param root provider JSON
-     * @return language code
-     */
-    /**
-     * Extracts the detected transcript language.
-     *
-     * <p>
-     * Realtime Sarvam STT returns the detected language in the
-     * {@code language} field when automatic language detection is enabled.
-     * The connection language code is retained as a fallback.
-     * </p>
-     *
-     * @param root provider JSON
-     * @return detected language code
+     * @return detected language
      */
     private String extractLanguage(
             JsonNode root) {
 
         JsonNode languageNode =
                 root.get(
-                        SarvamStreamingConstants
-                                .FIELD_LANGUAGE
+                        SarvamStreamingConstants.FIELD_LANGUAGE
                 );
 
         if (languageNode != null
@@ -1054,8 +1112,7 @@ public class SarvamStreamingSession
 
         JsonNode languageCodeNode =
                 root.get(
-                        SarvamStreamingConstants
-                                .FIELD_LANGUAGE_CODE
+                        SarvamStreamingConstants.FIELD_LANGUAGE_CODE
                 );
 
         if (languageCodeNode != null
@@ -1072,27 +1129,35 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Notifies the runtime that the provider WebSocket is ready.
-     */
-    /**
-     * Notifies the runtime that the provider WebSocket is ready.
+     * Notifies runtime that the Sarvam provider session is ready.
      */
     @Override
     public void onReady() {
 
+        if (!providerSessionReady) {
+
+            log.debug(
+                    "Ignoring STT ready callback because provider " +
+                            "session is not initialized. callId={}",
+                    callId
+            );
+
+            return;
+        }
+
         log.info(
-                "Sarvam realtime STT session is ready. callId={}",
+                "Sarvam realtime STT session is READY for audio. " +
+                        "callId={}",
                 callId
         );
 
-        Runnable listener =
+        Runnable callback =
                 readyListener;
 
-        if (listener == null) {
+        if (callback == null) {
 
             log.debug(
-                    "No STT ready listener is registered. " +
-                            "callId={}",
+                    "No STT ready listener registered. callId={}",
                     callId
             );
 
@@ -1101,7 +1166,7 @@ public class SarvamStreamingSession
 
         try {
 
-            listener.run();
+            callback.run();
 
         } catch (Exception exception) {
 
@@ -1115,23 +1180,9 @@ public class SarvamStreamingSession
     }
 
     /**
-     * Registers a callback that is invoked when the Sarvam
-     * WebSocket becomes ready.
+     * Registers the ready callback.
      *
-     * @param readyListener callback to execute after connection
-     */
-    /**
-     * Registers a callback that is invoked when the Sarvam
-     * WebSocket becomes ready.
-     *
-     * <p>
-     * If the provider connection is already open when the listener
-     * is registered, the listener is invoked immediately. This
-     * prevents a startup race where the WebSocket becomes ready
-     * before the runtime registers its callback.
-     * </p>
-     *
-     * @param readyListener callback to execute after connection
+     * @param readyListener callback
      */
     @Override
     public void setReadyListener(
@@ -1142,24 +1193,19 @@ public class SarvamStreamingSession
 
         log.debug(
                 "Sarvam STT ready listener registered. " +
-                        "callId={}, providerSocketOpen={}",
+                        "callId={}, providerSocketOpen={}, " +
+                        "providerSessionReady={}",
                 callId,
-                open
+                open,
+                providerSessionReady
         );
 
         /*
-         * Handle the race where the provider WebSocket became ready
-         * before the runtime registered the listener.
+         * Handle the race where session.begin arrived before the
+         * runtime registered the listener.
          */
-        if (open
+        if (providerSessionReady
                 && readyListener != null) {
-
-            log.debug(
-                    "Sarvam STT WebSocket was already ready. " +
-                            "Executing ready listener immediately. " +
-                            "callId={}",
-                    callId
-            );
 
             try {
 

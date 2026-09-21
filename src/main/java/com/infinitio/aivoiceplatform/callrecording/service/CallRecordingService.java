@@ -74,27 +74,18 @@ public interface CallRecordingService {
     /**
      * Gets all Call Recordings.
      *
-     * @param page page number
-     * @param size page size
-     * @return paginated recordings
+     * @return all Call Recordings
      */
-    PageResponse<CallRecordingResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<CallRecordingResponse> getAll();
 
     /**
      * Gets recordings associated with a Call.
      *
      * @param callPublicId Call public identifier
-     * @param page page number
-     * @param size page size
-     * @return paginated recordings
+     * @return all recordings associated with the Call
      */
     PageResponse<CallRecordingResponse> getByCall(
-            String callPublicId,
-            int page,
-            int size
+            String callPublicId
     );
 
     /**

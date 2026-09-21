@@ -27,15 +27,10 @@ public interface CampaignContactService {
             String publicId
     );
 
-    PageResponse<CampaignContactResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<CampaignContactResponse> getAll();
 
     PageResponse<CampaignContactResponse> getByCampaign(
-            String campaignPublicId,
-            int page,
-            int size
+            String campaignPublicId
     );
 
     CampaignContactResponse getNextEligibleContact(

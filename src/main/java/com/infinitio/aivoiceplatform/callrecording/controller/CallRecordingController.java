@@ -106,21 +106,14 @@ public class CallRecordingController {
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<CallRecordingResponse>>>
-    getAll(
-            @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+    getAll() {
 
         log.info(
-                "REST Request : Get All Call Recordings. Page : {}, Size : {}",
-                page,
-                size
+                "REST Request : Get All Call Recordings"
         );
 
         PageResponse<CallRecordingResponse> response =
-                callRecordingService.getAll(
-                        page,
-                        size
-                );
+                callRecordingService.getAll();
 
         return ResponseBuilder.success(
                 response,
@@ -133,9 +126,7 @@ public class CallRecordingController {
     public ResponseEntity<
             ApiResponse<PageResponse<CallRecordingResponse>>>
     getByCall(
-            @PathVariable String callPublicId,
-            @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+            @PathVariable String callPublicId) {
 
         log.info(
                 "REST Request : Get Recordings By Call : {}",
@@ -144,9 +135,7 @@ public class CallRecordingController {
 
         PageResponse<CallRecordingResponse> response =
                 callRecordingService.getByCall(
-                        callPublicId,
-                        page,
-                        size
+                        callPublicId
                 );
 
         return ResponseBuilder.success(

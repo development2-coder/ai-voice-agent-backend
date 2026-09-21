@@ -25,10 +25,7 @@ public interface KnowledgeBaseService {
             String publicId
     );
 
-    PageResponse<KnowledgeBaseResponse> getAll(
-            int page,
-            int size
-    );
+    PageResponse<KnowledgeBaseResponse> getAll();
 
     void delete(String publicId);
 

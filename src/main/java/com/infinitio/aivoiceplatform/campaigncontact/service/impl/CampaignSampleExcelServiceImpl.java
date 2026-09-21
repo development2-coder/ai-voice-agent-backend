@@ -167,6 +167,29 @@ public class CampaignSampleExcelServiceImpl
      * @param variables variables extracted from Flow prompts
      * @return ordered unique headers
      */
+    /**
+     * Builds the Excel headers.
+     *
+     * <p>
+     * Standard Campaign Contact fields are always represented
+     * by their standard Excel columns:
+     *
+     * <ul>
+     *     <li>phone_number</li>
+     *     <li>name</li>
+     * </ul>
+     *
+     * Contact aliases such as contact.name and
+     * contact.mobile_number must not create duplicate columns.
+     *
+     * Runtime Flow variables such as customer_input and
+     * ai_response must also never become Excel columns.
+     *
+     * Only contact custom-data variables are added dynamically.
+     *
+     * @param variables variables extracted from Flow prompts
+     * @return ordered unique headers
+     */
     private List<String> buildHeaders(
             List<String> variables) {
 
@@ -174,11 +197,11 @@ public class CampaignSampleExcelServiceImpl
                 new LinkedHashSet<>();
 
         /*
-         * phone_number and name are mandatory standard Campaign Contact columns.
-         * Additional columns are generated from variables used by the Campaign Flow prompt.
+         * Mandatory standard Campaign Contact columns.
          */
         headers.add(
-                PHONE_NUMBER_HEADER
+                CampaignContactConstants
+                        .EXCEL_PHONE_NUMBER_HEADER
         );
 
         headers.add(
@@ -205,11 +228,26 @@ public class CampaignSampleExcelServiceImpl
                     variable.trim();
 
             /*
-             * phone_number must not be duplicated if someone
-             * accidentally uses it as a prompt variable.
+             * Standard contact fields are already
+             * represented by the mandatory Excel columns.
              */
-            if (PHONE_NUMBER_HEADER.equals(
+            if (isStandardContactVariable(
                     normalizedVariable
+            )) {
+
+                continue;
+            }
+
+            /*
+             * Only contact custom-data variables should
+             * dynamically become Excel columns.
+             *
+             * Example:
+             * contact.customData.emi_amount
+             * contact.customData.due_date
+             */
+            if (!normalizedVariable.startsWith(
+                    "contact.customData."
             )) {
 
                 continue;
@@ -223,6 +261,29 @@ public class CampaignSampleExcelServiceImpl
         return new ArrayList<>(
                 headers
         );
+    }
+
+    /**
+     * Determines whether a variable represents a
+     * standard Campaign Contact field.
+     *
+     * These fields already have dedicated Excel columns
+     * and therefore must not be generated again.
+     *
+     * @param variable variable extracted from Flow prompt
+     * @return true when the variable is a standard contact field
+     */
+    private boolean isStandardContactVariable(
+            String variable) {
+
+        return "phone_number".equals(variable)
+                || "phoneNumber".equals(variable)
+                || "contact.phoneNumber".equals(variable)
+                || "contact.phone_number".equals(variable)
+                || "contact.mobile_number".equals(variable)
+                || "mobile_number".equals(variable)
+                || "name".equals(variable)
+                || "contact.name".equals(variable);
     }
 
     /**
@@ -305,5 +366,20 @@ public class CampaignSampleExcelServiceImpl
 
             sheet.autoSizeColumn(index);
         }
+    }
+
+    /**
+     * Determines whether the variable belongs to
+     * Campaign Contact data.
+     *
+     * @param variable variable extracted from Flow prompt
+     * @return true when the variable is a contact variable
+     */
+    private boolean isContactVariable(
+            String variable) {
+
+        return variable.startsWith(
+                "contact."
+        );
     }
 }

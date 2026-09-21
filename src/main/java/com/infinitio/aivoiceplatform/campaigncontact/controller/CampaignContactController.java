@@ -180,17 +180,14 @@ public class CampaignContactController {
     public ResponseEntity<
             ApiResponse<
                     PageResponse<CampaignContactResponse>>>
-    getAll(
-            @RequestParam(defaultValue = "0")
-            Integer page,
-            @RequestParam(defaultValue = "10")
-            Integer size) {
+    getAll() {
+
+        log.info(
+                "REST Request : Get All Campaign Contacts"
+        );
 
         PageResponse<CampaignContactResponse> response =
-                campaignContactService.getAll(
-                        page,
-                        size
-                );
+                campaignContactService.getAll();
 
         return ResponseBuilder.success(
                 response,
@@ -206,17 +203,16 @@ public class CampaignContactController {
             ApiResponse<
                     PageResponse<CampaignContactResponse>>>
     getByCampaign(
-            @PathVariable String campaignPublicId,
-            @RequestParam(defaultValue = "0")
-            Integer page,
-            @RequestParam(defaultValue = "10")
-            Integer size) {
+            @PathVariable String campaignPublicId) {
+
+        log.info(
+                "REST Request : Get Contacts By Campaign : {}",
+                campaignPublicId
+        );
 
         PageResponse<CampaignContactResponse> response =
                 campaignContactService.getByCampaign(
-                        campaignPublicId,
-                        page,
-                        size
+                        campaignPublicId
                 );
 
         return ResponseBuilder.success(

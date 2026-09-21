@@ -98,18 +98,14 @@ public class KnowledgeBaseDocumentController {
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<KnowledgeBaseDocumentResponse>>>
-    getAll(
-            @RequestParam(defaultValue = "0") Integer page,
-            @RequestParam(defaultValue = "10") Integer size) {
+    getAll() {
 
         log.info(
-                "REST Request : Get All Knowledge Base Documents. Page : {}, Size : {}",
-                page,
-                size
+                "REST Request : Get All Knowledge Base Documents"
         );
 
         PageResponse<KnowledgeBaseDocumentResponse> response =
-                knowledgeBaseDocumentService.getAll(page, size);
+                knowledgeBaseDocumentService.getAll();
 
         return ResponseBuilder.success(
                 response,

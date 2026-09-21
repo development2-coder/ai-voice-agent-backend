@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -56,13 +57,17 @@ public interface CampaignContactRepository
      *
      * @param campaignId campaign database identifier
      * @param isDeleted deleted flag
-     * @param pageable pagination information
      * @return non-deleted campaign contacts
      */
     Page<CampaignContact> findByCampaignIdAndIsDeleted(
             Long campaignId,
             Integer isDeleted,
             Pageable pageable
+    );
+
+    List<CampaignContact> findByCampaignIdAndIsDeleted(
+            Long campaignId,
+            Integer isDeleted
     );
 
     /**
@@ -114,6 +119,20 @@ public interface CampaignContactRepository
      */
     long countByCampaignIdAndIsDeleted(
             Long campaignId,
+            Integer isDeleted
+    );
+
+    /**
+     * Counts contacts by campaign and contact status.
+     *
+     * @param campaignId campaign database identifier
+     * @param status contact status
+     * @param isDeleted deleted flag
+     * @return matching contact count
+     */
+    long countByCampaignIdAndStatusAndIsDeleted(
+            Long campaignId,
+            String status,
             Integer isDeleted
     );
 

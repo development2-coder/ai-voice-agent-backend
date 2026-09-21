@@ -275,48 +275,31 @@ public class AgentServiceImpl implements AgentService {
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<AgentResponse> getAll(
-            int page,
-            int size) {
+    public PageResponse<AgentResponse> getAll() {
 
-        log.info(
-                "Fetching Agents. Page : {}, Size : {}",
-                page,
-                size
-        );
+        log.info("Fetching all Agents");
 
-        Page<Agent> agentPage =
+        List<Agent> agents =
                 agentRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(page, size)
+                        NOT_DELETED
                 );
+
+        List<AgentResponse> content =
+                agents.stream()
+                        .map(agentMapper::toResponse)
+                        .toList();
 
         return PageResponse
                 .<AgentResponse>builder()
-                .content(
-                        agentPage.getContent()
-                                .stream()
-                                .map(agentMapper::toResponse)
-                                .toList()
-                )
-                .pageNumber(
-                        agentPage.getNumber()
-                )
-                .pageSize(
-                        agentPage.getSize()
-                )
-                .totalElements(
-                        agentPage.getTotalElements()
-                )
+                .content(content)
+                .pageNumber(0)
+                .pageSize(content.size())
+                .totalElements(content.size())
                 .totalPages(
-                        agentPage.getTotalPages()
+                        content.isEmpty() ? 0 : 1
                 )
-                .first(
-                        agentPage.isFirst()
-                )
-                .last(
-                        agentPage.isLast()
-                )
+                .first(true)
+                .last(true)
                 .build();
     }
 

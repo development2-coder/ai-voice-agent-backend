@@ -813,6 +813,20 @@ public class SttRuntimeServiceImpl
             return;
         }
 
+        String requestedLanguage =
+                language != null
+                        ? language.trim()
+                        : "";
+
+        if ("auto".equalsIgnoreCase(requestedLanguage)) {
+
+            log.debug(
+                    "STT automatic language detection enabled."
+            );
+
+            return;
+        }
+
         boolean supported =
                 supportedLanguages.stream()
                         .filter(
@@ -824,10 +838,9 @@ public class SttRuntimeServiceImpl
                         )
                         .anyMatch(
                                 configuredLanguage ->
-                                        configuredLanguage
-                                                .equalsIgnoreCase(
-                                                        language.trim()
-                                                )
+                                        configuredLanguage.equalsIgnoreCase(
+                                                requestedLanguage
+                                        )
                         );
 
         if (!supported) {

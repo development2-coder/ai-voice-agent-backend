@@ -41,6 +41,8 @@ public class CallSessionConversationServiceImpl
 
     private static final Integer NOT_DELETED = 0;
 
+
+
     private final CallSessionRepository
             callSessionRepository;
 
@@ -146,6 +148,58 @@ public class CallSessionConversationServiceImpl
 
         return callSessionMapper.toResponse(
                 savedCallSession
+        );
+    }
+
+    /**
+     * Reads the current conversation history for a call.
+     *
+     * <p>
+     * Conversation messages are stored in the configured conversation
+     * storage. The CallSession keeps the storage key required to read
+     * the messages.
+     * </p>
+     *
+     * @param callId public call identifier
+     * @return conversation messages in chronological order
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<CallConversationMessageDto> getConversationMessages(
+            String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            return java.util.List.of();
+        }
+
+        CallSession callSession =
+                callSessionRepository
+                        .findByCallIdAndIsDeleted(
+                                callId,
+                                NOT_DELETED
+                        )
+                        .orElse(null);
+
+        if (callSession == null) {
+
+            log.warn(
+                    "Call session not found while reading conversation history. " +
+                            "callId={}",
+                    callId
+            );
+
+            return java.util.List.of();
+        }
+
+        String storageKey =
+                callSession.getConversationStorageKey();
+
+        if (storageKey == null || storageKey.isBlank()) {
+            return java.util.List.of();
+        }
+
+        return conversationStorageService.readMessages(
+                storageKey
         );
     }
 

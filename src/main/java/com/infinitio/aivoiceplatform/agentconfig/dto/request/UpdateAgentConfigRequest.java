@@ -68,4 +68,10 @@ public class UpdateAgentConfigRequest {
 
     @Min(1)
     private Integer maxTokens;
+
+    @Pattern(
+            regexp = "ACTIVE|DRAFT",
+            message = "Status must be either ACTIVE or DRAFT."
+    )
+    private String status;
 }

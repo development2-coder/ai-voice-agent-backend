@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
+
 /**
  * Service implementation for Campaign Contact.
  *
@@ -175,29 +177,24 @@ public class CampaignContactServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CampaignContactResponse> getAll(
-            int page,
-            int size) {
+    public PageResponse<CampaignContactResponse> getAll() {
 
-        Page<CampaignContact> result =
-                campaignContactRepository.findAll(
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
+        log.info(
+                "Fetching all Campaign Contacts"
+        );
+
+        List<CampaignContact> contacts =
+                campaignContactRepository.findAll();
 
         return buildPageResponse(
-                result
+                contacts
         );
     }
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<CampaignContactResponse> getByCampaign(
-            String campaignPublicId,
-            int page,
-            int size) {
+            String campaignPublicId) {
 
         log.info(
                 "Fetching Campaign Contacts. Campaign : {}",
@@ -209,18 +206,15 @@ public class CampaignContactServiceImpl
                         campaignPublicId
                 );
 
-        Page<CampaignContact> result =
-                campaignContactRepository.findByCampaignIdAndIsDeleted(
-                        campaign.getId(),
-                        0,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
+        List<CampaignContact> contacts =
+                campaignContactRepository
+                        .findByCampaignIdAndIsDeleted(
+                                campaign.getId(),
+                                0
+                        );
 
         return buildPageResponse(
-                result
+                contacts
         );
     }
 
@@ -237,37 +231,32 @@ public class CampaignContactServiceImpl
 
     private PageResponse<CampaignContactResponse>
     buildPageResponse(
-            Page<CampaignContact> result) {
+            List<CampaignContact> contacts) {
+
+        List<CampaignContactResponse> content =
+                contacts.stream()
+                        .map(
+                                campaignContactMapper
+                                        ::toResponse
+                        )
+                        .toList();
+
+        int totalElements =
+                content.size();
 
         return PageResponse
                 .<CampaignContactResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        campaignContactMapper
-                                                ::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
+                .content(content)
+                .pageNumber(0)
+                .pageSize(totalElements)
                 .totalPages(
-                        result.getTotalPages()
+                        totalElements == 0
+                                ? 0
+                                : 1
                 )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
+                .totalElements(totalElements)
+                .first(true)
+                .last(true)
                 .build();
     }
 

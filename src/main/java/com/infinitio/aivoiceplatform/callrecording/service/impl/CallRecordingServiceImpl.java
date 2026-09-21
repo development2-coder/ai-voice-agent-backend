@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.core.io.Resource;
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Service implementation for Call Recording.
@@ -486,20 +487,25 @@ public class CallRecordingServiceImpl
      */
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CallRecordingResponse> getAll(
-            int page,
-            int size) {
+    public PageResponse<CallRecordingResponse> getAll() {
 
-        Page<CallRecording> result =
-                callRecordingRepository.findAll(
-                        PageRequest.of(
-                                page,
-                                size
+        log.info(
+                "Fetching all Call Recordings"
+        );
+
+        List<CallRecording> recordings =
+                callRecordingRepository.findAll();
+
+        List<CallRecordingResponse> content =
+                recordings.stream()
+                        .map(
+                                callRecordingMapper
+                                        ::toResponse
                         )
-                );
+                        .toList();
 
         return buildPageResponse(
-                result
+                content
         );
     }
 
@@ -509,65 +515,65 @@ public class CallRecordingServiceImpl
     @Override
     @Transactional(readOnly = true)
     public PageResponse<CallRecordingResponse> getByCall(
-            String callPublicId,
-            int page,
-            int size) {
+            String callPublicId) {
+
+        log.info(
+                "Fetching Call Recordings. callPublicId={}",
+                callPublicId
+        );
 
         Call call =
                 callValidator.validateAndGet(
                         callPublicId
                 );
 
-        Page<CallRecording> result =
+        List<CallRecording> recordings =
                 callRecordingRepository.findByCallId(
-                        call.getId(),
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+                        call.getId()
                 );
 
+        List<CallRecordingResponse> content =
+                recordings.stream()
+                        .map(
+                                callRecordingMapper
+                                        ::toResponse
+                        )
+                        .toList();
+
         return buildPageResponse(
-                result
+                content
         );
     }
 
     /**
      * Builds paginated response.
      */
+    /**
+     * Builds response containing all Call Recordings.
+     *
+     * @param recordings call recordings
+     * @return response containing all recordings
+     */
     private PageResponse<CallRecordingResponse>
     buildPageResponse(
-            Page<CallRecording> result) {
+            List<CallRecordingResponse> recordings) {
+
+        int totalElements =
+                recordings.size();
 
         return PageResponse
                 .<CallRecordingResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        callRecordingMapper
-                                                ::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
+                .content(recordings)
+                .pageNumber(0)
+                .pageSize(totalElements)
                 .totalPages(
-                        result.getTotalPages()
+                        totalElements == 0
+                                ? 0
+                                : 1
                 )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
+                .totalElements(totalElements)
+                .first(true)
+                .last(true)
                 .build();
     }
 

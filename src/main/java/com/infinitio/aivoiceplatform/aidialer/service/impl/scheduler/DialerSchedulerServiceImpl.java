@@ -23,7 +23,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.campaign.service.CampaignService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -81,6 +81,8 @@ public class DialerSchedulerServiceImpl
 
     private final DialerCallInitiationService
             dialerCallInitiationService;
+
+    private final CampaignService campaignService;
 
     // =========================================================
     // PROCESS ONE DIALER
@@ -825,6 +827,11 @@ public class DialerSchedulerServiceImpl
      *
      * @param dialer AI Dialer
      */
+    /**
+     * Marks an AI Dialer as completed.
+     *
+     * @param dialer AI Dialer
+     */
     @Transactional
     protected void markDialerCompleted(
             AiDialer dialer) {
@@ -847,9 +854,33 @@ public class DialerSchedulerServiceImpl
                 dialer
         );
 
+        /*
+         * Fetch campaign public ID directly from the database.
+         * This avoids accessing the lazy Campaign relationship.
+         */
+        String campaignPublicId =
+                aiDialerRepository
+                        .findCampaignPublicIdByDialerId(
+                                dialer.getId(),
+                                NOT_DELETED
+                        )
+                        .orElse(null);
+
+        /*
+         * Complete the campaign when the dialer schedule ends.
+         */
+        if (campaignPublicId != null
+                && !campaignPublicId.isBlank()) {
+
+            campaignService.complete(
+                    campaignPublicId
+            );
+        }
+
         log.info(
-                "Dialer {} marked COMPLETED.",
-                dialer.getPublicId()
+                "Dialer {} marked COMPLETED and campaign {} updated.",
+                dialer.getPublicId(),
+                campaignPublicId
         );
     }
 

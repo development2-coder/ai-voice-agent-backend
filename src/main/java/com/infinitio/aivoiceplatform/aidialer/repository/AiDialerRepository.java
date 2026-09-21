@@ -77,5 +77,15 @@ public interface AiDialerRepository
             Integer isDeleted
     );
 
+    @Query("""
+    SELECT d.campaign.publicId
+    FROM AiDialer d
+    WHERE d.id = :dialerId
+      AND d.isDeleted = :isDeleted
+    """)
+    Optional<String> findCampaignPublicIdByDialerId(
+            @Param("dialerId") Long dialerId,
+            @Param("isDeleted") Integer isDeleted
+    );
 
 }

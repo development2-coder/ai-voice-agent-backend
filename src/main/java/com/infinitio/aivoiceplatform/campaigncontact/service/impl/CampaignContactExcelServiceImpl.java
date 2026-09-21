@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -46,6 +47,19 @@ import java.util.Set;
  * confirmation. Excel-specific parsing is delegated to the
  * dedicated Excel services.
  * </p>
+ *
+ * <p>
+ * Excel variable rules:
+ * </p>
+ *
+ * <ul>
+ *     <li>phone_number - standard Excel field</li>
+ *     <li>name - standard Excel field</li>
+ *     <li>contact.name - mapped to name, never required separately</li>
+ *     <li>contact.mobile_number - mapped to phone_number, never required separately</li>
+ *     <li>contact.customData.* - dynamic Excel fields</li>
+ *     <li>runtime variables are never Excel fields</li>
+ * </ul>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -140,6 +154,10 @@ public class CampaignContactExcelServiceImpl
                             evaluator
                     );
 
+            /*
+             * Validate standard fields and only the
+             * contact.customData.* dynamic fields.
+             */
             campaignExcelService.validateHeaders(
                     headers,
                     promptVariables
@@ -344,6 +362,15 @@ public class CampaignContactExcelServiceImpl
                 String phoneNumber =
                         contactRequest.getPhoneNumber();
 
+                if (phoneNumber == null
+                        || phoneNumber.isBlank()) {
+
+                    throw new BadRequestException(
+                            CampaignContactMessages
+                                    .EXCEL_PHONE_COLUMN_REQUIRED
+                    );
+                }
+
                 if (!phoneNumbers.add(
                         phoneNumber
                 )) {
@@ -422,6 +449,25 @@ public class CampaignContactExcelServiceImpl
         );
     }
 
+    /**
+     * Resolves only variables that are required from
+     * Campaign Contact Excel.
+     *
+     * <p>
+     * IMPORTANT:
+     *
+     * <ul>
+     *     <li>contact.name is NOT an Excel variable</li>
+     *     <li>contact.mobile_number is NOT an Excel variable</li>
+     *     <li>customer_input is NOT an Excel variable</li>
+     *     <li>ai_response is NOT an Excel variable</li>
+     *     <li>endConversation is NOT an Excel variable</li>
+     *     <li>only contact.customData.* is dynamic Excel data</li>
+     * </ul>
+     *
+     * @param response campaign variables response
+     * @return required Excel variables
+     */
     private Set<String> resolvePromptVariables(
             CampaignVariablesResponse response) {
 
@@ -446,28 +492,59 @@ public class CampaignContactExcelServiceImpl
             String normalized =
                     variable.trim();
 
-            if (!isPhoneVariable(
+            /*
+             * Ignore standard contact fields.
+             */
+            if (isStandardContactVariable(
                     normalized
             )) {
 
-                variables.add(
-                        normalized
-                );
+                continue;
             }
+
+            /*
+             * Only custom contact data belongs
+             * in Campaign Contact Excel.
+             */
+            if (!isContactCustomDataVariable(
+                    normalized
+            )) {
+
+                continue;
+            }
+
+            variables.add(
+                    normalized
+            );
         }
 
         return variables;
     }
 
-    private boolean isPhoneVariable(
-            String variable) {
-
-        return "phone_number".equals(variable)
-                || "phoneNumber".equals(variable)
-                || "contact.phoneNumber"
-                .equals(variable);
-    }
-
+    /**
+     * Finds missing fields for a preview row.
+     *
+     * <p>
+     * Standard fields:
+     * </p>
+     *
+     * <ul>
+     *     <li>phone_number</li>
+     *     <li>name</li>
+     * </ul>
+     *
+     * <p>
+     * Dynamic fields:
+     * </p>
+     *
+     * <ul>
+     *     <li>contact.customData.*</li>
+     * </ul>
+     *
+     * @param values row values
+     * @param promptVariables required dynamic variables
+     * @return missing fields
+     */
     private List<String> findMissingFields(
             Map<String, String> values,
             Set<String> promptVariables) {
@@ -475,13 +552,32 @@ public class CampaignContactExcelServiceImpl
         List<String> missingFields =
                 new ArrayList<>();
 
+        /*
+         * PHONE NUMBER
+         */
         String phoneNumber =
-                values == null
-                        ? null
-                        : values.get(
+                getValue(
+                        values,
                         CampaignContactConstants
                                 .EXCEL_PHONE_NUMBER_HEADER
                 );
+
+        /*
+         * Also support the contact.mobile_number
+         * alias if an old Excel file contains it.
+         *
+         * However, the preferred column is
+         * phone_number.
+         */
+        if (phoneNumber == null
+                || phoneNumber.isBlank()) {
+
+            phoneNumber =
+                    getValue(
+                            values,
+                            "contact.mobile_number"
+                    );
+        }
 
         if (phoneNumber == null
                 || phoneNumber.isBlank()) {
@@ -492,13 +588,29 @@ public class CampaignContactExcelServiceImpl
             );
         }
 
+        /*
+         * NAME
+         */
         String name =
-                values == null
-                        ? null
-                        : values.get(
+                getValue(
+                        values,
                         CampaignContactConstants
                                 .EXCEL_NAME_HEADER
                 );
+
+        /*
+         * Also support old contact.name
+         * Excel files.
+         */
+        if (name == null
+                || name.isBlank()) {
+
+            name =
+                    getValue(
+                            values,
+                            "contact.name"
+                    );
+        }
 
         if (name == null
                 || name.isBlank()) {
@@ -509,41 +621,111 @@ public class CampaignContactExcelServiceImpl
             );
         }
 
+        /*
+         * DYNAMIC CUSTOM DATA
+         */
         for (String variable :
                 promptVariables) {
 
+            /*
+             * Safety check:
+             * only customData variables are allowed here.
+             */
+            if (!isContactCustomDataVariable(
+                    variable
+            )) {
+
+                continue;
+            }
+
             String value =
-                    values == null
-                            ? null
-                            : values.get(variable);
+                    getValue(
+                            values,
+                            variable
+                    );
 
             if (value == null
                     || value.isBlank()) {
 
-                missingFields.add(variable);
+                missingFields.add(
+                        variable
+                );
             }
         }
 
         return missingFields;
     }
 
+    /**
+     * Builds Campaign Contact request from preview row.
+     *
+     * @param campaignPublicId campaign public id
+     * @param values Excel row values
+     * @param promptVariables required custom-data variables
+     * @return create contact request
+     */
     private CreateCampaignContactRequest
     buildContactRequest(
             String campaignPublicId,
             Map<String, String> values,
             Set<String> promptVariables) {
 
+        /*
+         * Standard phone number.
+         */
         String phoneNumber =
-                values.get(
+                getValue(
+                        values,
                         CampaignContactConstants
                                 .EXCEL_PHONE_NUMBER_HEADER
                 );
 
+        /*
+         * Backward compatibility for an old Excel file
+         * containing contact.mobile_number.
+         */
+        if (phoneNumber == null
+                || phoneNumber.isBlank()) {
+
+            phoneNumber =
+                    getValue(
+                            values,
+                            "contact.mobile_number"
+                    );
+        }
+
+        if (phoneNumber == null
+                || phoneNumber.isBlank()) {
+
+            throw new BadRequestException(
+                    CampaignContactMessages
+                            .EXCEL_PHONE_COLUMN_REQUIRED
+            );
+        }
+
+        /*
+         * Standard name.
+         */
         String name =
-                values.get(
+                getValue(
+                        values,
                         CampaignContactConstants
                                 .EXCEL_NAME_HEADER
                 );
+
+        /*
+         * Backward compatibility for an old Excel file
+         * containing contact.name.
+         */
+        if (name == null
+                || name.isBlank()) {
+
+            name =
+                    getValue(
+                            values,
+                            "contact.name"
+                    );
+        }
 
         if (name == null
                 || name.isBlank()) {
@@ -554,8 +736,12 @@ public class CampaignContactExcelServiceImpl
             );
         }
 
+        /*
+         * Standard external reference.
+         */
         String externalReference =
-                values.get(
+                getValue(
+                        values,
                         CampaignContactConstants
                                 .EXCEL_EXTERNAL_REFERENCE_HEADER
                 );
@@ -563,11 +749,25 @@ public class CampaignContactExcelServiceImpl
         Map<String, Object> customData =
                 new LinkedHashMap<>();
 
+        /*
+         * Only contact.customData.* variables
+         * are processed here.
+         */
         for (String variable :
                 promptVariables) {
 
+            if (!isContactCustomDataVariable(
+                    variable
+            )) {
+
+                continue;
+            }
+
             String value =
-                    values.get(variable);
+                    getValue(
+                            values,
+                            variable
+                    );
 
             if (value == null
                     || value.isBlank()) {
@@ -580,50 +780,16 @@ public class CampaignContactExcelServiceImpl
                 );
             }
 
-            if ("name".equals(variable)
-                    || "contact.name"
-                    .equals(variable)) {
-
-                name = value;
-
-            } else if (
-                    "externalReference"
-                            .equals(variable)
-                            || "contact.externalReference"
-                            .equals(variable)
-            ) {
-
-                externalReference =
-                        value;
-
-            } else if (
-                    variable.startsWith(
+            String key =
+                    variable.substring(
                             CUSTOM_DATA_PREFIX
-                    )
-            ) {
-
-                String key =
-                        variable.substring(
-                                CUSTOM_DATA_PREFIX
-                                        .length()
-                        );
-
-                if (!key.isBlank()) {
-
-                    customData.put(
-                            key,
-                            value
+                                    .length()
                     );
-                }
 
-            } else {
+            if (!key.isBlank()) {
 
-                /*
-                 * Root-level variables such as
-                 * {{language}} are stored as customData.
-                 */
                 customData.put(
-                        variable,
+                        key,
                         value
                 );
             }
@@ -651,10 +817,50 @@ public class CampaignContactExcelServiceImpl
                 .build();
     }
 
+    /**
+     * Gets a value from the row map safely.
+     *
+     * @param values row values
+     * @param key key
+     * @return trimmed value or null
+     */
+    private String getValue(
+            Map<String, String> values,
+            String key) {
+
+        if (values == null
+                || key == null) {
+
+            return null;
+        }
+
+        String value =
+                values.get(key);
+
+        if (value == null) {
+            return null;
+        }
+
+        String trimmed =
+                value.trim();
+
+        return trimmed.isEmpty()
+                ? null
+                : trimmed;
+    }
+
+    /**
+     * Serializes custom data to JSON.
+     *
+     * @param customData custom data map
+     * @return JSON string
+     */
     private String serializeCustomData(
             Map<String, Object> customData) {
 
-        if (customData.isEmpty()) {
+        if (customData == null
+                || customData.isEmpty()) {
+
             return null;
         }
 
@@ -680,6 +886,12 @@ public class CampaignContactExcelServiceImpl
         }
     }
 
+    /**
+     * Saves contact after validation.
+     *
+     * @param request contact request
+     * @param campaign campaign
+     */
     private void saveContact(
             CreateCampaignContactRequest request,
             Campaign campaign) {
@@ -696,6 +908,12 @@ public class CampaignContactExcelServiceImpl
         );
     }
 
+    /**
+     * Saves contact without duplicate validation.
+     *
+     * @param request contact request
+     * @param campaign campaign
+     */
     private void saveContactWithoutValidation(
             CreateCampaignContactRequest request,
             Campaign campaign) {
@@ -724,6 +942,16 @@ public class CampaignContactExcelServiceImpl
         );
     }
 
+    /**
+     * Builds upload response.
+     *
+     * @param campaignPublicId campaign public id
+     * @param totalRows total rows
+     * @param importedRows imported rows
+     * @param failedRows failed rows
+     * @param errors errors
+     * @return upload response
+     */
     private CampaignContactExcelUploadResponse
     buildUploadResponse(
             String campaignPublicId,
@@ -748,6 +976,11 @@ public class CampaignContactExcelServiceImpl
                 .build();
     }
 
+    /**
+     * Validates uploaded file.
+     *
+     * @param file uploaded file
+     */
     private void validateFile(
             MultipartFile file) {
 
@@ -774,7 +1007,7 @@ public class CampaignContactExcelServiceImpl
 
         String lowerFileName =
                 fileName.toLowerCase(
-                        java.util.Locale.ROOT
+                        Locale.ROOT
                 );
 
         if (!lowerFileName.endsWith(".xlsx")
@@ -787,6 +1020,11 @@ public class CampaignContactExcelServiceImpl
         }
     }
 
+    /**
+     * Validates workbook.
+     *
+     * @param workbook workbook
+     */
     private void validateWorkbook(
             Workbook workbook) {
 
@@ -813,6 +1051,12 @@ public class CampaignContactExcelServiceImpl
         }
     }
 
+    /**
+     * Resolves an exception message.
+     *
+     * @param exception exception
+     * @return readable message
+     */
     private String resolveErrorMessage(
             Exception exception) {
 
@@ -824,5 +1068,84 @@ public class CampaignContactExcelServiceImpl
 
         return CampaignContactMessages
                 .EXCEL_FILE_INVALID;
+    }
+
+    /**
+     * Determines whether the variable represents
+     * a standard Campaign Contact field.
+     *
+     * <p>
+     * These fields already have dedicated Excel
+     * columns and must not become dynamic columns.
+     * </p>
+     *
+     * @param variable variable name
+     * @return true for standard contact fields
+     */
+    private boolean isStandardContactVariable(
+            String variable) {
+
+        if (variable == null
+                || variable.isBlank()) {
+
+            return false;
+        }
+
+        String normalized =
+                variable.trim();
+
+        return "phone_number".equals(
+                normalized
+        )
+                || "phoneNumber".equals(
+                normalized
+        )
+                || "mobile_number".equals(
+                normalized
+        )
+                || "mobileNumber".equals(
+                normalized
+        )
+                || "contact.phoneNumber".equals(
+                normalized
+        )
+                || "contact.phone_number".equals(
+                normalized
+        )
+                || "contact.mobileNumber".equals(
+                normalized
+        )
+                || "contact.mobile_number".equals(
+                normalized
+        )
+                || "name".equals(
+                normalized
+        )
+                || "contact.name".equals(
+                normalized
+        );
+    }
+
+    /**
+     * Determines whether a variable represents
+     * Campaign Contact custom data.
+     *
+     * <p>
+     * Only these variables are dynamically generated
+     * as Excel columns.
+     * </p>
+     *
+     * @param variable variable name
+     * @return true for contact custom-data variables
+     */
+    private boolean isContactCustomDataVariable(
+            String variable) {
+
+        return variable != null
+                && variable.startsWith(
+                CUSTOM_DATA_PREFIX
+        )
+                && variable.length()
+                > CUSTOM_DATA_PREFIX.length();
     }
 }

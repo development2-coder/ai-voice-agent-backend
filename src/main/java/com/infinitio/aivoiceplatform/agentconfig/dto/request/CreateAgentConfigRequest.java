@@ -74,4 +74,10 @@ public class CreateAgentConfigRequest {
             message = "Max tokens must be greater than zero."
     )
     private Integer maxTokens;
+
+    @Pattern(
+            regexp = "ACTIVE|DRAFT",
+            message = "Status must be either ACTIVE or DRAFT."
+    )
+    private String status;
 }

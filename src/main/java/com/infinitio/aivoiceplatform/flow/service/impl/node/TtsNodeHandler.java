@@ -451,7 +451,6 @@ public class TtsNodeHandler
 
                 webSocketSessionRegistry.flushAudio(
                         callId,
-                        null,
                         response.getContentType()
                 );
 
@@ -556,13 +555,40 @@ public class TtsNodeHandler
             Map<String, Object> configuration,
             Map<String, Object> context) {
 
+        /*
+         * Runtime detected language has priority.
+         *
+         * Example:
+         * Initial call language = mr-IN
+         * Customer speaks English -> en-IN
+         * Customer speaks Marathi -> mr-IN
+         *
+         * This allows TTS to follow the language detected
+         * by the realtime STT service.
+         */
+        String contextLanguage =
+                getOptionalContextString(
+                        context,
+                        LANGUAGE
+                );
+
+        if (contextLanguage != null
+                && !contextLanguage.isBlank()) {
+
+            return contextLanguage.trim();
+        }
+
+        /*
+         * Fallback to the language configured on the TTS node.
+         */
         String configuredLanguage =
                 getConfigurationString(
                         configuration,
                         LANGUAGE
                 );
 
-        if (configuredLanguage != null) {
+        if (configuredLanguage != null
+                && !configuredLanguage.isBlank()) {
 
             return flowContextService.replaceVariables(
                     configuredLanguage,
@@ -570,10 +596,7 @@ public class TtsNodeHandler
             );
         }
 
-        return getOptionalContextString(
-                context,
-                LANGUAGE
-        );
+        return null;
     }
 
     // =========================================================
