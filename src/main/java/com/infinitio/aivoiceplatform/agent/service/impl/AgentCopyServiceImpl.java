@@ -23,11 +23,13 @@ import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
 import com.infinitio.aivoiceplatform.prompt.constant.PromptConstants;
 import com.infinitio.aivoiceplatform.prompt.entity.Prompt;
 import com.infinitio.aivoiceplatform.prompt.repository.PromptRepository;
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.ACTIVE;
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,9 +47,9 @@ import java.util.Map;
 public class AgentCopyServiceImpl
         implements AgentCopyService {
 
-    private static final Integer NOT_DELETED = 0;
-
-    private static final Integer ACTIVE = 1;
+//    private static final Integer NOT_DELETED = 0;
+//
+//    private static final Integer ACTIVE = 1;
 
     private final AgentRepository agentRepository;
 
@@ -66,6 +68,8 @@ public class AgentCopyServiceImpl
     private final FlowEdgeRepository flowEdgeRepository;
 
     private final CurrentUserService currentUserService;
+
+    private final TenantAccessService tenantAccessService;
 
 
     // =========================================================
@@ -149,7 +153,7 @@ public class AgentCopyServiceImpl
         );
 
         Long currentUserId =
-                currentUserService.getCurrentUserId();
+                tenantAccessService.getCurrentUserId();
 
         /*
          * Create a completely new Agent entity.
@@ -231,38 +235,46 @@ public class AgentCopyServiceImpl
      *
      * @param sourceAgent source Agent
      */
+//    private void validateCopyAccess(
+//            Agent sourceAgent) {
+//
+//        var currentUser =
+//                currentUserService.getCurrentUser();
+//
+//        if (RoleConstants.SUPER_ADMIN.equals(
+//                currentUser
+//                        .getRole()
+//                        .getRoleName()
+//        )) {
+//
+//            return;
+//        }
+//
+//        if (!currentUser
+//                .getTenant()
+//                .getId()
+//                .equals(
+//                        sourceAgent
+//                                .getTenant()
+//                                .getId()
+//                )) {
+//
+//            /*
+//             * Return "not found" instead of exposing the existence
+//             * of another tenant's Agent.
+//             */
+//            throw new ResourceNotFoundException(
+//                    AgentMessages.AGENT_COPY_SOURCE_NOT_FOUND
+//            );
+//        }
+//    }
+
     private void validateCopyAccess(
             Agent sourceAgent) {
 
-        var currentUser =
-                currentUserService.getCurrentUser();
-
-        if (RoleConstants.SUPER_ADMIN.equals(
-                currentUser
-                        .getRole()
-                        .getRoleName()
-        )) {
-
-            return;
-        }
-
-        if (!currentUser
-                .getTenant()
-                .getId()
-                .equals(
-                        sourceAgent
-                                .getTenant()
-                                .getId()
-                )) {
-
-            /*
-             * Return "not found" instead of exposing the existence
-             * of another tenant's Agent.
-             */
-            throw new ResourceNotFoundException(
-                    AgentMessages.AGENT_COPY_SOURCE_NOT_FOUND
-            );
-        }
+        tenantAccessService.validateAgentAccess(
+                sourceAgent
+        );
     }
 
 

@@ -17,12 +17,15 @@ import com.infinitio.aivoiceplatform.master.rolemenu.repository.RoleMenuReposito
 import com.infinitio.aivoiceplatform.master.rolemenu.service.RoleMenuService;
 import com.infinitio.aivoiceplatform.master.rolemenu.validator.RoleMenuValidator;
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
 /**
  * Role Menu Service Implementation.
  *
@@ -73,6 +76,8 @@ public class RoleMenuServiceImpl
                         : null
         );
 
+        validateSuperAdminAccess();
+
         /*
          * Validate request and duplicate mapping.
          */
@@ -87,6 +92,8 @@ public class RoleMenuServiceImpl
                 roleValidator.validateAndGet(
                         request.getRolePublicId().trim()
                 );
+
+        validateRoleAssignment(role);
 
         Menu menu =
                 menuValidator.validateAndGet(
@@ -168,6 +175,8 @@ public class RoleMenuServiceImpl
                         : null
         );
 
+        validateSuperAdminAccess();
+
         /*
          * Validate update.
          */
@@ -190,6 +199,8 @@ public class RoleMenuServiceImpl
                 roleValidator.validateAndGet(
                         request.getRolePublicId().trim()
                 );
+
+        validateRoleAssignment(role);
 
         Menu menu =
                 menuValidator.validateAndGet(
@@ -275,74 +286,43 @@ public class RoleMenuServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<RoleMenuResponse> getAll(
-            int page,
-            int size) {
+    public List<RoleMenuResponse> getAll() {
+
+        log.info("Fetching all Role Menus.");
+
+        return roleMenuRepository
+                .findByIsDeletedOrderByRole_RoleNameAscMenu_DisplayOrderAsc(
+                        NOT_DELETED
+                )
+                .stream()
+                .map(roleMenuMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RoleMenuResponse> getByRolePublicId(
+            String rolePublicId) {
 
         log.info(
-                "Fetching Role Menus | page={} | size={}",
-                page,
-                size
+                "Fetching menus assigned to role. rolePublicId={}",
+                rolePublicId
         );
 
-        /*
-         * Pagination validation.
-         */
-        if (page < 0) {
+        Role role = roleValidator.validateAndGet(
+                rolePublicId
+        );
 
-            throw new BadRequestException(
-                    "Page number cannot be negative."
-            );
-        }
+        validateRoleAssignment(role);
 
-        if (size <= 0) {
-
-            throw new BadRequestException(
-                    "Page size must be greater than zero."
-            );
-        }
-
-        /*
-         * Only non-deleted mappings.
-         */
-        Page<RoleMenu> result =
-                roleMenuRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
-
-        return PageResponse
-                .<RoleMenuResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        roleMenuMapper::toResponse
-                                )
-                                .toList()
+        return roleMenuRepository
+                .findByRole_IdAndIsDeletedOrderByMenu_DisplayOrderAsc(
+                        role.getId(),
+                        NOT_DELETED
                 )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
-                .totalPages(
-                        result.getTotalPages()
-                )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
-                .build();
+                .stream()
+                .map(roleMenuMapper::toResponse)
+                .toList();
     }
 
 
@@ -358,6 +338,8 @@ public class RoleMenuServiceImpl
                 "Deleting Role Menu | publicId={}",
                 publicId
         );
+
+        validateSuperAdminAccess();
 
         RoleMenu roleMenu =
                 roleMenuValidator.validateAndGet(
@@ -395,6 +377,8 @@ public class RoleMenuServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         RoleMenu roleMenu =
                 roleMenuValidator.validateAndGet(
                         publicId
@@ -431,6 +415,8 @@ public class RoleMenuServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         RoleMenu roleMenu =
                 roleMenuValidator.validateAndGet(
                         publicId
@@ -452,4 +438,75 @@ public class RoleMenuServiceImpl
                 publicId
         );
     }
+
+    /**
+     * Validates that the current user is SUPER_ADMIN.
+     *
+     * <p>
+     * Role-level menu assignments are platform-level
+     * security configuration and can only be managed
+     * by SUPER_ADMIN.
+     * </p>
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+
+            throw new ForbiddenException(
+                    "Authentication is required to manage role menus."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+
+            throw new ForbiddenException(
+                    "Only SUPER_ADMIN can manage role menus."
+            );
+        }
+    }
+
+    /**
+     * Validates that the selected role is allowed to receive
+     * role-level menu assignments.
+     *
+     * <p>
+     * RoleMenu defines the menus available to an ADMIN.
+     * SUPER_ADMIN has full platform access and USER menu access
+     * is managed separately through UserMenu.
+     * </p>
+     *
+     * @param role role receiving the menu assignment
+     */
+
+    /**
+     * Validates that the selected role can receive shared
+     * role-menu assignments.
+     *
+     * <p>SUPER_ADMIN configures the menus available to every
+     * client Admin through the shared ADMIN role.</p>
+     *
+     * <p>USER menu assignments remain user-specific and are
+     * managed separately through UserMenu.</p>
+     *
+     * @param role role receiving the menu assignment
+     */
+    private void validateRoleAssignment(Role role) {
+
+        if (role == null) {
+            throw new BadRequestException(
+                    "Role is required."
+            );
+        }
+
+        if (role.getRoleCode() == null
+                || !RoleConstants.ADMIN.equalsIgnoreCase(
+                role.getRoleCode().trim()
+        )) {
+
+            throw new ForbiddenException(
+                    "Shared role-menu assignments can only be configured for ADMIN."
+            );
+        }
+    }
+
 }

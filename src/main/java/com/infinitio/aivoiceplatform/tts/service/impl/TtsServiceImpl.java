@@ -2,7 +2,7 @@ package com.infinitio.aivoiceplatform.tts.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
-import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.tts.dto.request.CreateTtsRequest;
 import com.infinitio.aivoiceplatform.tts.dto.request.UpdateTtsRequest;
@@ -12,17 +12,36 @@ import com.infinitio.aivoiceplatform.tts.mapper.TtsMapper;
 import com.infinitio.aivoiceplatform.tts.repository.TtsRepository;
 import com.infinitio.aivoiceplatform.tts.service.TtsService;
 import com.infinitio.aivoiceplatform.tts.validator.TtsValidator;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
+
 /**
  * Service implementation for TTS.
+ *
+ * <p>
+ * Handles TTS configuration CRUD operations together with
+ * RBAC-compatible tenant isolation and audit handling.
+ * </p>
+ *
+ * <p>
+ * Tenant relationship:
+ *
+ * <pre>
+ * TTS
+ *  ↓
+ * Agent
+ *  ↓
+ * Tenant
+ * </pre>
+ *
+ * </p>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -31,8 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Transactional
-public class TtsServiceImpl
-        implements TtsService {
+public class TtsServiceImpl implements TtsService {
 
     private final TtsRepository ttsRepository;
 
@@ -42,7 +60,7 @@ public class TtsServiceImpl
 
     private final AgentValidator agentValidator;
 
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
     /**
      * Creates a new TTS configuration.
@@ -68,14 +86,14 @@ public class TtsServiceImpl
         );
 
         /*
-         * Validate TTS create request.
+         * Validate TTS request.
          */
         ttsValidator.validateForCreate(
                 request
         );
 
         /*
-         * Validate and retrieve the associated agent.
+         * Resolve the requested Agent.
          */
         Agent agent =
                 agentValidator.validateAndGet(
@@ -83,11 +101,15 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Convert request into entity.
+         * SUPER_ADMIN can access any tenant.
          *
-         * Audit and system fields are intentionally ignored
-         * by the mapper and are populated here.
+         * ADMIN and USER can only use an Agent
+         * belonging to their current tenant.
          */
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
         Tts tts =
                 ttsMapper.toEntity(
                         request
@@ -98,12 +120,11 @@ public class TtsServiceImpl
         );
 
         /*
-         * Audit information comes from the authenticated user.
-         *
-         * BaseEntity.createdBy is mandatory in the database.
+         * Audit information comes from the
+         * authenticated application user.
          */
         tts.setCreatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         Tts savedTts =
@@ -146,7 +167,7 @@ public class TtsServiceImpl
         );
 
         /*
-         * Retrieve existing TTS configuration.
+         * Retrieve the existing TTS.
          */
         Tts tts =
                 ttsValidator.validateAndGet(
@@ -154,7 +175,16 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Validate and retrieve the new associated agent.
+         * Validate access to the existing TTS.
+         *
+         * TTS → Agent → Tenant
+         */
+        tenantAccessService.validateAgentAccess(
+                tts.getAgent()
+        );
+
+        /*
+         * Resolve the new/target Agent.
          */
         Agent agent =
                 agentValidator.validateAndGet(
@@ -162,7 +192,17 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Update editable fields only.
+         * Validate access to the target Agent as well.
+         *
+         * This prevents an ADMIN from moving a TTS
+         * configuration into another tenant.
+         */
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
+        /*
+         * Update editable fields.
          */
         ttsMapper.updateEntity(
                 request,
@@ -174,10 +214,11 @@ public class TtsServiceImpl
         );
 
         /*
-         * Audit information comes from the authenticated user.
+         * Audit information comes from
+         * the authenticated user.
          */
         tts.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         Tts updatedTts =
@@ -196,9 +237,9 @@ public class TtsServiceImpl
     }
 
     /**
-     * Retrieves a TTS configuration by public identifier.
+     * Retrieves a TTS configuration by public ID.
      *
-     * @param publicId TTS public identifier
+     * @param publicId TTS public ID
      * @return TTS response
      */
     @Override
@@ -216,6 +257,13 @@ public class TtsServiceImpl
                         publicId
                 );
 
+        /*
+         * Prevent cross-tenant access.
+         */
+        tenantAccessService.validateAgentAccess(
+                tts.getAgent()
+        );
+
         return ttsMapper.toResponse(
                 tts
         );
@@ -223,6 +271,12 @@ public class TtsServiceImpl
 
     /**
      * Retrieves paginated TTS configurations.
+     *
+     * <p>
+     * SUPER_ADMIN receives configurations across all tenants.
+     * ADMIN and USER receive configurations only from their
+     * current tenant.
+     * </p>
      *
      * @param page page number
      * @param size page size
@@ -240,13 +294,39 @@ public class TtsServiceImpl
                 size
         );
 
-        Page<Tts> result =
-                ttsRepository.findAll(
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+        Pageable pageable =
+                PageRequest.of(
+                        page,
+                        size
                 );
+
+        Page<Tts> result;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            /*
+             * SUPER_ADMIN has global access.
+             */
+            result =
+                    ttsRepository.findByIsDeleted(
+                            NOT_DELETED,
+                            pageable
+                    );
+
+        } else {
+
+            /*
+             * ADMIN and USER are restricted
+             * to their current tenant.
+             */
+            result =
+                    ttsRepository
+                            .findByAgent_Tenant_IdAndIsDeleted(
+                                    tenantAccessService.getCurrentTenantId(),
+                                    NOT_DELETED,
+                                    pageable
+                            );
+        }
 
         return PageResponse
                 .<TtsResponse>builder()
@@ -282,7 +362,7 @@ public class TtsServiceImpl
     /**
      * Soft deletes a TTS configuration.
      *
-     * @param publicId TTS public identifier
+     * @param publicId TTS public ID
      */
     @Override
     public void delete(
@@ -299,10 +379,14 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Soft delete with authenticated user.
+         * Prevent cross-tenant deletion.
          */
+        tenantAccessService.validateAgentAccess(
+                tts.getAgent()
+        );
+
         tts.markAsDeleted(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         ttsRepository.save(
@@ -318,7 +402,7 @@ public class TtsServiceImpl
     /**
      * Activates a TTS configuration.
      *
-     * @param publicId TTS public identifier
+     * @param publicId TTS public ID
      */
     @Override
     public void activate(
@@ -335,11 +419,14 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Activation audit information comes from
-         * the authenticated user.
+         * Prevent cross-tenant activation.
          */
+        tenantAccessService.validateAgentAccess(
+                tts.getAgent()
+        );
+
         tts.activate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         ttsRepository.save(
@@ -355,7 +442,7 @@ public class TtsServiceImpl
     /**
      * Deactivates a TTS configuration.
      *
-     * @param publicId TTS public identifier
+     * @param publicId TTS public ID
      */
     @Override
     public void deactivate(
@@ -372,11 +459,14 @@ public class TtsServiceImpl
                 );
 
         /*
-         * Deactivation audit information comes from
-         * the authenticated user.
+         * Prevent cross-tenant deactivation.
          */
+        tenantAccessService.validateAgentAccess(
+                tts.getAgent()
+        );
+
         tts.deactivate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         ttsRepository.save(

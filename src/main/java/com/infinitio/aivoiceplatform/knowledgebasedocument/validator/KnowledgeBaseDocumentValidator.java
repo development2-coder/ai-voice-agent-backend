@@ -11,14 +11,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * Validator for Knowledge Base Document.
- *
- * @author Infinitio Digital
- * @version 1.0.0
+ * Validator for Knowledge Base Documents.
  */
 @Component
 @RequiredArgsConstructor
 public class KnowledgeBaseDocumentValidator {
+
+    private static final Integer NOT_DELETED = 0;
 
     private final KnowledgeBaseDocumentRepository
             knowledgeBaseDocumentRepository;
@@ -27,18 +26,14 @@ public class KnowledgeBaseDocumentValidator {
             CreateKnowledgeBaseDocumentRequest request) {
 
         if (knowledgeBaseDocumentRepository
-                .existsByDocumentCode(
-                        request.getDocumentCode())) {
-
+                .existsByDocumentCode(request.getDocumentCode())) {
             throw new ConflictException(
                     KnowledgeBaseDocumentMessages.CODE_ALREADY_EXISTS
             );
         }
 
         if (knowledgeBaseDocumentRepository
-                .existsByDocumentName(
-                        request.getDocumentName())) {
-
+                .existsByDocumentName(request.getDocumentName())) {
             throw new ConflictException(
                     KnowledgeBaseDocumentMessages.NAME_ALREADY_EXISTS
             );
@@ -51,22 +46,20 @@ public class KnowledgeBaseDocumentValidator {
         KnowledgeBaseDocument existing =
                 validateAndGet(request.getPublicId());
 
-        if (!existing.getDocumentCode()
-                .equals(request.getDocumentCode())
+        if (!existing.getDocumentCode().equals(
+                request.getDocumentCode())
                 && knowledgeBaseDocumentRepository
-                .existsByDocumentCode(
-                        request.getDocumentCode())) {
+                .existsByDocumentCode(request.getDocumentCode())) {
 
             throw new ConflictException(
                     KnowledgeBaseDocumentMessages.CODE_ALREADY_EXISTS
             );
         }
 
-        if (!existing.getDocumentName()
-                .equals(request.getDocumentName())
+        if (!existing.getDocumentName().equals(
+                request.getDocumentName())
                 && knowledgeBaseDocumentRepository
-                .existsByDocumentName(
-                        request.getDocumentName())) {
+                .existsByDocumentName(request.getDocumentName())) {
 
             throw new ConflictException(
                     KnowledgeBaseDocumentMessages.NAME_ALREADY_EXISTS
@@ -74,11 +67,16 @@ public class KnowledgeBaseDocumentValidator {
         }
     }
 
-    public KnowledgeBaseDocument validateAndGet(
-            String publicId) {
+    public KnowledgeBaseDocument validateAndGet(String publicId) {
+
+        if (publicId == null || publicId.isBlank()) {
+            throw new ResourceNotFoundException(
+                    KnowledgeBaseDocumentMessages.NOT_FOUND
+            );
+        }
 
         return knowledgeBaseDocumentRepository
-                .findByPublicId(publicId)
+                .findByPublicIdAndIsDeleted(publicId, NOT_DELETED)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 KnowledgeBaseDocumentMessages.NOT_FOUND

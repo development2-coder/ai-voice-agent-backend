@@ -34,4 +34,24 @@ public class ConfigurationOptionResponse {
      * Human-readable label displayed by the frontend.
      */
     private String label;
+
+    /**
+     * Voice identifier.
+     */
+    private String voiceId;
+
+    /**
+     * Voice display name.
+     */
+    private String voiceName;
+
+    /**
+     * Voice gender.
+     */
+    private String gender;
+
+    /**
+     * Sample voice recording URL.
+     */
+    private String sampleAudioUrl;
 }

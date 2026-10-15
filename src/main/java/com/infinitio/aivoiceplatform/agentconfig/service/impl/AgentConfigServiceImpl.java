@@ -12,7 +12,8 @@ import com.infinitio.aivoiceplatform.agentconfig.mapper.AgentConfigMapper;
 import com.infinitio.aivoiceplatform.agentconfig.repository.AgentConfigRepository;
 import com.infinitio.aivoiceplatform.agentconfig.service.AgentConfigService;
 import com.infinitio.aivoiceplatform.agentconfig.validator.AgentConfigValidator;
-import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -52,7 +53,7 @@ public class AgentConfigServiceImpl
 
     private final AgentValidator agentValidator;
 
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
 
     // =========================================================
@@ -84,6 +85,10 @@ public class AgentConfigServiceImpl
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
+
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
 
         agentConfigValidator.validateForCreate(
                 request,
@@ -120,7 +125,7 @@ public class AgentConfigServiceImpl
          * therefore it must be populated before persistence.
          */
         Long currentUserId =
-                currentUserService.getCurrentUserId();
+                tenantAccessService.getCurrentUserId();
 
         config.setCreatedBy(
                 currentUserId
@@ -175,6 +180,10 @@ public class AgentConfigServiceImpl
                         request.getPublicId()
                 );
 
+        tenantAccessService.validateAgentAccess(
+                config.getAgent()
+        );
+
         Agent agent =
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
@@ -216,7 +225,7 @@ public class AgentConfigServiceImpl
          * Only updatedBy should change during an update.
          */
         config.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         AgentConfig updatedConfig =
@@ -262,6 +271,10 @@ public class AgentConfigServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                config.getAgent()
+        );
+
         return agentConfigMapper.toResponse(
                 config
         );
@@ -292,6 +305,10 @@ public class AgentConfigServiceImpl
                 agentValidator.validateAndGet(
                         agentPublicId
                 );
+
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
 
         AgentConfig config =
                 agentConfigRepository
@@ -339,10 +356,24 @@ public class AgentConfigServiceImpl
                 "Fetching all Agent Configurations"
         );
 
-        List<AgentConfig> agentConfigs =
-                agentConfigRepository.findByIsDeleted(
-                        NOT_DELETED
-                );
+        List<AgentConfig> agentConfigs;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            agentConfigs =
+                    agentConfigRepository.findByIsDeleted(
+                            NOT_DELETED
+                    );
+
+        } else {
+
+            agentConfigs =
+                    agentConfigRepository
+                            .findByAgent_Tenant_IdAndIsDeleted(
+                                    tenantAccessService.getCurrentTenantId(),
+                                    NOT_DELETED
+                            );
+        }
 
         List<AgentConfigResponse> content =
                 agentConfigs.stream()
@@ -389,8 +420,12 @@ public class AgentConfigServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                config.getAgent()
+        );
+
         config.markAsDeleted(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         agentConfigRepository.save(
@@ -427,8 +462,12 @@ public class AgentConfigServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                config.getAgent()
+        );
+
         config.activate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         config.setStatus(
@@ -469,8 +508,12 @@ public class AgentConfigServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                config.getAgent()
+        );
+
         config.deactivate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         config.setStatus(

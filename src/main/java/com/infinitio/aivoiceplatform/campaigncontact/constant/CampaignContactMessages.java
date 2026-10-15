@@ -85,4 +85,7 @@ public final class CampaignContactMessages {
 
     public static final String EXCEL_NAME_COLUMN_REQUIRED =
             "Excel file must contain a name column.";
+
+    public static final String STATUS_INVALID =
+            "Campaign contact status is invalid.";
 }

@@ -15,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import com.infinitio.aivoiceplatform.master.rolepermission.dto.request.SaveRolePermissionsRequest;
+import java.util.List;
 
 /**
  * REST Controller for Role Permission Management.
@@ -43,6 +46,7 @@ public class RolePermissionController {
             summary = "Create Role Permission"
     )
     @PostMapping
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_CREATE')")
     public ResponseEntity<ApiResponse<RolePermissionResponse>> create(
             @Valid
             @RequestBody
@@ -72,6 +76,7 @@ public class RolePermissionController {
             summary = "Update Role Permission"
     )
     @PutMapping
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<RolePermissionResponse>> update(
             @Valid
             @RequestBody
@@ -102,6 +107,7 @@ public class RolePermissionController {
             summary = "Get Role Permission By Public Id"
     )
     @GetMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_VIEW')")
     public ResponseEntity<
             ApiResponse<RolePermissionResponse>
             > getByPublicId(
@@ -133,30 +139,15 @@ public class RolePermissionController {
             summary = "Get All Role Permissions"
     )
     @GetMapping
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_VIEW')")
     public ResponseEntity<
-            ApiResponse<PageResponse<RolePermissionResponse>>
-            > getAll(
-            @RequestParam(
-                    defaultValue = "0"
-            )
-            int page,
+            ApiResponse<List<RolePermissionResponse>>
+            > getAll() {
 
-            @RequestParam(
-                    defaultValue = "10"
-            )
-            int size) {
+        log.info("REST Request : Get All Role Permissions");
 
-        log.info(
-                "REST Request : Get All Role Permissions | page={} | size={}",
-                page,
-                size
-        );
-
-        PageResponse<RolePermissionResponse> response =
-                rolePermissionService.getAll(
-                        page,
-                        size
-                );
+        List<RolePermissionResponse> response =
+                rolePermissionService.getAll();
 
         return ResponseBuilder.success(
                 response,
@@ -173,6 +164,7 @@ public class RolePermissionController {
             summary = "Delete Role Permission"
     )
     @DeleteMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_DELETE')")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable
             String publicId) {
@@ -201,6 +193,7 @@ public class RolePermissionController {
             summary = "Activate Role Permission"
     )
     @PatchMapping("/{publicId}/activate")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable
             String publicId) {
@@ -229,6 +222,7 @@ public class RolePermissionController {
             summary = "Deactivate Role Permission"
     )
     @PatchMapping("/{publicId}/deactivate")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable
             String publicId) {
@@ -247,4 +241,60 @@ public class RolePermissionController {
                 RolePermissionMessages.DEACTIVATED
         );
     }
+
+    @Operation(
+            summary = "Get Permissions Assigned to a Role"
+    )
+    @GetMapping("/role/{rolePublicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_VIEW')")
+    public ResponseEntity<
+            ApiResponse<List<RolePermissionResponse>>
+            > getByRolePublicId(
+            @PathVariable String rolePublicId) {
+
+        log.info(
+                "REST Request : Get Permissions Assigned to Role | rolePublicId={}",
+                rolePublicId
+        );
+
+        List<RolePermissionResponse> response =
+                rolePermissionService.getByRolePublicId(
+                        rolePublicId
+                );
+
+        return ResponseBuilder.success(
+                response,
+                "Role permissions fetched successfully."
+        );
+    }
+
+    @Operation(
+            summary = "Save Permissions Assigned to a Role"
+    )
+    @PutMapping("/role/{rolePublicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_PERMISSION_UPDATE')")
+    public ResponseEntity<
+            ApiResponse<List<RolePermissionResponse>>
+            > saveForRole(
+            @PathVariable String rolePublicId,
+            @Valid @RequestBody SaveRolePermissionsRequest request) {
+
+        log.info(
+                "REST Request : Save Role Permissions | rolePublicId={}",
+                rolePublicId
+        );
+
+        List<RolePermissionResponse> response =
+                rolePermissionService.saveForRole(
+                        rolePublicId,
+                        request
+                );
+
+        return ResponseBuilder.success(
+                response,
+                "Role permissions saved successfully."
+        );
+    }
+
+
 }

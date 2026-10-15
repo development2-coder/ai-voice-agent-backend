@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.stt.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
@@ -35,6 +36,7 @@ public class SttController {
     private final SttService sttService;
 
     @Operation(summary = "Create STT")
+    @RequiresPermission("STT_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<SttResponse>> create(
             @Valid @RequestBody CreateSttRequest request) {
@@ -51,6 +53,7 @@ public class SttController {
     }
 
     @Operation(summary = "Update STT")
+    @RequiresPermission("STT_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<SttResponse>> update(
             @Valid @RequestBody UpdateSttRequest request) {
@@ -67,6 +70,7 @@ public class SttController {
     }
 
     @Operation(summary = "Get STT By Public Id")
+    @RequiresPermission("STT_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<SttResponse>> getByPublicId(
             @PathVariable String publicId) {
@@ -86,6 +90,7 @@ public class SttController {
     }
 
     @Operation(summary = "Get All STT Configurations")
+    @RequiresPermission("STT_VIEW")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<SttResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
@@ -107,6 +112,7 @@ public class SttController {
     }
 
     @Operation(summary = "Delete STT")
+    @RequiresPermission("STT_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -125,6 +131,7 @@ public class SttController {
     }
 
     @Operation(summary = "Activate STT")
+    @RequiresPermission("STT_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -143,6 +150,7 @@ public class SttController {
     }
 
     @Operation(summary = "Deactivate STT")
+    @RequiresPermission("STT_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

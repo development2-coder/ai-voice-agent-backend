@@ -24,7 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.callsession.constant.CallSessionStatus;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Map;
@@ -1385,9 +1385,9 @@ public class VoiceGatewayServiceImpl
                 String detectedLanguage =
                         response.getLanguage();
 
-                pendingBargeIns.remove(
-                        finalCallId
-                );
+//                pendingBargeIns.remove(
+//                        finalCallId
+//                );
 
                 if (finalCallId == null
                         || finalCallId.isBlank()
@@ -1426,6 +1426,39 @@ public class VoiceGatewayServiceImpl
                     return;
                 }
 
+                /*
+                 * STT may deliver a delayed final transcript after the
+                 * conversation has already been terminated.
+                 *
+                 * Never process another transcript once the Call Session
+                 * is already ended.
+                 */
+                CallSessionResponseDto callSession =
+                        callContextService.resolveCallSession(
+                                finalCallId
+                        );
+
+                if (callSession == null
+                        || CallSessionStatus.ENDED.equals(
+                        callSession.getStatus()
+                )) {
+
+                    pendingBargeIns.remove(
+                            finalCallId
+                    );
+
+                    log.info(
+                            "{} Ignoring final STT transcript because the " +
+                                    "conversation is already ended. " +
+                                    "callId={}, transcript={}",
+                            VoiceGatewayConstants.LOG_PREFIX,
+                            finalCallId,
+                            transcript
+                    );
+
+                    return;
+                }
+
                 log.info(
                         "{} Final STT transcript received. " +
                                 "callId={}, language={}, transcript={}",
@@ -1439,6 +1472,71 @@ public class VoiceGatewayServiceImpl
                  * Persist only after duplicate validation.
                  */
                 try {
+
+                    boolean playbackActive =
+                            ttsAudioStreamRegistry.isPlaybackActive(
+                                    finalCallId
+                            );
+
+                    boolean callerBargeInPending =
+                            Boolean.TRUE.equals(
+                                    pendingBargeIns.get(
+                                            finalCallId
+                                    )
+                            );
+
+                    /*
+                     * If caller speech was detected by VAD while AI audio was
+                     * playing, treat the final STT transcript as a genuine
+                     * caller barge-in.
+                     */
+                    if (playbackActive
+                            && callerBargeInPending) {
+
+                        log.info(
+                                "{} Caller final STT confirmed during AI playback. " +
+                                        "Processing caller barge-in. callId={}, transcript={}",
+                                VoiceGatewayConstants.LOG_PREFIX,
+                                finalCallId,
+                                transcript
+                        );
+
+                        pendingBargeIns.remove(
+                                finalCallId
+                        );
+
+                        processBargeIn(
+                                finalCallId,
+                                streamId
+                        );
+
+                        playbackActive = false;
+                    }
+
+                    /*
+                     * If AI is speaking and there was no caller speech
+                     * confirmation, treat the transcript as possible echo.
+                     */
+                    if (playbackActive) {
+
+                        log.info(
+                                "{} Ignoring final STT transcript while AI audio " +
+                                        "is still playing and caller speech was not confirmed. " +
+                                        "callId={}, transcript={}",
+                                VoiceGatewayConstants.LOG_PREFIX,
+                                finalCallId,
+                                transcript
+                        );
+
+                        return;
+                    }
+
+                    /*
+                     * The final transcript has now been handled.
+                     */
+                    pendingBargeIns.remove(
+                            finalCallId
+                    );
 
                     runtimePersistenceService.saveTranscriptMessage(
                             finalCallId,
@@ -1503,13 +1601,17 @@ public class VoiceGatewayServiceImpl
             public void onSpeechEnd(
                     String speechCallId) {
 
-                pendingBargeIns.remove(
-                        speechCallId
-                );
-
+                /*
+                 * Do not immediately remove the pending state.
+                 *
+                 * Sarvam may deliver the final transcript slightly after
+                 * the speech-end event. The final transcript handler needs
+                 * this state to distinguish genuine caller speech from
+                 * AI audio echo.
+                 */
                 log.debug(
-                        "{} Caller speech segment ended without " +
-                                "STT-confirmed barge-in. callId={}",
+                        "{} Caller speech segment ended. " +
+                                "Waiting for final STT confirmation. callId={}",
                         VoiceGatewayConstants.LOG_PREFIX,
                         speechCallId
                 );
@@ -1642,9 +1744,14 @@ public class VoiceGatewayServiceImpl
                 .trim()
                 .toLowerCase(Locale.ROOT)
                 .replaceAll(
+                        "[^\\p{L}\\p{N}\\s]",
+                        ""
+                )
+                .replaceAll(
                         "\\s+",
                         " "
-                );
+                )
+                .trim();
     }
 
     /**

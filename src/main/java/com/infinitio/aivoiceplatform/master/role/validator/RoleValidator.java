@@ -258,6 +258,28 @@ public class RoleValidator {
                 );
     }
 
+    public Role validateAndGetByRoleCode(
+            String roleCode) {
+
+        if (!hasText(roleCode)) {
+
+            throw new BadRequestException(
+                    "Role code is required."
+            );
+        }
+
+        return roleRepository
+                .findByRoleCodeAndIsDeleted(
+                        roleCode.trim(),
+                        NOT_DELETED
+                )
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Role not found."
+                        )
+                );
+    }
+
 
     // =========================================================
     // ROLE CODE

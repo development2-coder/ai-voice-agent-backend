@@ -20,6 +20,7 @@ import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExce
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignExcelService;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -99,6 +100,8 @@ public class CampaignContactExcelServiceImpl
 
     private final ObjectMapper objectMapper;
 
+    private final TenantAccessService tenantAccessService;
+
     /**
      * {@inheritDoc}
      */
@@ -108,9 +111,9 @@ public class CampaignContactExcelServiceImpl
             MultipartFile file) {
 
         Campaign campaign =
-                campaignValidator.validateAndGet(
-                        campaignPublicId
-                );
+                campaignValidator.validateAndGet(campaignPublicId);
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         validateFile(file);
 
@@ -281,6 +284,12 @@ public class CampaignContactExcelServiceImpl
                 campaignValidator.validateAndGet(
                         campaignPublicId
                 );
+
+        /*
+         * Confirmation is a separate request from preview.
+         * Always authorize the campaign again before importing.
+         */
+        tenantAccessService.validateCampaignAccess(campaign);
 
         List<CampaignContactExcelPreviewRowResponse>
                 rows =

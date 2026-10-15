@@ -88,4 +88,10 @@ public interface AiDialerRepository
             @Param("isDeleted") Integer isDeleted
     );
 
+
+    List<AiDialer> findAllByAgent_Tenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
+    );
+
 }

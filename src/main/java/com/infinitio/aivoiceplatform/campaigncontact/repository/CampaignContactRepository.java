@@ -136,5 +136,42 @@ public interface CampaignContactRepository
             Integer isDeleted
     );
 
+    /**
+     * Finds all non-deleted campaign contacts.
+     *
+     * Used for SUPER_ADMIN access.
+     *
+     * @param isDeleted deleted flag
+     * @return matching campaign contacts
+     */
+    List<CampaignContact> findByIsDeleted(Integer isDeleted);
+
+    /**
+     * Finds non-deleted contacts belonging to the current tenant.
+     *
+     * Contact -> Campaign -> Agent -> Tenant.
+     *
+     * @param tenantId tenant database identifier
+     * @param isDeleted deleted flag
+     * @return contacts belonging to the tenant
+     */
+    List<CampaignContact>
+    findByCampaign_Agent_Tenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
+    );
+
+    /**
+     * Finds a non-deleted contact by its public identifier.
+     *
+     * @param publicId contact public identifier
+     * @param isDeleted deleted flag
+     * @return matching contact
+     */
+    Optional<CampaignContact> findByPublicIdAndIsDeleted(
+            String publicId,
+            Integer isDeleted
+    );
+
 
 }

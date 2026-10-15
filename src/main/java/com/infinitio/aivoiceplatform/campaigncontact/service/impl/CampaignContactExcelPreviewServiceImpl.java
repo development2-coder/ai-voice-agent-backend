@@ -1,6 +1,7 @@
 package com.infinitio.aivoiceplatform.campaigncontact.service.impl;
 
 import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResponse;
+import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
 import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import com.infinitio.aivoiceplatform.campaign.validator.CampaignValidator;
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactConstants;
@@ -10,20 +11,18 @@ import com.infinitio.aivoiceplatform.campaigncontact.dto.response.CampaignContac
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactExcelPreviewService;
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignExcelService;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.DataFormatter;
-import org.apache.poi.ss.usermodel.FormulaEvaluator;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -91,6 +90,8 @@ public class CampaignContactExcelPreviewServiceImpl
     private final CampaignExcelService
             campaignExcelService;
 
+    private final TenantAccessService tenantAccessService;
+
     /**
      * {@inheritDoc}
      */
@@ -108,6 +109,11 @@ public class CampaignContactExcelPreviewServiceImpl
         campaignValidator.validateAndGet(
                 campaignPublicId
         );
+
+        Campaign campaign =
+                campaignValidator.validateAndGet(campaignPublicId);
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         validateFile(file);
 
@@ -543,6 +549,25 @@ public class CampaignContactExcelPreviewServiceImpl
             return null;
         }
 
+        /*
+         * Handle actual Excel date cells.
+         *
+         * Excel stores real date cells as NUMERIC values.
+         * DateUtil must only be called for NUMERIC cells.
+         */
+        if (cell.getCellType() == CellType.NUMERIC
+                && DateUtil.isCellDateFormatted(cell)) {
+
+            return cell
+                    .getLocalDateTimeCellValue()
+                    .toLocalDate()
+                    .format(
+                            DateTimeFormatter.ofPattern(
+                                    "dd-MM-yyyy"
+                            )
+                    );
+        }
+
         String value =
                 formatter.formatCellValue(
                         cell,
@@ -555,7 +580,84 @@ public class CampaignContactExcelPreviewServiceImpl
             return null;
         }
 
-        return value.trim();
+        value = value.trim();
+
+        /*
+         * Handle dates which Excel stores as STRING values.
+         *
+         * Examples:
+         * 9/28/2026  -> 28-09-2026
+         * 09/28/2026 -> 28-09-2026
+         * 20/09/2026 -> 20-09-2026
+         * 20-09-2026 -> 20-09-2026
+         */
+        String normalizedDate =
+                normalizeDateString(value);
+
+        if (normalizedDate != null) {
+            return normalizedDate;
+        }
+
+        return value;
+    }
+
+    private String normalizeDateString(
+            String value) {
+
+        List<DateTimeFormatter> formatters =
+                List.of(
+                        DateTimeFormatter.ofPattern(
+                                "M/d/yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "MM/dd/yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "d/M/yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "dd/MM/yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "d-M-yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "dd-MM-yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "M-d-yyyy"
+                        ),
+                        DateTimeFormatter.ofPattern(
+                                "MM-dd-yyyy"
+                        )
+                );
+
+        for (DateTimeFormatter formatter :
+                formatters) {
+
+            try {
+
+                LocalDate date =
+                        LocalDate.parse(
+                                value,
+                                formatter
+                        );
+
+                return date.format(
+                        DateTimeFormatter.ofPattern(
+                                "dd-MM-yyyy"
+                        )
+                );
+
+            } catch (DateTimeParseException ignored) {
+
+                /*
+                 * Try the next supported date format.
+                 */
+            }
+        }
+
+        return null;
     }
 
     /**

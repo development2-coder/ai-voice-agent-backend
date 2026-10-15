@@ -8,6 +8,7 @@ import com.infinitio.aivoiceplatform.agentconfig.service.AgentConfigService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -43,6 +44,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Create Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_CREATE")
     @PostMapping
     public ResponseEntity<
             ApiResponse<AgentConfigResponse>>
@@ -74,6 +76,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Update Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_UPDATE")
     @PutMapping
     public ResponseEntity<
             ApiResponse<AgentConfigResponse>>
@@ -105,6 +108,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Get Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<
             ApiResponse<AgentConfigResponse>>
@@ -136,6 +140,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Get Configuration By Agent"
     )
+    @RequiresPermission("AGENT_CONFIG_VIEW")
     @GetMapping("/agent/{agentPublicId}")
     public ResponseEntity<
             ApiResponse<AgentConfigResponse>>
@@ -167,6 +172,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Get All Agent Configurations"
     )
+    @RequiresPermission("AGENT_CONFIG_VIEW")
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<AgentConfigResponse>>>
@@ -193,6 +199,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Delete Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>>
     delete(
@@ -222,6 +229,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Activate Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>>
     activate(
@@ -251,6 +259,7 @@ public class AgentConfigController {
     @Operation(
             summary = "Deactivate Agent Configuration"
     )
+    @RequiresPermission("AGENT_CONFIG_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>>
     deactivate(

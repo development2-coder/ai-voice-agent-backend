@@ -29,7 +29,7 @@ public class SarvamWebClientConfig {
             Duration.ofSeconds(10);
 
     private static final Duration DEFAULT_RESPONSE_TIMEOUT =
-            Duration.ofSeconds(30);
+            Duration.ofSeconds(60);
 
     /**
      * Creates the reusable WebClient for Sarvam API communication.

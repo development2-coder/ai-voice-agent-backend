@@ -27,6 +27,14 @@ public interface FlowExecutionService {
             ContinueAiResponseRequest request
     );
 
+    FlowExecutionResult initialize(
+            StartFlowExecutionRequest request
+    );
+
+    FlowExecutionResult executeExisting(
+            String executionPublicId
+    );
+
     void cancel(
             String executionPublicId
     );

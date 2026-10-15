@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -36,13 +37,11 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class PlatformModuleController {
 
-
     // =========================================================
     // SERVICE
     // =========================================================
 
     private final PlatformModuleService platformModuleService;
-
 
     // =========================================================
     // CREATE
@@ -55,6 +54,7 @@ public class PlatformModuleController {
      * @return created Platform Module
      */
     @PostMapping
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_CREATE')")
     public ResponseEntity<PlatformModuleResponse> create(
             @Valid
             @RequestBody
@@ -66,15 +66,12 @@ public class PlatformModuleController {
         );
 
         PlatformModuleResponse response =
-                platformModuleService.create(
-                        request
-                );
+                platformModuleService.create(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
                 .body(response);
     }
-
 
     // =========================================================
     // UPDATE
@@ -87,6 +84,7 @@ public class PlatformModuleController {
      * @return updated Platform Module
      */
     @PutMapping
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_UPDATE')")
     public ResponseEntity<PlatformModuleResponse> update(
             @Valid
             @RequestBody
@@ -98,15 +96,10 @@ public class PlatformModuleController {
         );
 
         PlatformModuleResponse response =
-                platformModuleService.update(
-                        request
-                );
+                platformModuleService.update(request);
 
-        return ResponseEntity.ok(
-                response
-        );
+        return ResponseEntity.ok(response);
     }
-
 
     // =========================================================
     // GET BY PUBLIC ID
@@ -119,6 +112,7 @@ public class PlatformModuleController {
      * @return Platform Module
      */
     @GetMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_VIEW')")
     public ResponseEntity<PlatformModuleResponse> getByPublicId(
             @PathVariable
             String publicId) {
@@ -129,15 +123,10 @@ public class PlatformModuleController {
         );
 
         PlatformModuleResponse response =
-                platformModuleService.getByPublicId(
-                        publicId
-                );
+                platformModuleService.getByPublicId(publicId);
 
-        return ResponseEntity.ok(
-                response
-        );
+        return ResponseEntity.ok(response);
     }
-
 
     // =========================================================
     // GET ALL
@@ -146,25 +135,17 @@ public class PlatformModuleController {
     /**
      * Get all non-deleted Platform Modules.
      *
-     * Pagination:
-     *
-     * page = zero-based page number
-     * size = number of records per page
-     *
      * @param page page number
      * @param size page size
      * @return paginated Platform Modules
      */
     @GetMapping
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_VIEW')")
     public ResponseEntity<PageResponse<PlatformModuleResponse>> getAll(
-            @RequestParam(
-                    defaultValue = "0"
-            )
+            @RequestParam(defaultValue = "0")
             int page,
 
-            @RequestParam(
-                    defaultValue = "10"
-            )
+            @RequestParam(defaultValue = "10")
             int size) {
 
         log.info(
@@ -174,16 +155,10 @@ public class PlatformModuleController {
         );
 
         PageResponse<PlatformModuleResponse> response =
-                platformModuleService.getAll(
-                        page,
-                        size
-                );
+                platformModuleService.getAll(page, size);
 
-        return ResponseEntity.ok(
-                response
-        );
+        return ResponseEntity.ok(response);
     }
-
 
     // =========================================================
     // DELETE
@@ -196,6 +171,7 @@ public class PlatformModuleController {
      * @return no content
      */
     @DeleteMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_DELETE')")
     public ResponseEntity<Void> delete(
             @PathVariable
             String publicId) {
@@ -205,15 +181,12 @@ public class PlatformModuleController {
                 publicId
         );
 
-        platformModuleService.delete(
-                publicId
-        );
+        platformModuleService.delete(publicId);
 
         return ResponseEntity
                 .noContent()
                 .build();
     }
-
 
     // =========================================================
     // ACTIVATE
@@ -226,6 +199,7 @@ public class PlatformModuleController {
      * @return no content
      */
     @PatchMapping("/{publicId}/activate")
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_UPDATE')")
     public ResponseEntity<Void> activate(
             @PathVariable
             String publicId) {
@@ -235,15 +209,12 @@ public class PlatformModuleController {
                 publicId
         );
 
-        platformModuleService.activate(
-                publicId
-        );
+        platformModuleService.activate(publicId);
 
         return ResponseEntity
                 .noContent()
                 .build();
     }
-
 
     // =========================================================
     // DEACTIVATE
@@ -256,6 +227,7 @@ public class PlatformModuleController {
      * @return no content
      */
     @PatchMapping("/{publicId}/deactivate")
+    @PreAuthorize("hasPermission(null, 'PLATFORM_MODULE_UPDATE')")
     public ResponseEntity<Void> deactivate(
             @PathVariable
             String publicId) {
@@ -265,9 +237,7 @@ public class PlatformModuleController {
                 publicId
         );
 
-        platformModuleService.deactivate(
-                publicId
-        );
+        platformModuleService.deactivate(publicId);
 
         return ResponseEntity
                 .noContent()

@@ -5,6 +5,8 @@ import com.infinitio.aivoiceplatform.master.permission.dto.request.CreatePermiss
 import com.infinitio.aivoiceplatform.master.permission.dto.request.UpdatePermissionRequest;
 import com.infinitio.aivoiceplatform.master.permission.dto.response.PermissionResponse;
 
+import java.util.List;
+
 public interface PermissionService {
 
     PermissionResponse create(
@@ -19,10 +21,7 @@ public interface PermissionService {
             String publicId
     );
 
-    PageResponse<PermissionResponse> getAll(
-            int page,
-            int size
-    );
+    List<PermissionResponse> getAll();
 
     void delete(String publicId);
 

@@ -1,9 +1,8 @@
 package com.infinitio.aivoiceplatform.master.permission.entity;
 
 import com.infinitio.aivoiceplatform.common.entity.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
+import com.infinitio.aivoiceplatform.master.platformmodule.entity.PlatformModule;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -51,4 +50,8 @@ public class Permission extends BaseEntity {
             nullable = false
     )
     private Integer isSystem;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "module_id", nullable = false)
+    private PlatformModule module;
 }

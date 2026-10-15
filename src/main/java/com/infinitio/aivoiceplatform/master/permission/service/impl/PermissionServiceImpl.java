@@ -12,13 +12,17 @@ import com.infinitio.aivoiceplatform.master.permission.mapper.PermissionMapper;
 import com.infinitio.aivoiceplatform.master.permission.repository.PermissionRepository;
 import com.infinitio.aivoiceplatform.master.permission.service.PermissionService;
 import com.infinitio.aivoiceplatform.master.permission.validator.PermissionValidator;
+import com.infinitio.aivoiceplatform.master.platformmodule.entity.PlatformModule;
+import com.infinitio.aivoiceplatform.master.platformmodule.repository.PlatformModuleRepository;
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
 /**
  * Permission Service Implementation.
  *
@@ -46,6 +50,8 @@ public class PermissionServiceImpl
 
     private final CurrentUserService currentUserService;
 
+    private final PlatformModuleRepository platformModuleRepository;
+
 
     // =========================================================
     // CREATE
@@ -61,6 +67,8 @@ public class PermissionServiceImpl
                         ? request.getPermissionCode()
                         : null
         );
+
+        validateSuperAdminAccess();
 
         permissionValidator.validateForCreate(
                 request
@@ -103,6 +111,21 @@ public class PermissionServiceImpl
                 currentUserService.getCurrentUserId()
         );
 
+        PlatformModule module = platformModuleRepository
+                .findByPublicIdAndIsDeleted(
+                        request.getModulePublicId().trim(),
+                        0
+                )
+                .orElseThrow(() ->
+                        new BadRequestException("Platform module not found.")
+                );
+
+        if (!Integer.valueOf(1).equals(module.getIsActive())) {
+            throw new BadRequestException("Platform module is inactive.");
+        }
+
+        permission.setModule(module);
+
         Permission savedPermission =
                 permissionRepository.save(
                         permission
@@ -134,6 +157,8 @@ public class PermissionServiceImpl
                         : null
         );
 
+        validateSuperAdminAccess();
+
         permissionValidator.validateForUpdate(
                 request
         );
@@ -143,21 +168,19 @@ public class PermissionServiceImpl
                         request.getPublicId().trim()
                 );
 
+        validateSystemPermissionModification(
+                existingPermission
+        );
+
         permissionMapper.updateEntityFromRequest(
                 request,
                 existingPermission
         );
 
-        /*
-         * Preserve lifecycle state.
-         */
         existingPermission.setIsDeleted(
                 NOT_DELETED
         );
 
-        /*
-         * Audit.
-         */
         existingPermission.setUpdatedBy(
                 currentUserService.getCurrentUserId()
         );
@@ -209,69 +232,17 @@ public class PermissionServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<PermissionResponse> getAll(
-            int page,
-            int size) {
+    public List<PermissionResponse> getAll() {
 
-        log.info(
-                "Fetching Permissions. page={}, size={}",
-                page,
-                size
-        );
+        log.info("Fetching all Permissions.");
 
-        if (page < 0) {
-
-            throw new BadRequestException(
-                    "Page number cannot be negative."
-            );
-        }
-
-        if (size <= 0) {
-
-            throw new BadRequestException(
-                    "Page size must be greater than zero."
-            );
-        }
-
-        Page<Permission> permissionPage =
-                permissionRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
-
-        return PageResponse
-                .<PermissionResponse>builder()
-                .content(
-                        permissionPage
-                                .getContent()
-                                .stream()
-                                .map(
-                                        permissionMapper::toResponse
-                                )
-                                .toList()
+        return permissionRepository
+                .findByIsDeletedOrderByDisplayOrderAsc(
+                        NOT_DELETED
                 )
-                .pageNumber(
-                        permissionPage.getNumber()
-                )
-                .pageSize(
-                        permissionPage.getSize()
-                )
-                .totalElements(
-                        permissionPage.getTotalElements()
-                )
-                .totalPages(
-                        permissionPage.getTotalPages()
-                )
-                .first(
-                        permissionPage.isFirst()
-                )
-                .last(
-                        permissionPage.isLast()
-                )
-                .build();
+                .stream()
+                .map(permissionMapper::toResponse)
+                .toList();
     }
 
 
@@ -288,10 +259,16 @@ public class PermissionServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Permission permission =
                 permissionValidator.validateAndGet(
                         publicId
                 );
+
+        validateSystemPermissionModification(
+                permission
+        );
 
         permission.markAsDeleted(
                 currentUserService.getCurrentUserId()
@@ -321,10 +298,16 @@ public class PermissionServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Permission permission =
                 permissionValidator.validateAndGet(
                         publicId
                 );
+
+        validateSystemPermissionModification(
+                permission
+        );
 
         permission.activate(
                 currentUserService.getCurrentUserId()
@@ -354,10 +337,16 @@ public class PermissionServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Permission permission =
                 permissionValidator.validateAndGet(
                         publicId
                 );
+
+        validateSystemPermissionModification(
+                permission
+        );
 
         permission.deactivate(
                 currentUserService.getCurrentUserId()
@@ -371,5 +360,64 @@ public class PermissionServiceImpl
                 "Permission deactivated successfully. publicId={}",
                 publicId
         );
+    }
+
+    // =========================================================
+// AUTHORIZATION
+// =========================================================
+
+    /**
+     * Validates that the current user is SUPER_ADMIN.
+     *
+     * <p>
+     * Permission definitions are platform-level security
+     * configuration and can only be managed by SUPER_ADMIN.
+     * </p>
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+
+            throw new ForbiddenException(
+                    "Authentication is required to manage permissions."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+
+            throw new ForbiddenException(
+                    "Only SUPER_ADMIN can manage permissions."
+            );
+        }
+    }
+
+
+// =========================================================
+// SYSTEM PERMISSION PROTECTION
+// =========================================================
+
+    /**
+     * Prevents modification of system permissions.
+     *
+     * @param permission permission being modified
+     */
+    private void validateSystemPermissionModification(
+            Permission permission) {
+
+        if (permission == null) {
+
+            throw new ForbiddenException(
+                    "Permission is required."
+            );
+        }
+
+        if (permission.getIsSystem() != null
+                && permission.getIsSystem()
+                == PermissionConstants.SYSTEM_PERMISSION) {
+
+            throw new ForbiddenException(
+                    "System permission cannot be modified."
+            );
+        }
     }
 }

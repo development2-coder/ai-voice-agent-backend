@@ -18,6 +18,8 @@ import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
 import com.infinitio.aivoiceplatform.campaign.validator.CampaignValidator;
 import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -59,6 +61,7 @@ public class AiDialerServiceImpl
 
     private final FlowValidator flowValidator;
 
+    private final TenantAccessService tenantAccessService;
 
     private final CurrentUserService
             currentUserService;
@@ -95,6 +98,24 @@ public class AiDialerServiceImpl
                 flowValidator.validateAndGet(
                         request.getFlowPublicId()
                 );
+
+        tenantAccessService.validateCampaignAccess(campaign);
+        tenantAccessService.validateAgentAccess(agent);
+        tenantAccessService.validateFlowAccess(flow);
+
+        if (campaign.getAgent() == null
+                || !agent.getId().equals(campaign.getAgent().getId())) {
+            throw new BadRequestException(
+                    "The selected Campaign does not belong to the selected Agent."
+            );
+        }
+
+        if (flow.getAgent() == null
+                || !agent.getId().equals(flow.getAgent().getId())) {
+            throw new BadRequestException(
+                    "The selected Flow does not belong to the selected Agent."
+            );
+        }
 
         AiDialer dialer =
                 aiDialerMapper.toEntity(
@@ -152,6 +173,8 @@ public class AiDialerServiceImpl
                         publicId
                 );
 
+        validateDialerAccess(dialer);
+
         return aiDialerMapper.toResponse(
                 dialer
         );
@@ -166,11 +189,19 @@ public class AiDialerServiceImpl
     @Transactional(readOnly = true)
     public List<DialerResponse> getAll() {
 
-        return aiDialerRepository
-                .findAllByIsDeleted(
-                        NOT_DELETED
-                )
-                .stream()
+        List<AiDialer> dialers;
+
+        if (tenantAccessService.isSuperAdmin()) {
+            dialers = aiDialerRepository.findAllByIsDeleted(NOT_DELETED);
+        } else {
+            dialers =
+                    aiDialerRepository.findAllByAgent_Tenant_IdAndIsDeleted(
+                            tenantAccessService.getCurrentTenantId(),
+                            NOT_DELETED
+                    );
+        }
+
+        return dialers.stream()
                 .map(aiDialerMapper::toResponse)
                 .toList();
     }
@@ -189,6 +220,8 @@ public class AiDialerServiceImpl
                 campaignValidator.validateAndGet(
                         campaignPublicId
                 );
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         return aiDialerRepository
                 .findAllByCampaignIdAndIsDeleted(
@@ -223,6 +256,8 @@ public class AiDialerServiceImpl
                 aiDialerValidator.validateAndGet(
                         publicId
                 );
+
+        validateDialerAccess(dialer);
 
         aiDialerMapper.updateEntity(
                 request,
@@ -350,6 +385,8 @@ public class AiDialerServiceImpl
                         publicId
                 );
 
+        validateDialerAccess(dialer);
+
         /*
          * A deleted dialer must not continue running.
          */
@@ -396,6 +433,8 @@ public class AiDialerServiceImpl
                 aiDialerValidator.validateAndGet(
                         request.getDialerPublicId()
                 );
+
+        validateDialerAccess(dialer);
 
         if (dialer.getStatus()
                 == DialerStatus.RUNNING) {
@@ -453,6 +492,8 @@ public class AiDialerServiceImpl
                         request.getDialerPublicId()
                 );
 
+        validateDialerAccess(dialer);
+
         if (dialer.getStatus()
                 != DialerStatus.RUNNING) {
 
@@ -498,6 +539,8 @@ public class AiDialerServiceImpl
                         request.getDialerPublicId()
                 );
 
+        validateDialerAccess(dialer);
+
         if (dialer.getStatus()
                 != DialerStatus.PAUSED) {
 
@@ -541,6 +584,8 @@ public class AiDialerServiceImpl
                         publicId
                 );
 
+        validateDialerAccess(dialer);
+
         if (dialer.getStatus()
                 == DialerStatus.STOPPED) {
 
@@ -578,5 +623,88 @@ public class AiDialerServiceImpl
         return aiDialerMapper.toResponse(
                 savedDialer
         );
+    }
+
+    /**
+     * Validates access to an existing AI Dialer and its related resources.
+     *
+     * @param dialer AI Dialer to validate
+     */
+    private void validateDialerAccess(AiDialer dialer) {
+
+        if (dialer == null) {
+            throw new BadRequestException(
+                    "AI Dialer is required."
+            );
+        }
+
+        validateDialerReferences(
+                dialer.getCampaign(),
+                dialer.getAgent(),
+                dialer.getFlow()
+        );
+    }
+
+    /**
+     * Validates tenant access and ownership consistency for the complete
+     * Campaign, Agent and Flow relationship.
+     *
+     * <p>Relationship requirements:</p>
+     * <ul>
+     *     <li>The current user must have access to the Campaign.</li>
+     *     <li>The current user must have access to the Agent.</li>
+     *     <li>The current user must have access to the Flow.</li>
+     *     <li>The Campaign must belong to the selected Agent.</li>
+     *     <li>The Flow must belong to the selected Agent.</li>
+     * </ul>
+     *
+     * @param campaign campaign associated with the dialer
+     * @param agent agent associated with the dialer
+     * @param flow flow associated with the dialer
+     */
+    private void validateDialerReferences(
+            Campaign campaign,
+            Agent agent,
+            Flow flow) {
+
+        if (campaign == null || agent == null || flow == null) {
+            throw new BadRequestException(
+                    "AI Dialer must have a Campaign, Agent and Flow."
+            );
+        }
+
+        /*
+         * Validate each resource independently. This is essential
+         * when an update supplies replacement resource IDs.
+         */
+        tenantAccessService.validateCampaignAccess(campaign);
+        tenantAccessService.validateAgentAccess(agent);
+        tenantAccessService.validateFlowAccess(flow);
+
+        /*
+         * Ensure the selected Campaign belongs to the selected Agent.
+         */
+        if (campaign.getAgent() == null
+                || campaign.getAgent().getId() == null
+                || agent.getId() == null
+                || !agent.getId().equals(campaign.getAgent().getId())) {
+
+            throw new BadRequestException(
+                    "The selected Campaign does not belong to the selected Agent."
+            );
+        }
+
+        /*
+         * Ensure the selected Flow belongs to the selected Agent.
+         */
+        if (flow.getAgent() == null
+                || flow.getAgent().getId() == null
+                || agent.getId() == null
+                || !agent.getId().equals(flow.getAgent().getId())) {
+
+            throw new BadRequestException(
+                    "The selected Flow does not belong to the selected Agent."
+            );
+        }
     }
 }

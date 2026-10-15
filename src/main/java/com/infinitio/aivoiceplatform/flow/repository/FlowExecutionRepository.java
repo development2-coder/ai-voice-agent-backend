@@ -2,7 +2,10 @@ package com.infinitio.aivoiceplatform.flow.repository;
 
 import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.entity.FlowExecution;
-
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -25,6 +28,22 @@ public interface FlowExecutionRepository
      */
     Optional<FlowExecution> findByPublicId(
             String publicId
+    );
+
+    /**
+     * Finds and locks a Flow Execution for runtime modification.
+     *
+     * The lock prevents concurrent transactions from executing or
+     * advancing the same Flow Execution simultaneously.
+     *
+     * @param publicId public identifier of the Flow Execution
+     * @return locked Flow Execution, if present
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT execution FROM FlowExecution execution " +
+            "WHERE execution.publicId = :publicId")
+    Optional<FlowExecution> findByPublicIdForUpdate(
+            @Param("publicId") String publicId
     );
 
     /**

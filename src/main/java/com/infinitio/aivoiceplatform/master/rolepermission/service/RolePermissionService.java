@@ -4,6 +4,8 @@ import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.master.rolepermission.dto.request.CreateRolePermissionRequest;
 import com.infinitio.aivoiceplatform.master.rolepermission.dto.request.UpdateRolePermissionRequest;
 import com.infinitio.aivoiceplatform.master.rolepermission.dto.response.RolePermissionResponse;
+import java.util.List;
+import com.infinitio.aivoiceplatform.master.rolepermission.dto.request.SaveRolePermissionsRequest;
 
 /**
  * Role Permission Service.
@@ -25,9 +27,15 @@ public interface RolePermissionService {
             String publicId
     );
 
-    PageResponse<RolePermissionResponse> getAll(
-            int page,
-            int size
+    List<RolePermissionResponse> getAll();
+
+    List<RolePermissionResponse> getByRolePublicId(
+            String rolePublicId
+    );
+
+    List<RolePermissionResponse> saveForRole(
+            String rolePublicId,
+            SaveRolePermissionsRequest request
     );
 
     void delete(

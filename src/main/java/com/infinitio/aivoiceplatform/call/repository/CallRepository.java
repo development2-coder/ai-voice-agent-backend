@@ -16,102 +16,34 @@ import java.util.Optional;
  * @version 1.0.0
  */
 @Repository
-public interface CallRepository
-        extends JpaRepository<Call, Long> {
+public interface CallRepository extends JpaRepository<Call, Long> {
 
-    /**
-     * Finds a call using its public identifier.
-     *
-     * @param publicId public identifier
-     * @return matching call
-     */
-    Optional<Call> findByPublicId(
-            String publicId
-    );
+    Optional<Call> findByPublicId(String publicId);
 
-    /**
-     * Checks whether a call exists using its public identifier.
-     *
-     * @param publicId public identifier
-     * @return true when call exists
-     */
-    boolean existsByPublicId(
-            String publicId
-    );
+    boolean existsByPublicId(String publicId);
 
-    /**
-     * Checks whether a provider call identifier already exists.
-     *
-     * @param providerCallId provider call identifier
-     * @return true when provider call identifier exists
-     */
-    boolean existsByProviderCallId(
-            String providerCallId
-    );
+    boolean existsByProviderCallId(String providerCallId);
 
-    /**
-     * Checks whether a provider call identifier exists
-     * for another call.
-     *
-     * @param providerCallId provider call identifier
-     * @param id current call database identifier
-     * @return true when another call has the provider call identifier
-     */
     boolean existsByProviderCallIdAndIdNot(
             String providerCallId,
             Long id
     );
 
-    /**
-     * Finds a non-deleted call using its public identifier.
-     *
-     * @param publicId public identifier
-     * @param isDeleted deleted flag
-     * @return matching call
-     */
     Optional<Call> findByPublicIdAndIsDeleted(
             String publicId,
             Integer isDeleted
     );
 
     /**
-     * Finds all non-deleted calls.
-     *
-     * <p>
-     * This method is used only for SUPER_ADMIN access because
-     * SUPER_ADMIN can view calls belonging to all tenants.
-     * </p>
-     *
-     * @param isDeleted deleted flag
-     * @return all matching calls
+     * Lists all non-deleted calls. Use for SUPER_ADMIN only.
      */
     List<Call> findAllByIsDeletedOrderByCreatedAtDesc(
             Integer isDeleted
     );
 
     /**
-     * Finds all non-deleted calls belonging to a tenant.
-     *
-     * <p>
-     * Campaign calls are resolved through:
-     *
-     * <pre>
-     * Call
-     *  -> CampaignContact
-     *  -> Campaign
-     *  -> Agent
-     *  -> Tenant
-     * </pre>
-     *
-     * <p>
-     * Direct Agent calls do not have a CampaignContact.
-     * Those calls are resolved through the user who created
-     * the call and that user's tenant.
-     * </p>
-     *
-     * @param tenantId tenant database identifier
-     * @param isDeleted deleted flag
-     * @return tenant-scoped calls
+     * Lists calls whose campaign belongs to the tenant, or whose
+     * creating user belongs to the tenant for direct calls.
      */
     @Query("""
             SELECT call
@@ -119,8 +51,7 @@ public interface CallRepository
             LEFT JOIN call.campaignContact campaignContact
             LEFT JOIN campaignContact.campaign campaign
             LEFT JOIN campaign.agent agent
-            LEFT JOIN User creator
-                ON creator.id = call.createdBy
+            LEFT JOIN User creator ON creator.id = call.createdBy
             WHERE call.isDeleted = :isDeleted
               AND (
                     (
@@ -141,13 +72,55 @@ public interface CallRepository
     );
 
     /**
-     * Finds all non-deleted calls associated with a campaign contact
-     * and belonging to a tenant.
-     *
-     * @param campaignContactId campaign contact database identifier
-     * @param tenantId tenant database identifier
-     * @param isDeleted deleted flag
-     * @return matching calls
+     * Checks that a particular call belongs to a tenant.
+     * Supports campaign calls and direct calls.
+     */
+    @Query("""
+            SELECT CASE WHEN COUNT(call) > 0 THEN true ELSE false END
+            FROM Call call
+            LEFT JOIN call.campaignContact campaignContact
+            LEFT JOIN campaignContact.campaign campaign
+            LEFT JOIN campaign.agent agent
+            LEFT JOIN User creator ON creator.id = call.createdBy
+            WHERE call.id = :callId
+              AND call.isDeleted = :isDeleted
+              AND (
+                    (
+                        campaignContact IS NOT NULL
+                        AND agent.tenant.id = :tenantId
+                    )
+                    OR
+                    (
+                        campaignContact IS NULL
+                        AND creator.tenant.id = :tenantId
+                    )
+              )
+            """)
+    boolean existsAccessibleByIdAndTenantId(
+            @Param("callId") Long callId,
+            @Param("tenantId") Long tenantId,
+            @Param("isDeleted") Integer isDeleted
+    );
+
+    /**
+     * Lists calls for a campaign contact without tenant filtering.
+     * The service must authorize access to the campaign contact first.
+     * Use this for SUPER_ADMIN access after that authorization.
+     */
+    @Query("""
+            SELECT call
+            FROM Call call
+            WHERE call.campaignContact.id = :campaignContactId
+              AND call.isDeleted = :isDeleted
+            ORDER BY call.createdAt DESC
+            """)
+    List<Call> findAllByCampaignContactIdAndIsDeleted(
+            @Param("campaignContactId") Long campaignContactId,
+            @Param("isDeleted") Integer isDeleted
+    );
+
+    /**
+     * Lists calls for a campaign contact within a tenant.
      */
     @Query("""
             SELECT call
@@ -166,12 +139,6 @@ public interface CallRepository
             @Param("isDeleted") Integer isDeleted
     );
 
-    /**
-     * Finds a call using its provider call identifier.
-     *
-     * @param providerCallId provider supplied call identifier
-     * @return matching call
-     */
     @Query("""
             SELECT call
             FROM Call call
@@ -182,10 +149,7 @@ public interface CallRepository
     );
 
     /**
-     * Finds a call using a native database comparison.
-     *
-     * @param providerCallId provider supplied call identifier
-     * @return matching call
+     * Native provider callback lookup retained for existing integrations.
      */
     @Query(
             value = """
@@ -223,5 +187,51 @@ public interface CallRepository
     )
     Optional<Call> findByProviderCallIdNative(
             @Param("providerCallId") String providerCallId
+    );
+
+    /**
+     * Retrieves non-deleted calls associated with a campaign.
+     * Intended for SUPER_ADMIN after campaign access validation.
+     *
+     * @param campaignId campaign database identifier
+     * @param isDeleted deletion status
+     * @return calls belonging to the campaign
+     */
+    @Query("""
+        SELECT call
+        FROM Call call
+        JOIN call.campaignContact campaignContact
+        WHERE campaignContact.campaign.id = :campaignId
+          AND call.isDeleted = :isDeleted
+        ORDER BY call.createdAt DESC
+        """)
+    List<Call> findAllByCampaignIdAndIsDeleted(
+            @Param("campaignId") Long campaignId,
+            @Param("isDeleted") Integer isDeleted
+    );
+
+    /**
+     * Retrieves non-deleted calls belonging to a campaign within a tenant.
+     *
+     * @param campaignId campaign database identifier
+     * @param tenantId tenant database identifier
+     * @param isDeleted deletion status
+     * @return tenant-scoped campaign calls
+     */
+    @Query("""
+        SELECT call
+        FROM Call call
+        JOIN call.campaignContact campaignContact
+        JOIN campaignContact.campaign campaign
+        JOIN campaign.agent agent
+        WHERE campaign.id = :campaignId
+          AND agent.tenant.id = :tenantId
+          AND call.isDeleted = :isDeleted
+        ORDER BY call.createdAt DESC
+        """)
+    List<Call> findAllByCampaignIdAndTenantIdAndIsDeleted(
+            @Param("campaignId") Long campaignId,
+            @Param("tenantId") Long tenantId,
+            @Param("isDeleted") Integer isDeleted
     );
 }

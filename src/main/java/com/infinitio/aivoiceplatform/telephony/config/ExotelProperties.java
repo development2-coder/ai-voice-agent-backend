@@ -35,6 +35,12 @@ public class ExotelProperties {
     private String statusCallbackUrl;
 
     /**
+     * API path used to retrieve completed call details,
+     * including recording information.
+     */
+    private String callDetailsPath;
+
+    /**
      * Public WSS endpoint used for real-time
      * bidirectional voice streaming.
      */
@@ -82,4 +88,13 @@ public class ExotelProperties {
     private String callLegPath;
 
     private String callLegsPath;
+
+    /**
+     * Base URL for Exotel CCM APIs.
+     *
+     * <p>
+     * Used for Call Legs APIs on the Singapore cluster.
+     * </p>
+     */
+    private String ccmBaseUrl;
 }

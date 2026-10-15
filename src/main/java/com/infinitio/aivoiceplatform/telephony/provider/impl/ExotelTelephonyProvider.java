@@ -12,6 +12,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.util.UriComponentsBuilder;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
@@ -81,14 +83,18 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
     private static final String FIELD_CALL_SID = "CallSid";
     private static final String FIELD_STATUS = "Status";
     private static final String FIELD_RECORDING_URL = "RecordingUrl";
+    private static final String FIELD_RECORDING_DURATION = "RecordingDuration";
+    private static final String FIELD_RECORD = "Record";
+    private static final String FIELD_RECORDING_CHANNELS = "RecordingChannels";
+    //private static final String FIELD_STATUS_CALLBACK = "StatusCallback";
     private static final String FIELD_DATE_UPDATED = "DateUpdated";
     private static final String FIELD_TO = "To";
 
     private static final String FIELD_STREAM_URL = "StreamUrl";
     private static final String FIELD_STREAM_TYPE = "StreamType";
-    private static final String FIELD_RECORD = "Record";
-    private static final String FIELD_RECORDING_CHANNELS =
-            "RecordingChannels";
+    //private static final String FIELD_RECORD = "Record";
+    //private static final String FIELD_RECORDING_CHANNELS =
+            //"RecordingChannels";
     private static final String FIELD_TIME_LIMIT = "TimeLimit";
 
     private static final String FIELD_STATUS_CALLBACK_EVENTS =
@@ -120,6 +126,8 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
 
     private static final String ACTION_HANGUP =
             "hangup";
+
+
 
     /**
      * Returns the provider code.
@@ -210,11 +218,17 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 request
         );
 
-        log.debug(
-                "Sending Exotel outbound call request. "
-                        + "realtime={}, callbackConfigured={}",
+        log.info(
+                "Sending Exotel outbound call configuration. " +
+                        "realtime={}, callbackConfigured={}, " +
+                        "callbackUrl={}, callbackEvents={}, " +
+                        "record={}, recordingChannels={}",
                 realtime,
-                isCallbackConfigured(request)
+                isCallbackConfigured(request),
+                formData.getFirst(FIELD_STATUS_CALLBACK),
+                formData.getFirst(FIELD_STATUS_CALLBACK_EVENTS),
+                formData.getFirst(FIELD_RECORD),
+                formData.getFirst(FIELD_RECORDING_CHANNELS)
         );
 
         String responseBody;
@@ -480,12 +494,33 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
         if (callbackUrl == null
                 || callbackUrl.isBlank()) {
 
+            log.error(
+                    "Exotel status callback URL is not configured."
+            );
+
             return;
         }
 
         formData.add(
                 FIELD_STATUS_CALLBACK,
                 callbackUrl
+        );
+
+        /*
+         * Explicitly request the terminal callback.
+         * This callback is sent after the call is completed
+         * and is where the RecordingUrl can be received.
+         */
+        formData.add(
+                FIELD_STATUS_CALLBACK_EVENTS,
+                "terminal"
+        );
+
+        log.info(
+                "Exotel status callback configured. " +
+                        "callbackUrl={}, callbackEvents={}",
+                callbackUrl,
+                "terminal"
         );
     }
 
@@ -1319,6 +1354,13 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                         FIELD_RECORDING_URL
                 );
 
+        String recordingDuration =
+                callbackParameters.get(FIELD_RECORDING_DURATION);
+
+        Integer recordingDurationSeconds = parseRecordingDuration(
+                recordingDuration
+        );
+
         String event =
                 resolveEvent(
                         status
@@ -1342,8 +1384,604 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                 .toNumber(toNumber)
                 .timestamp(timestamp)
                 .recordingUrl(recordingUrl)
+                .recordingDurationSeconds(recordingDurationSeconds)
                 .payload(payload)
                 .build();
+    }
+
+    /**
+     * Retrieves the latest call details from Exotel.
+     *
+     * <p>
+     * This method is used as a fallback when the Exotel
+     * status callback is not received by the application.
+     * </p>
+     *
+     * <p>
+     * Exotel returns the Call Details response as XML.
+     * The response contains the RecordingUrl when the
+     * recording has become available.
+     * </p>
+     *
+     * @param providerCallId Exotel CallSid
+     * @return normalized call details
+     */
+    @Override
+    public NormalizedCallEventDto getCallDetails(
+            String providerCallId) {
+
+        if (providerCallId == null
+                || providerCallId.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Provider call ID must not be blank."
+            );
+        }
+
+        if (exotelProperties.getCallDetailsPath() == null
+                || exotelProperties.getCallDetailsPath().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Exotel call details path is not configured."
+            );
+        }
+
+        String path =
+                exotelProperties
+                        .getCallDetailsPath()
+                        .replace(
+                                "{accountSid}",
+                                exotelProperties.getAccountSid()
+                        )
+                        .replace(
+                                "{callSid}",
+                                providerCallId
+                        );
+
+        String requestUrl =
+                exotelProperties.getBaseUrl() + path;
+
+        log.info(
+                "Fetching Exotel call details. "
+                        + "callSid={}, url={}",
+                providerCallId,
+                requestUrl
+        );
+
+        try {
+
+            String response =
+                    exotelRestClient
+                            .get()
+                            .uri(requestUrl)
+                            .headers(
+                                    headers -> {
+                                        headers.setBasicAuth(
+                                                exotelProperties.getApiKey(),
+                                                exotelProperties.getApiToken()
+                                        );
+
+                                        headers.set(
+                                                "Accept",
+                                                MediaType.APPLICATION_JSON_VALUE
+                                        );
+                                    }
+                            )
+                            .retrieve()
+                            .body(String.class);
+
+            if (response == null
+                    || response.isBlank()) {
+
+                log.warn(
+                        "Exotel call details response is empty. "
+                                + "callSid={}",
+                        providerCallId
+                );
+
+                return null;
+            }
+
+            /*
+             * IMPORTANT:
+             * Log only a small portion of the response.
+             * Never log the complete recording URL or credentials.
+             */
+            String responsePreview =
+                    response.length() > 500
+                            ? response.substring(0, 500)
+                            : response;
+
+            log.info(
+                    "Exotel call details response received. "
+                            + "callSid={}, responseLength={}, "
+                            + "responsePreview={}",
+                    providerCallId,
+                    response.length(),
+                    responsePreview
+            );
+
+            /*
+             * Exotel Call Details API normally returns XML.
+             * Validate the response before sending it to the XML parser.
+             */
+            /*
+             * The configured Exotel Call Details endpoint uses
+             * the .json suffix, therefore parse the response as JSON.
+             *
+             * Exotel returns the call record inside the "Calls"
+             * array for this API.
+             */
+            String trimmedResponse =
+                    response
+                            .replace("\uFEFF", "")
+                            .trim();
+
+            if (trimmedResponse.startsWith("{")
+                    || trimmedResponse.startsWith("[")) {
+
+                return parseCallDetailsJsonResponse(
+                        trimmedResponse,
+                        providerCallId
+                );
+            }
+
+            if (trimmedResponse.startsWith("<")) {
+
+                log.info(
+                        "Exotel call details response is XML. "
+                                + "Parsing XML response. callSid={}",
+                        providerCallId
+                );
+
+                return parseCallDetailsResponse(
+                        trimmedResponse,
+                        providerCallId
+                );
+            }
+
+            log.error(
+                    "Unknown Exotel call details response format. "
+                            + "callSid={}, responsePreview={}",
+                    providerCallId,
+                    responsePreview
+            );
+
+            return null;
+
+        } catch (RestClientResponseException exception) {
+
+            String errorBody =
+                    exception.getResponseBodyAsString();
+
+            String errorPreview =
+                    errorBody == null
+                            ? null
+                            : errorBody.length() > 500
+                            ? errorBody.substring(0, 500)
+                            : errorBody;
+
+            log.error(
+                    "Exotel call details request failed. "
+                            + "callSid={}, httpStatus={}, "
+                            + "response={}",
+                    providerCallId,
+                    exception.getStatusCode().value(),
+                    errorPreview
+            );
+
+            throw new IllegalStateException(
+                    "Unable to retrieve Exotel call details.",
+                    exception
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to retrieve Exotel call details. "
+                            + "callSid={}",
+                    providerCallId,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to retrieve Exotel call details.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Parses the JSON response returned by the Exotel
+     * Call Details API.
+     *
+     * @param response JSON response
+     * @param providerCallId expected Exotel CallSid
+     * @return normalized call details
+     */
+    private NormalizedCallEventDto parseCallDetailsJsonResponse(
+            String response,
+            String providerCallId) {
+
+        try {
+
+            JsonNode root =
+                    objectMapper.readTree(
+                            response
+                    );
+
+            JsonNode callsNode =
+                    root.path("Calls");
+
+            if (!callsNode.isArray()
+                    || callsNode.isEmpty()) {
+
+                log.warn(
+                        "Exotel call details JSON does not contain "
+                                + "any call records. callSid={}",
+                        providerCallId
+                );
+
+                return null;
+            }
+
+            JsonNode callNode =
+                    callsNode.get(0);
+
+            String callSid =
+                    getJsonText(
+                            callNode,
+                            "Sid"
+                    );
+
+            if (callSid == null
+                    || callSid.isBlank()) {
+
+                callSid =
+                        providerCallId;
+            }
+
+            String status =
+                    getJsonText(
+                            callNode,
+                            "Status"
+                    );
+
+            String fromNumber =
+                    getJsonText(
+                            callNode,
+                            "From"
+                    );
+
+            String toNumber =
+                    getJsonText(
+                            callNode,
+                            "To"
+                    );
+
+            String dateUpdated =
+                    getJsonText(
+                            callNode,
+                            "DateUpdated"
+                    );
+
+            String recordingUrl =
+                    getJsonText(
+                            callNode,
+                            "RecordingUrl"
+                    );
+
+            String duration =
+                    getJsonText(
+                            callNode,
+                            "Duration"
+                    );
+
+            Integer recordingDuration =
+                    parseRecordingDuration(
+                            duration
+                    );
+
+            String event =
+                    resolveEvent(
+                            status
+                    );
+
+            log.info(
+                    "Exotel call details JSON parsed. "
+                            + "callSid={}, status={}, "
+                            + "normalizedEvent={}, "
+                            + "recordingUrlAvailable={}, "
+                            + "duration={}",
+                    callSid,
+                    status,
+                    event,
+                    recordingUrl != null
+                            && !recordingUrl.isBlank(),
+                    recordingDuration
+            );
+
+            return NormalizedCallEventDto.builder()
+                    .event(event)
+                    .provider(PROVIDER_CODE)
+                    .providerEventId(callSid)
+                    .providerCallId(callSid)
+                    .fromNumber(fromNumber)
+                    .toNumber(toNumber)
+                    .timestamp(
+                            parseTimestamp(
+                                    dateUpdated
+                            )
+                    )
+                    .recordingUrl(recordingUrl)
+                    .recordingDurationSeconds(
+                            recordingDuration
+                    )
+                    .payload(response)
+                    .build();
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to parse Exotel call details JSON. "
+                            + "callSid={}",
+                    providerCallId,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to parse Exotel call details JSON.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Reads a text value from a JSON object.
+     *
+     * @param node JSON object
+     * @param fieldName field name
+     * @return trimmed text value or null
+     */
+    private String getJsonText(
+            JsonNode node,
+            String fieldName) {
+
+        if (node == null
+                || fieldName == null
+                || fieldName.isBlank()) {
+
+            return null;
+        }
+
+        JsonNode value =
+                node.get(fieldName);
+
+        if (value == null
+                || value.isNull()) {
+
+            return null;
+        }
+
+        String text =
+                value.asText();
+
+        if (text == null) {
+
+            return null;
+        }
+
+        text =
+                text.trim();
+
+        return text.isBlank()
+                ? null
+                : text;
+    }
+
+
+    /**
+     * Parses the XML response returned by the Exotel
+     * Call Details API.
+     *
+     * @param response XML response
+     * @param providerCallId expected Exotel CallSid
+     * @return normalized call event
+     */
+    private NormalizedCallEventDto parseCallDetailsResponse(
+            String response,
+            String providerCallId) {
+
+        try {
+
+            DocumentBuilderFactory factory =
+                    DocumentBuilderFactory.newInstance();
+
+            /*
+             * Secure XML parser configuration.
+             */
+            factory.setFeature(
+                    XMLConstants.FEATURE_SECURE_PROCESSING,
+                    true
+            );
+
+            factory.setFeature(
+                    "http://apache.org/xml/features/disallow-doctype-decl",
+                    true
+            );
+
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-general-entities",
+                    false
+            );
+
+            factory.setFeature(
+                    "http://xml.org/sax/features/external-parameter-entities",
+                    false
+            );
+
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+
+            DocumentBuilder builder =
+                    factory.newDocumentBuilder();
+
+            Document document =
+                    builder.parse(
+                            new InputSource(
+                                    new StringReader(response)
+                            )
+                    );
+
+            String callSid =
+                    getXmlElementValue(
+                            document,
+                            "Sid"
+                    );
+
+            if (callSid == null
+                    || callSid.isBlank()) {
+
+                callSid = providerCallId;
+            }
+
+            String status =
+                    getXmlElementValue(
+                            document,
+                            "Status"
+                    );
+
+            String fromNumber =
+                    getXmlElementValue(
+                            document,
+                            "From"
+                    );
+
+            String toNumber =
+                    getXmlElementValue(
+                            document,
+                            "To"
+                    );
+
+            String dateUpdated =
+                    getXmlElementValue(
+                            document,
+                            "DateUpdated"
+                    );
+
+            String recordingUrl =
+                    getXmlElementValue(
+                            document,
+                            "RecordingUrl"
+                    );
+
+            String duration =
+                    getXmlElementValue(
+                            document,
+                            "Duration"
+                    );
+
+            Integer recordingDuration =
+                    parseRecordingDuration(
+                            duration
+                    );
+
+            String event =
+                    resolveEvent(
+                            status
+                    );
+
+            log.info(
+                    "Exotel call details parsed. "
+                            + "callSid={}, status={}, "
+                            + "recordingUrlAvailable={}, "
+                            + "duration={}",
+                    callSid,
+                    status,
+                    recordingUrl != null
+                            && !recordingUrl.isBlank(),
+                    recordingDuration
+            );
+
+            return NormalizedCallEventDto.builder()
+                    .event(event)
+                    .provider(PROVIDER_CODE)
+                    .providerEventId(callSid)
+                    .providerCallId(callSid)
+                    .fromNumber(fromNumber)
+                    .toNumber(toNumber)
+                    .timestamp(
+                            parseTimestamp(
+                                    dateUpdated
+                            )
+                    )
+                    .recordingUrl(recordingUrl)
+                    .recordingDurationSeconds(
+                            recordingDuration
+                    )
+                    .payload(response)
+                    .build();
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Failed to parse Exotel call details response. "
+                            + "callSid={}",
+                    providerCallId,
+                    exception
+            );
+
+            throw new IllegalStateException(
+                    "Unable to parse Exotel call details response.",
+                    exception
+            );
+        }
+    }
+
+    /**
+     * Reads the text value of an XML element.
+     *
+     * @param document XML document
+     * @param tagName XML element name
+     * @return element text or null
+     */
+    private String getXmlElementValue(
+            Document document,
+            String tagName) {
+
+        NodeList nodes =
+                document.getElementsByTagName(
+                        tagName
+                );
+
+        if (nodes == null
+                || nodes.getLength() == 0) {
+
+            return null;
+        }
+
+        Node node =
+                nodes.item(0);
+
+        if (node == null) {
+
+            return null;
+        }
+
+        String value =
+                node.getTextContent();
+
+        if (value == null) {
+
+            return null;
+        }
+
+        value =
+                value.trim();
+
+        return value.isBlank()
+                ? null
+                : value;
     }
 
     /**
@@ -2068,7 +2706,7 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                         );
 
         String requestUrl =
-                exotelProperties.getBaseUrl() + path;
+                exotelProperties.getCcmBaseUrl() + path;
 
         log.info(
                 "Fetching Exotel call legs. callId={}",
@@ -2751,6 +3389,22 @@ public class ExotelTelephonyProvider implements TelephonyProvider {
                             + "received from Exotel.",
                     exception
             );
+        }
+    }
+
+    private Integer parseRecordingDuration(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException exception) {
+            log.warn(
+                    "Unable to parse Exotel RecordingDuration. value={}",
+                    value
+            );
+            return null;
         }
     }
 }

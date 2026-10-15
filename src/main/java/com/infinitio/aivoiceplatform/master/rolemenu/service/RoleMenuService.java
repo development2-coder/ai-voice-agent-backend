@@ -4,6 +4,7 @@ import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.master.rolemenu.dto.request.CreateRoleMenuRequest;
 import com.infinitio.aivoiceplatform.master.rolemenu.dto.request.UpdateRoleMenuRequest;
 import com.infinitio.aivoiceplatform.master.rolemenu.dto.response.RoleMenuResponse;
+import java.util.List;
 
 /**
  * Role Menu Service.
@@ -25,9 +26,10 @@ public interface RoleMenuService {
             String publicId
     );
 
-    PageResponse<RoleMenuResponse> getAll(
-            int page,
-            int size
+    List<RoleMenuResponse> getAll();
+
+    List<RoleMenuResponse> getByRolePublicId(
+            String rolePublicId
     );
 
     void delete(

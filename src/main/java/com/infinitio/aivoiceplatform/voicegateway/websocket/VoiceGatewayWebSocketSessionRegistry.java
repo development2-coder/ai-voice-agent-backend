@@ -192,6 +192,13 @@ public class VoiceGatewayWebSocketSessionRegistry {
                     session.getId()
             );
         }
+
+        ScheduledExecutorService audioScheduler =
+                outboundAudioSchedulers.remove(callId);
+
+        if (audioScheduler != null) {
+            audioScheduler.shutdownNow();
+        }
     }
 
     /**
@@ -400,6 +407,117 @@ public class VoiceGatewayWebSocketSessionRegistry {
         }
     }
 
+    /**
+     * Schedules the playback-completion callback after all currently
+     * queued outbound audio packets.
+     *
+     * @param callId application call identifier
+     * @param callback playback completion callback
+     */
+    private void schedulePlaybackCompletion(
+            String callId,
+            Runnable callback) {
+
+        if (callId == null
+                || callId.isBlank()
+                || callback == null) {
+
+            return;
+        }
+
+        AtomicLong generation =
+                audioGeneration.computeIfAbsent(
+                        callId,
+                        key -> new AtomicLong(0L)
+                );
+
+        long currentGeneration =
+                generation.get();
+
+        AtomicLong nextSend =
+                nextAudioSendNanos.computeIfAbsent(
+                        callId,
+                        key -> new AtomicLong(
+                                System.nanoTime()
+                        )
+                );
+
+        long now =
+                System.nanoTime();
+
+        long scheduledCompletion =
+                nextSend.get();
+
+        long delayNanos =
+                Math.max(
+                        0L,
+                        scheduledCompletion - now
+                );
+
+        /*
+         * Give the final packet a small safety interval before
+         * marking playback as completed.
+         */
+        delayNanos +=
+                TimeUnit.MILLISECONDS.toNanos(
+                        OUTBOUND_AUDIO_PACKET_DELAY_MS
+                );
+
+        schedulerFor(callId).schedule(
+                () -> {
+
+                    /*
+                     * clearAudio() increments the generation.
+                     *
+                     * Therefore an old playback callback must not
+                     * stop a newer TTS playback session.
+                     */
+                    if (generation.get()
+                            != currentGeneration) {
+
+                        log.debug(
+                                "Ignoring obsolete TTS playback completion. " +
+                                        "callId={}",
+                                callId
+                        );
+
+                        return;
+                    }
+
+                    /*
+                     * More audio may have been queued after this completion callback
+                     * was scheduled. Recalculate the completion time in that case.
+                     */
+                    if (nextSend.get() != scheduledCompletion) {
+
+                        schedulePlaybackCompletion(
+                                callId,
+                                callback
+                        );
+
+                        return;
+                    }
+
+                    try {
+
+                        callback.run();
+
+                    } catch (Exception exception) {
+
+                        log.error(
+                                "TTS playback completion callback failed. " +
+                                        "callId={}",
+                                callId,
+                                exception
+                        );
+                    }
+
+                },
+                delayNanos,
+                TimeUnit.NANOSECONDS
+        );
+    }
+
     private void scheduleAudioChunk(
             String callId,
             String streamId,
@@ -450,7 +568,7 @@ public class VoiceGatewayWebSocketSessionRegistry {
                         scheduledTime - now
                 );
 
-        outboundAudioScheduler.schedule(
+        schedulerFor(callId).schedule(
                 () -> {
 
                     if (generation.get()
@@ -516,10 +634,20 @@ public class VoiceGatewayWebSocketSessionRegistry {
         flushAudio(
                 callId,
                 streamId,
-                contentType
+                contentType,
+                null
         );
     }
 
+
+
+    /**
+     * Flushes the remaining TTS audio using the supplied stream ID.
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param contentType audio content type
+     */
     /**
      * Flushes the remaining TTS audio using the supplied stream ID.
      *
@@ -532,6 +660,65 @@ public class VoiceGatewayWebSocketSessionRegistry {
             String streamId,
             String contentType) {
 
+        flushAudio(
+                callId,
+                streamId,
+                contentType,
+                null
+        );
+    }
+
+    /**
+     * Flushes the remaining TTS audio for the current call and
+     * invokes the supplied callback after queued audio transmission
+     * has completed.
+     *
+     * @param callId application call identifier
+     * @param contentType audio content type
+     * @param onPlaybackComplete callback invoked after playback queue
+     *                           transmission completes
+     */
+    public void flushAudio(
+            String callId,
+            String contentType,
+            Runnable onPlaybackComplete) {
+
+        String streamId =
+                streamIds.get(
+                        callId
+                );
+
+        flushAudio(
+                callId,
+                streamId,
+                contentType,
+                onPlaybackComplete
+        );
+    }
+
+    /**
+     * Flushes the remaining TTS audio and optionally invokes a callback
+     * after all currently scheduled outbound audio has been sent.
+     *
+     * <p>
+     * The callback is not executed when TTS generation finishes.
+     * It is scheduled based on the outbound audio scheduler so that
+     * TTS playback remains active while audio is still being sent to
+     * Exotel.
+     * </p>
+     *
+     * @param callId application call identifier
+     * @param streamId provider stream identifier
+     * @param contentType audio content type
+     * @param onPlaybackComplete callback executed after queued audio
+     *                           transmission completes
+     */
+    public void flushAudio(
+            String callId,
+            String streamId,
+            String contentType,
+            Runnable onPlaybackComplete) {
+
         if (callId == null
                 || callId.isBlank()) {
 
@@ -543,57 +730,72 @@ public class VoiceGatewayWebSocketSessionRegistry {
                         callId
                 );
 
-        if (buffer == null) {
-            return;
+        if (buffer != null) {
+
+            byte[] remainingAudio;
+
+            synchronized (buffer) {
+
+                remainingAudio =
+                        buffer.toByteArray();
+
+                buffer.reset();
+            }
+
+            if (remainingAudio.length > 0) {
+
+                int chunkSize =
+                        ExotelWebSocketConstants
+                                .OUTBOUND_AUDIO_CHUNK_SIZE_BYTES;
+
+                byte[] finalChunk =
+                        new byte[chunkSize];
+
+                System.arraycopy(
+                        remainingAudio,
+                        0,
+                        finalChunk,
+                        0,
+                        Math.min(
+                                remainingAudio.length,
+                                finalChunk.length
+                        )
+                );
+
+                scheduleAudioChunk(
+                        callId,
+                        streamId,
+                        finalChunk,
+                        contentType
+                );
+
+                log.debug(
+                        "Final TTS audio packet queued. " +
+                                "callId={}, streamId={}, " +
+                                "remainingAudioBytes={}",
+                        callId,
+                        streamId,
+                        remainingAudio.length
+                );
+            }
         }
 
-        byte[] remainingAudio;
+        /*
+         * Important:
+         *
+         * Even when there is no remaining buffer, there may already
+         * be audio packets scheduled by sendAudio().
+         *
+         * Therefore the completion callback must be scheduled after
+         * the current outbound audio queue.
+         */
+        if (onPlaybackComplete != null) {
 
-        synchronized (buffer) {
-
-            remainingAudio =
-                    buffer.toByteArray();
-
-            buffer.reset();
+            schedulePlaybackCompletion(
+                    callId,
+                    onPlaybackComplete
+            );
         }
-
-        if (remainingAudio.length == 0) {
-            return;
-        }
-
-        int chunkSize =
-                ExotelWebSocketConstants
-                        .OUTBOUND_AUDIO_CHUNK_SIZE_BYTES;
-
-        byte[] finalChunk =
-                new byte[chunkSize];
-
-        System.arraycopy(
-                remainingAudio,
-                0,
-                finalChunk,
-                0,
-                Math.min(
-                        remainingAudio.length,
-                        finalChunk.length
-                )
-        );
-
-        scheduleAudioChunk(
-                callId,
-                streamId,
-                finalChunk,
-                contentType
-        );
-
-        log.debug(
-                "Final TTS audio packet queued. " +
-                        "callId={}, streamId={}, " +
-                        "remainingAudioBytes={}",
-                callId,
-                streamId,
-                remainingAudio.length
-        );
     }
 
     /**
@@ -626,7 +828,7 @@ public class VoiceGatewayWebSocketSessionRegistry {
                         .encodeToString(
                                 audioChunk
                         );
-        log.info(
+        log.debug(
                 "EXOTEL OUTBOUND AUDIO CHECK. " +
                         "callId={}, streamId={}, sessionOpen={}, " +
                         "audioBytes={}, base64Length={}, contentType={}",
@@ -1033,23 +1235,12 @@ public class VoiceGatewayWebSocketSessionRegistry {
         );
     }
 
-    private final ScheduledExecutorService
-            outboundAudioScheduler =
-            Executors.newScheduledThreadPool(
-                    4,
-                    runnable -> {
-
-                        Thread thread =
-                                new Thread(
-                                        runnable,
-                                        "exotel-audio-sender"
-                                );
-
-                        thread.setDaemon(true);
-
-                        return thread;
-                    }
-            );
+    /**
+     * Maintains one ordered audio scheduler per active call.
+     */
+    private final Map<String, ScheduledExecutorService>
+            outboundAudioSchedulers =
+            new ConcurrentHashMap<>();
 
     private final Map<String, AtomicLong>
             nextAudioSendNanos =
@@ -1060,11 +1251,41 @@ public class VoiceGatewayWebSocketSessionRegistry {
             new ConcurrentHashMap<>();
 
     private static final long
-            OUTBOUND_AUDIO_PACKET_DELAY_MS = 100L;
+            OUTBOUND_AUDIO_PACKET_DELAY_MS = 200L;
 
     @PreDestroy
     public void shutdownAudioScheduler() {
 
-        outboundAudioScheduler.shutdownNow();
+        outboundAudioSchedulers
+                .values()
+                .forEach(ScheduledExecutorService::shutdownNow);
+
+        outboundAudioSchedulers.clear();
+    }
+
+    /**
+     * Returns the single-threaded outbound audio scheduler for a call.
+     *
+     * @param callId application call identifier
+     * @return scheduler dedicated to the specified call
+     */
+    private ScheduledExecutorService schedulerFor(String callId) {
+
+        return outboundAudioSchedulers.computeIfAbsent(
+                callId,
+                key -> Executors.newSingleThreadScheduledExecutor(
+                        runnable -> {
+
+                            Thread thread = new Thread(
+                                    runnable,
+                                    "exotel-audio-sender-" + key
+                            );
+
+                            thread.setDaemon(true);
+
+                            return thread;
+                        }
+                )
+        );
     }
 }

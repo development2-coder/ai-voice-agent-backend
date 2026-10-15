@@ -2,6 +2,7 @@ package com.infinitio.aivoiceplatform.stt.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.stt.dto.request.CreateSttRequest;
 import com.infinitio.aivoiceplatform.stt.dto.request.UpdateSttRequest;
@@ -17,6 +18,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
 
 /**
  * Service implementation for STT.
@@ -38,6 +41,8 @@ public class SttServiceImpl implements SttService {
 
     private final AgentValidator agentValidator;
 
+    private final TenantAccessService tenantAccessService;
+
     @Override
     public SttResponse create(CreateSttRequest request) {
 
@@ -54,6 +59,8 @@ public class SttServiceImpl implements SttService {
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
+
+        tenantAccessService.validateAgentAccess(agent);
 
         Stt stt =
                 sttMapper.toEntity(request);
@@ -122,6 +129,10 @@ public class SttServiceImpl implements SttService {
         Stt stt =
                 sttValidator.validateAndGet(publicId);
 
+        tenantAccessService.validateAgentAccess(
+                stt.getAgent()
+        );
+
         return sttMapper.toResponse(stt);
     }
 
@@ -137,10 +148,24 @@ public class SttServiceImpl implements SttService {
                 size
         );
 
-        Page<Stt> result =
-                sttRepository.findAll(
-                        PageRequest.of(page, size)
-                );
+        Page<Stt> result;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            result = sttRepository.findByIsDeleted(
+                    NOT_DELETED,
+                    PageRequest.of(page, size)
+            );
+
+        } else {
+
+            result =
+                    sttRepository.findByAgent_Tenant_IdAndIsDeleted(
+                            tenantAccessService.getCurrentTenantId(),
+                            NOT_DELETED,
+                            PageRequest.of(page, size)
+                    );
+        }
 
         return PageResponse.<SttResponse>builder()
                 .content(
@@ -169,7 +194,13 @@ public class SttServiceImpl implements SttService {
         Stt stt =
                 sttValidator.validateAndGet(publicId);
 
-        stt.markAsDeleted(1L);
+        tenantAccessService.validateAgentAccess(
+                stt.getAgent()
+        );
+
+        stt.markAsDeleted(
+                tenantAccessService.getCurrentUserId()
+        );
 
         sttRepository.save(stt);
 
@@ -190,7 +221,13 @@ public class SttServiceImpl implements SttService {
         Stt stt =
                 sttValidator.validateAndGet(publicId);
 
-        stt.activate(1L);
+        tenantAccessService.validateAgentAccess(
+                stt.getAgent()
+        );
+
+        stt.activate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         sttRepository.save(stt);
 
@@ -211,7 +248,13 @@ public class SttServiceImpl implements SttService {
         Stt stt =
                 sttValidator.validateAndGet(publicId);
 
-        stt.deactivate(1L);
+        tenantAccessService.validateAgentAccess(
+                stt.getAgent()
+        );
+
+        stt.deactivate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         sttRepository.save(stt);
 

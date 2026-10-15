@@ -1,7 +1,9 @@
 package com.infinitio.aivoiceplatform.master.menu.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
 import com.infinitio.aivoiceplatform.master.menu.dto.request.CreateMenuRequest;
 import com.infinitio.aivoiceplatform.master.menu.dto.request.UpdateMenuRequest;
 import com.infinitio.aivoiceplatform.master.menu.dto.response.MenuResponse;
@@ -19,10 +21,16 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * Menu Service Implementation.
  *
- * Handles Menu business operations.
+ * Handles Menu business operations and platform-level
+ * authorization.
+ *
+ * Menu management is restricted to SUPER_ADMIN because
+ * menus are platform-level configuration.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -45,6 +53,36 @@ public class MenuServiceImpl
 
     private final PlatformModuleValidator platformModuleValidator;
 
+    private final CurrentUserService currentUserService;
+
+
+    // =========================================================
+    // AUTHORIZATION
+    // =========================================================
+
+    /**
+     * Validates that the current user is a Super Admin.
+     *
+     * Menu configuration is platform-level configuration
+     * and therefore cannot be managed by ADMIN or USER.
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+
+            throw new ForbiddenException(
+                    "Authentication is required to manage menus."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+
+            throw new ForbiddenException(
+                    "Only Super Admin can manage menus."
+            );
+        }
+    }
+
 
     // =========================================================
     // CREATE MENU
@@ -53,6 +91,8 @@ public class MenuServiceImpl
     @Override
     public MenuResponse create(
             CreateMenuRequest request) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Creating Menu. menuCode={}",
@@ -131,12 +171,9 @@ public class MenuServiceImpl
             );
         }
 
+
         /*
-         * BaseEntity handles default active/deleted values
-         * through @PrePersist.
-         *
-         * Explicitly set them here as well so the service
-         * behavior remains predictable.
+         * Explicit lifecycle defaults.
          */
         menu.setIsActive(
                 ACTIVE
@@ -147,12 +184,20 @@ public class MenuServiceImpl
         );
 
         /*
+         * Set audit information.
+         */
+        menu.setCreatedBy(
+                currentUserService.getCurrentUserId()
+        );
+
+        /*
          * Save menu.
          */
         Menu savedMenu =
                 menuRepository.save(
                         menu
                 );
+
 
         log.info(
                 "Menu created successfully. publicId={}",
@@ -172,6 +217,8 @@ public class MenuServiceImpl
     @Override
     public MenuResponse update(
             UpdateMenuRequest request) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Updating Menu. publicId={}",
@@ -270,9 +317,6 @@ public class MenuServiceImpl
 
         /*
          * Preserve lifecycle state.
-         *
-         * Update should not accidentally activate,
-         * deactivate or delete a menu.
          */
         menu.setIsDeleted(
                 NOT_DELETED
@@ -328,77 +372,17 @@ public class MenuServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<MenuResponse> getAll(
-            int page,
-            int size) {
+    public List<MenuResponse> getAll() {
 
-        log.info(
-                "Fetching Menus. page={}, size={}",
-                page,
-                size
-        );
+        log.info("Fetching all Menus.");
 
-        /*
-         * Validate pagination.
-         */
-        if (page < 0) {
-
-            throw new BadRequestException(
-                    "Page number cannot be negative."
-            );
-        }
-
-        if (size <= 0) {
-
-            throw new BadRequestException(
-                    "Page size must be greater than zero."
-            );
-        }
-
-        /*
-         * IMPORTANT:
-         *
-         * Use findByIsDeleted() instead of findAll()
-         * so soft-deleted menus are not returned.
-         */
-        Page<Menu> result =
-                menuRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
-
-        return PageResponse
-                .<MenuResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        menuMapper::toResponse
-                                )
-                                .toList()
+        return menuRepository
+                .findByIsDeletedOrderByDisplayOrderAsc(
+                        NOT_DELETED
                 )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .totalPages(
-                        result.getTotalPages()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
-                .build();
+                .stream()
+                .map(menuMapper::toResponse)
+                .toList();
     }
 
 
@@ -409,6 +393,8 @@ public class MenuServiceImpl
     @Override
     public void delete(
             String publicId) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Deleting Menu. publicId={}",
@@ -425,14 +411,9 @@ public class MenuServiceImpl
 
         /*
          * Soft delete.
-         *
-         * At the moment your current MenuService does not
-         * have CurrentUserService injected, so keep the
-         * same audit approach already used in the existing
-         * Menu implementation.
          */
         menu.markAsDeleted(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         menuRepository.save(
@@ -454,6 +435,8 @@ public class MenuServiceImpl
     public void activate(
             String publicId) {
 
+        validateSuperAdminAccess();
+
         log.info(
                 "Activating Menu. publicId={}",
                 publicId
@@ -465,7 +448,7 @@ public class MenuServiceImpl
                 );
 
         menu.activate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         menuRepository.save(
@@ -487,6 +470,8 @@ public class MenuServiceImpl
     public void deactivate(
             String publicId) {
 
+        validateSuperAdminAccess();
+
         log.info(
                 "Deactivating Menu. publicId={}",
                 publicId
@@ -498,7 +483,7 @@ public class MenuServiceImpl
                 );
 
         menu.deactivate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
         menuRepository.save(

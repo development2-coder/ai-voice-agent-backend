@@ -100,6 +100,9 @@ public class TtsNodeHandler
     private static final String LANGUAGE =
             FlowExecutionContextKeys.LANGUAGE;
 
+    private static final String RESPONSE_LANGUAGE =
+            FlowExecutionContextKeys.RESPONSE_LANGUAGE;
+
     private static final String TEXT =
             "text";
 
@@ -395,22 +398,23 @@ public class TtsNodeHandler
              * state. This is important after a previous caller
              * barge-in.
              */
-            ttsAudioStreamRegistry.resetInterruption(
-                    callId
-            );
+            final long streamGeneration =
+                    ttsAudioStreamRegistry.beginStream(callId);
 
             /*
              * Mark TTS playback as active before streaming starts.
              */
-            ttsAudioStreamRegistry.startPlayback(
-                    callId
-            );
+//            ttsAudioStreamRegistry.startPlayback(
+//                    callId
+//            );
 
             TtsAudioStreamListener guardedListener =
                     (audioBytes, contentType) -> {
 
-                        if (ttsAudioStreamRegistry
-                                .isInterrupted(callId)) {
+                        if (!ttsAudioStreamRegistry.isCurrentStream(
+                                callId,
+                                streamGeneration
+                        )) {
 
                             log.debug(
                                     "Ignoring interrupted TTS audio chunk. " +
@@ -435,6 +439,17 @@ public class TtsNodeHandler
                             return;
                         }
 
+                        /*
+                         * Playback becomes active only when actual audio
+                         * is ready to be sent to the telephony WebSocket.
+                         *
+                         * Do not mark playback active while Sarvam is still
+                         * generating the audio.
+                         */
+                        ttsAudioStreamRegistry.startPlayback(
+                                callId
+                        );
+
                         streamListener.onAudioChunk(
                                 audioBytes,
                                 contentType
@@ -449,20 +464,62 @@ public class TtsNodeHandler
                                 guardedListener
                         );
 
-                webSocketSessionRegistry.flushAudio(
-                        callId,
-                        response.getContentType()
-                );
+                /*
+                 * Do not stop playback immediately after TTS synthesis.
+                 *
+                 * Sarvam has only finished generating the audio at this point.
+                 * The generated audio may still be queued for transmission
+                 * to Exotel.
+                 *
+                 * Playback is stopped by the callback after the outbound
+                 * audio queue has been transmitted.
+                 */
 
-            } finally {
+                if (ttsAudioStreamRegistry.isCurrentStream(
+                        callId,
+                        streamGeneration
+                )) {
+
+                    webSocketSessionRegistry.flushAudio(
+                            callId,
+                            response.getContentType(),
+                            () -> {
+
+                                if (ttsAudioStreamRegistry.isCurrentStream(
+                                        callId,
+                                        streamGeneration
+                                )) {
+                                    ttsAudioStreamRegistry.stopPlayback(callId);
+                                }
+                            }
+                    );
+
+                } else {
+
+                    log.info(
+                            "Skipping flush for obsolete TTS stream. " +
+                                    "callId={}, executionPublicId={}, nodeKey={}, generation={}",
+                            callId,
+                            execution.getPublicId(),
+                            node.getNodeKey(),
+                            streamGeneration
+                    );
+                }
+
+            } catch (Exception exception) {
 
                 /*
-                 * TTS streaming has completed. Background speech
-                 * must not be treated as a barge-in against this stream.
+                 * If TTS generation itself fails, no valid remaining TTS
+                 * response should keep playback marked as active.
                  */
-                ttsAudioStreamRegistry.stopPlayback(
-                        callId
-                );
+                if (ttsAudioStreamRegistry.isCurrentStream(
+                        callId,
+                        streamGeneration
+                )) {
+                    ttsAudioStreamRegistry.stopPlayback(callId);
+                }
+
+                throw exception;
             }
 
         } else {
@@ -551,21 +608,46 @@ public class TtsNodeHandler
      * @param context Flow context
      * @return language or null
      */
+    /**
+     * Resolves the TTS language for the current response.
+     *
+     * <p>
+     * The response language is resolved independently from the
+     * Agent language and customer language.
+     * </p>
+     *
+     * <p>
+     * Priority:
+     * </p>
+     *
+     * <pre>
+     * responseLanguage
+     *      ↓
+     * language
+     *      ↓
+     * TTS node configured language
+     * </pre>
+     *
+     * @param configuration TTS node configuration
+     * @param context Flow context
+     * @return language or null
+     */
     private String resolveLanguage(
             Map<String, Object> configuration,
             Map<String, Object> context) {
 
-        /*
-         * Runtime detected language has priority.
-         *
-         * Example:
-         * Initial call language = mr-IN
-         * Customer speaks English -> en-IN
-         * Customer speaks Marathi -> mr-IN
-         *
-         * This allows TTS to follow the language detected
-         * by the realtime STT service.
-         */
+        String responseLanguage =
+                getOptionalContextString(
+                        context,
+                        RESPONSE_LANGUAGE
+                );
+
+        if (responseLanguage != null
+                && !responseLanguage.isBlank()) {
+
+            return responseLanguage.trim();
+        }
+
         String contextLanguage =
                 getOptionalContextString(
                         context,
@@ -578,9 +660,6 @@ public class TtsNodeHandler
             return contextLanguage.trim();
         }
 
-        /*
-         * Fallback to the language configured on the TTS node.
-         */
         String configuredLanguage =
                 getConfigurationString(
                         configuration,
@@ -840,7 +919,7 @@ public class TtsNodeHandler
                 && !response.getLanguage().isBlank()) {
 
             context.put(
-                    LANGUAGE,
+                    RESPONSE_LANGUAGE,
                     response.getLanguage()
             );
         }

@@ -22,6 +22,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
+import com.infinitio.aivoiceplatform.master.rolepermission.dto.request.SaveRolePermissionsRequest;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Role Permission Service Implementation.
@@ -73,6 +82,8 @@ public class RolePermissionServiceImpl
                         : null
         );
 
+        validateSuperAdminAccess();
+
         rolePermissionValidator.validateForCreate(
                 request
         );
@@ -83,6 +94,8 @@ public class RolePermissionServiceImpl
                                 .getRolePublicId()
                                 .trim()
                 );
+
+        validateRoleAssignment(role);
 
         Permission permission =
                 permissionValidator.validateAndGet(
@@ -147,6 +160,8 @@ public class RolePermissionServiceImpl
                         : null
         );
 
+        validateSuperAdminAccess();
+
         rolePermissionValidator.validateForUpdate(
                 request
         );
@@ -164,6 +179,8 @@ public class RolePermissionServiceImpl
                                 .getRolePublicId()
                                 .trim()
                 );
+
+        validateRoleAssignment(role);
 
         Permission permission =
                 permissionValidator.validateAndGet(
@@ -236,68 +253,203 @@ public class RolePermissionServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<RolePermissionResponse> getAll(
-            int page,
-            int size) {
+    public List<RolePermissionResponse> getAll() {
+
+        log.info("Fetching all Role Permissions.");
+
+        return rolePermissionRepository
+                .findByIsDeletedOrderByRole_RoleNameAscPermission_PermissionNameAsc(
+                        NOT_DELETED
+                )
+                .stream()
+                .map(rolePermissionMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RolePermissionResponse> getByRolePublicId(
+            String rolePublicId) {
 
         log.info(
-                "Fetching Role Permissions | page={} | size={}",
-                page,
-                size
+                "Fetching permissions assigned to role. rolePublicId={}",
+                rolePublicId
         );
 
-        if (page < 0) {
+        Role role = roleValidator.validateAndGet(
+                rolePublicId
+        );
 
+        validateRoleAssignment(role);
+
+        return rolePermissionRepository
+                .findByRole_IdAndIsActiveAndIsDeletedOrderByPermission_PermissionNameAsc(
+                        role.getId(),
+                        ACTIVE,
+                        NOT_DELETED
+                )
+                .stream()
+                .map(rolePermissionMapper::toResponse)
+                .toList();
+    }
+
+
+    @Override
+    public List<RolePermissionResponse> saveForRole(
+            String rolePublicId,
+            SaveRolePermissionsRequest request) {
+
+        log.info(
+                "Saving role permissions. rolePublicId={}",
+                rolePublicId
+        );
+
+        validateSuperAdminAccess();
+
+        if (request == null || request.getPermissionPublicIds() == null) {
             throw new BadRequestException(
-                    "Page number cannot be negative."
+                    "Permission list is required."
             );
         }
 
-        if (size <= 0) {
+        Role role = roleValidator.validateAndGet(
+                rolePublicId
+        );
 
-            throw new BadRequestException(
-                    "Page size must be greater than zero."
-            );
-        }
+        validateRoleAssignment(role);
 
-        Page<RolePermission> result =
-                rolePermissionRepository.findByIsDeleted(
-                        NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+        Long currentUserId =
+                currentUserService.getCurrentUserId();
+
+        /*
+         * Validate and deduplicate requested permission IDs.
+         * Duplicate IDs are rejected rather than silently accepted.
+         */
+        Set<String> requestedPublicIds = new HashSet<>();
+
+        Map<Long, Permission> selectedPermissions = new HashMap<>();
+
+        for (String permissionPublicId : request.getPermissionPublicIds()) {
+
+            if (permissionPublicId == null
+                    || permissionPublicId.isBlank()) {
+
+                throw new BadRequestException(
+                        "Permission public ID cannot be blank."
                 );
+            }
 
-        return PageResponse
-                .<RolePermissionResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        rolePermissionMapper::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
-                .totalPages(
-                        result.getTotalPages()
-                )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
-                .build();
+            String normalizedPublicId = permissionPublicId.trim();
+
+            if (!requestedPublicIds.add(normalizedPublicId)) {
+                throw new BadRequestException(
+                        "Duplicate permission public ID: "
+                                + normalizedPublicId
+                );
+            }
+
+            Permission permission =
+                    permissionValidator.validateAndGet(
+                            normalizedPublicId
+                    );
+
+            selectedPermissions.put(
+                    permission.getId(),
+                    permission
+            );
+        }
+
+        /*
+         * Load existing mappings, including soft-deleted records.
+         * Reusing an existing record avoids violating the unique
+         * role_id + permission_id database constraint.
+         */
+        List<RolePermission> existingMappings =
+                rolePermissionRepository
+                        .findByRole_IdOrderByPermission_PermissionNameAsc(
+                                role.getId()
+                        );
+
+        Map<Long, RolePermission> existingByPermissionId =
+                new HashMap<>();
+
+        for (RolePermission mapping : existingMappings) {
+            existingByPermissionId.put(
+                    mapping.getPermission().getId(),
+                    mapping
+            );
+        }
+
+        List<RolePermission> mappingsToSave =
+                new ArrayList<>();
+
+        /*
+         * Activate selected existing mappings and soft-delete
+         * assignments that are no longer selected.
+         */
+        for (RolePermission mapping : existingMappings) {
+
+            Long permissionId =
+                    mapping.getPermission().getId();
+
+            boolean selected =
+                    selectedPermissions.containsKey(permissionId);
+
+            if (selected) {
+
+                boolean needsUpdate =
+                        !Integer.valueOf(NOT_DELETED)
+                                .equals(mapping.getIsDeleted())
+                                || !Integer.valueOf(ACTIVE)
+                                .equals(mapping.getIsActive());
+
+                if (needsUpdate) {
+
+                    mapping.setIsDeleted(NOT_DELETED);
+                    mapping.setIsActive(ACTIVE);
+                    mapping.setDeletedAt(null);
+                    mapping.setUpdatedBy(currentUserId);
+
+                    mappingsToSave.add(mapping);
+                }
+
+            } else if (Integer.valueOf(NOT_DELETED)
+                    .equals(mapping.getIsDeleted())) {
+
+                mapping.markAsDeleted(currentUserId);
+                mappingsToSave.add(mapping);
+            }
+        }
+
+        /*
+         * Create mappings only for permissions that have never
+         * been assigned to this role.
+         */
+        for (Permission permission : selectedPermissions.values()) {
+
+            if (!existingByPermissionId.containsKey(permission.getId())) {
+
+                RolePermission mapping = new RolePermission();
+
+                mapping.setRole(role);
+                mapping.setPermission(permission);
+                mapping.setIsActive(ACTIVE);
+                mapping.setIsDeleted(NOT_DELETED);
+                mapping.setCreatedBy(currentUserId);
+
+                mappingsToSave.add(mapping);
+            }
+        }
+
+        rolePermissionRepository.saveAll(mappingsToSave);
+
+        log.info(
+                "Role permissions saved successfully. rolePublicId={}, selectedCount={}",
+                rolePublicId,
+                selectedPermissions.size()
+        );
+
+        return getByRolePublicId(rolePublicId);
     }
 
 
@@ -313,6 +465,8 @@ public class RolePermissionServiceImpl
                 "Deleting Role Permission | publicId={}",
                 publicId
         );
+
+        validateSuperAdminAccess();
 
         RolePermission entity =
                 rolePermissionValidator.validateAndGet(
@@ -350,6 +504,8 @@ public class RolePermissionServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         RolePermission entity =
                 rolePermissionValidator.validateAndGet(
                         publicId
@@ -386,6 +542,8 @@ public class RolePermissionServiceImpl
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         RolePermission entity =
                 rolePermissionValidator.validateAndGet(
                         publicId
@@ -407,4 +565,64 @@ public class RolePermissionServiceImpl
                 publicId
         );
     }
+
+    /**
+     * Validates that the current user is allowed to manage
+     * role-permission mappings.
+     *
+     * <p>
+     * Role-permission mappings are platform-level security
+     * configuration and therefore can only be managed by
+     * SUPER_ADMIN.
+     * </p>
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+
+            throw new ForbiddenException(
+                    "Authentication is required to manage role permissions."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+
+            throw new ForbiddenException(
+                    "Only SUPER_ADMIN can manage role permissions."
+            );
+        }
+    }
+
+
+    /**
+     * Validates the role that can receive shared permissions.
+     *
+     * <p>SUPER_ADMIN configures permissions for the shared ADMIN
+     * role. All client Admins and their users inherit the permissions
+     * assigned to this role.</p>
+     *
+     * <p>Individual user page visibility is managed separately through
+     * UserMenu and is not configured through RolePermission.</p>
+     *
+     * @param role role receiving the permission assignments
+     */
+    private void validateRoleAssignment(Role role) {
+
+        if (role == null) {
+            throw new BadRequestException(
+                    "Role is required."
+            );
+        }
+
+        String roleCode = role.getRoleCode();
+
+        if (roleCode == null
+                || !RoleConstants.ADMIN.equalsIgnoreCase(roleCode.trim())) {
+
+            throw new ForbiddenException(
+                    "Shared permissions can only be assigned to the ADMIN role."
+            );
+        }
+    }
+
 }

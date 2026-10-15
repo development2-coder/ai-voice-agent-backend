@@ -147,4 +147,14 @@ public class TtsProperties {
      * Base URL used to access generated TTS audio files.
      */
     private String audioBaseUrl;
+
+    /**
+     * Enables temporary raw audio capture for TTS diagnostics.
+     */
+    private boolean diagnosticAudioCaptureEnabled;
+
+    /**
+     * Directory used to store raw TTS diagnostic audio.
+     */
+    private String diagnosticAudioStoragePath;
 }

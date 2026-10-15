@@ -8,6 +8,7 @@ import com.infinitio.aivoiceplatform.llm.dto.request.CreateLlmRequest;
 import com.infinitio.aivoiceplatform.llm.dto.request.UpdateLlmRequest;
 import com.infinitio.aivoiceplatform.llm.dto.response.LlmResponse;
 import com.infinitio.aivoiceplatform.llm.service.LlmService;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,6 +36,7 @@ public class LlmController {
     private final LlmService llmService;
 
     @Operation(summary = "Create LLM")
+    @RequiresPermission("LLM_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<LlmResponse>> create(
             @Valid @RequestBody CreateLlmRequest request) {
@@ -51,6 +53,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Update LLM")
+    @RequiresPermission("LLM_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<LlmResponse>> update(
             @Valid @RequestBody UpdateLlmRequest request) {
@@ -67,6 +70,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Get LLM By Public Id")
+    @RequiresPermission("LLM_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<LlmResponse>> getByPublicId(
             @PathVariable String publicId) {
@@ -86,6 +90,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Get All LLMs")
+    @RequiresPermission("LLM_VIEW")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<LlmResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
@@ -107,6 +112,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Delete LLM")
+    @RequiresPermission("LLM_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -125,6 +131,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Activate LLM")
+    @RequiresPermission("LLM_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -143,6 +150,7 @@ public class LlmController {
     }
 
     @Operation(summary = "Deactivate LLM")
+    @RequiresPermission("LLM_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

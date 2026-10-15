@@ -10,6 +10,9 @@ import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -519,19 +522,80 @@ public class CampaignExcelServiceImpl
             return null;
         }
 
+        /*
+         * Handle actual Excel date cells.
+         */
+        if (cell.getCellType() == CellType.NUMERIC
+                && DateUtil.isCellDateFormatted(cell)) {
+
+            return cell
+                    .getLocalDateTimeCellValue()
+                    .toLocalDate()
+                    .format(
+                            DateTimeFormatter.ofPattern("dd-MM-yyyy")
+                    );
+        }
+
         String value =
                 formatter.formatCellValue(
                         cell,
                         evaluator
                 );
 
-        if (value == null
-                || value.isBlank()) {
-
+        if (value == null || value.isBlank()) {
             return null;
         }
 
-        return value.trim();
+        value = value.trim();
+
+        /*
+         * Handle dates stored as text.
+         *
+         * Examples:
+         * 9/28/2026  -> 28-09-2026
+         * 09/28/2026 -> 28-09-2026
+         * 20-09-2026 -> 20-09-2026
+         * 20/09/2026 -> 20-09-2026
+         */
+        String normalizedDate = normalizeDateString(value);
+
+        if (normalizedDate != null) {
+            return normalizedDate;
+        }
+
+        return value;
+    }
+
+    private String normalizeDateString(String value) {
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ofPattern("M/d/yyyy"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("d/M/yyyy"),
+                DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+                DateTimeFormatter.ofPattern("d-M-yyyy"),
+                DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+                DateTimeFormatter.ofPattern("M-d-yyyy"),
+                DateTimeFormatter.ofPattern("MM-dd-yyyy")
+        );
+
+        for (DateTimeFormatter formatter : formatters) {
+
+            try {
+
+                LocalDate date =
+                        LocalDate.parse(value, formatter);
+
+                return date.format(
+                        DateTimeFormatter.ofPattern("dd-MM-yyyy")
+                );
+
+            } catch (DateTimeParseException ignored) {
+                // Try the next supported format.
+            }
+        }
+
+        return null;
     }
 
     private String normalizeHeader(

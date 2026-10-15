@@ -593,7 +593,7 @@ public class FlowExecutionContinuationServiceImpl
             String executionPublicId) {
 
         return executionRepository
-                .findByPublicId(
+                .findByPublicIdForUpdate(
                         executionPublicId
                 )
                 .orElseThrow(() -> {

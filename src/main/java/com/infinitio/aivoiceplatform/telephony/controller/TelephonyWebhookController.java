@@ -3,6 +3,7 @@ package com.infinitio.aivoiceplatform.telephony.controller;
 import com.infinitio.aivoiceplatform.telephony.dto.response.NormalizedCallEventDto;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MultiValueMap;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
  * @author Infinitio Digital
  * @version 1.0.0
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/telephony/webhooks")
 @RequiredArgsConstructor
@@ -51,6 +53,17 @@ public class TelephonyWebhookController {
             MultiValueMap<String, String>
                     formParameters) {
 
+        log.info(
+                "Telephony webhook received. "
+                        + "provider={}, callSid={}, status={}, "
+                        + "recordingUrl={}, recordingDuration={}",
+                providerCode,
+                formParameters.getFirst("CallSid"),
+                formParameters.getFirst("Status"),
+                formParameters.getFirst("RecordingUrl"),
+                formParameters.getFirst("RecordingDuration")
+        );
+
         String payload =
                 org.springframework.web.util.UriComponentsBuilder
                         .newInstance()
@@ -65,8 +78,19 @@ public class TelephonyWebhookController {
                         payload
                 );
 
-        return ResponseEntity.ok(
-                event
+        log.info(
+                "Telephony webhook processed. "
+                        + "provider={}, callSid={}, event={}, "
+                        + "recordingUrl={}, recordingDuration={}",
+                providerCode,
+                formParameters.getFirst("CallSid"),
+                event != null ? event.getEvent() : null,
+                event != null ? event.getRecordingUrl() : null,
+                event != null
+                        ? event.getRecordingDurationSeconds()
+                        : null
         );
+
+        return ResponseEntity.ok(event);
     }
 }

@@ -28,4 +28,6 @@ public class TenantResponse {
     private Boolean isDefault;
 
     private Integer isActive;
+
+    private String password;
 }

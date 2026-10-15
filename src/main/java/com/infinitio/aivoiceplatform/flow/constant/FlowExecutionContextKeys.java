@@ -102,6 +102,40 @@ public final class FlowExecutionContextKeys {
             "language";
 
     /**
+     * Language configured on the Agent.
+     *
+     * <p>
+     * This value represents the language selected by the Agent
+     * configuration and must remain unchanged during the call.
+     * </p>
+     */
+    public static final String AGENT_LANGUAGE =
+            "agentLanguage";
+
+    /**
+     * Language detected from the latest customer message.
+     *
+     * <p>
+     * This value represents the customer's current language and
+     * may change during the conversation.
+     * </p>
+     */
+    public static final String CURRENT_USER_LANGUAGE =
+            "currentUserLanguage";
+
+    /**
+     * Language that must be used for the current AI response.
+     *
+     * <p>
+     * For the initial AI response this is the Agent language.
+     * After the customer speaks, this is updated to the customer's
+     * latest detected language.
+     * </p>
+     */
+    public static final String RESPONSE_LANGUAGE =
+            "responseLanguage";
+
+    /**
      * Resolved Agent runtime configuration.
      *
      * <p>

@@ -17,6 +17,7 @@ import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodePortDefinitionService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowEdgeRequest;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -88,7 +89,7 @@ public class FlowEdgeServiceImpl
     /**
      * Current authenticated user service.
      */
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
     // =========================================================
     // GET EDGES
@@ -111,6 +112,10 @@ public class FlowEdgeServiceImpl
                 flowValidator.validateAndGet(
                         flowPublicId
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         List<FlowEdgeResponse> edges =
                 edgeRepository
@@ -160,6 +165,10 @@ public class FlowEdgeServiceImpl
                 flowValidator.validateAndGet(
                         request.getFlowPublicId()
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         FlowNode sourceNode =
                 findNode(
@@ -215,7 +224,7 @@ public class FlowEdgeServiceImpl
         );
 
         edge.setCreatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         FlowEdge saved =
@@ -284,6 +293,10 @@ public class FlowEdgeServiceImpl
 
         Flow flow =
                 edge.getFlow();
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         /*
          * Resolve the requested source and target nodes
@@ -390,7 +403,7 @@ public class FlowEdgeServiceImpl
         );
 
         edge.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         FlowEdge updatedEdge =
@@ -440,6 +453,7 @@ public class FlowEdgeServiceImpl
                                     edgePublicId
                             );
 
+
                             return new ResourceNotFoundException(
                                     FlowMessages.EDGE_NOT_FOUND
                             );
@@ -450,7 +464,7 @@ public class FlowEdgeServiceImpl
         );
 
         edge.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         edgeRepository.save(

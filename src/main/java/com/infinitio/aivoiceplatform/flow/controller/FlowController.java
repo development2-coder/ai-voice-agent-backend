@@ -1,17 +1,21 @@
 package com.infinitio.aivoiceplatform.flow.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowEdgeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.AddFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.CreateFlowRequest;
+import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowWorkspaceRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowRequest;
-import com.infinitio.aivoiceplatform.flow.dto.response.*;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowDefinitionResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowEdgeResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowResponse;
+import com.infinitio.aivoiceplatform.flow.dto.response.FlowTypeResponse;
 import com.infinitio.aivoiceplatform.flow.service.FlowEdgeService;
 import com.infinitio.aivoiceplatform.flow.service.FlowService;
-import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowWorkspaceRequest;
-import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +40,11 @@ public class FlowController {
 
     private final FlowEdgeService flowEdgeService;
 
+
+    // =========================================================
+    // FLOW CRUD
+    // =========================================================
+
     /**
      * Creates a Flow.
      *
@@ -43,18 +52,18 @@ public class FlowController {
      * @return created Flow
      */
     @PostMapping
+    @RequiresPermission("FLOW_CREATE")
     public ResponseEntity<FlowResponse> create(
             @Valid @RequestBody
             CreateFlowRequest request) {
 
-        log.info(
-                "Create Flow request received."
-        );
+        log.info("Create Flow request received.");
 
         return ResponseEntity.ok(
                 flowService.create(request)
         );
     }
+
 
     /**
      * Updates a Flow.
@@ -63,6 +72,7 @@ public class FlowController {
      * @return updated Flow
      */
     @PutMapping
+    @RequiresPermission("FLOW_UPDATE")
     public ResponseEntity<FlowResponse> update(
             @Valid @RequestBody
             UpdateFlowRequest request) {
@@ -77,6 +87,7 @@ public class FlowController {
         );
     }
 
+
     /**
      * Gets a Flow.
      *
@@ -84,15 +95,19 @@ public class FlowController {
      * @return Flow
      */
     @GetMapping("/{publicId}")
+    @RequiresPermission("FLOW_VIEW")
     public ResponseEntity<FlowResponse> get(
             @PathVariable String publicId) {
 
         return ResponseEntity.ok(
-                flowService.getByPublicId(
-                        publicId
-                )
+                flowService.getByPublicId(publicId)
         );
     }
+
+
+    // =========================================================
+    // FLOW NODES
+    // =========================================================
 
     /**
      * Gets all nodes of a Flow.
@@ -101,8 +116,8 @@ public class FlowController {
      * @return Flow nodes
      */
     @GetMapping("/{publicId}/nodes")
-    public ResponseEntity<List<FlowNodeResponse>>
-    getNodes(
+    @RequiresPermission("FLOW_VIEW")
+    public ResponseEntity<List<FlowNodeResponse>> getNodes(
             @PathVariable String publicId) {
 
         return ResponseEntity.ok(
@@ -110,21 +125,6 @@ public class FlowController {
         );
     }
 
-    /**
-     * Gets all edges of a Flow.
-     *
-     * @param publicId Flow public ID
-     * @return Flow edges
-     */
-    @GetMapping("/{publicId}/edges")
-    public ResponseEntity<List<FlowEdgeResponse>>
-    getEdges(
-            @PathVariable String publicId) {
-
-        return ResponseEntity.ok(
-                flowEdgeService.getEdges(publicId)
-        );
-    }
 
     /**
      * Adds a node to a Flow.
@@ -133,8 +133,8 @@ public class FlowController {
      * @return created node
      */
     @PostMapping("/nodes")
-    public ResponseEntity<FlowNodeResponse>
-    addNode(
+    @RequiresPermission("FLOW_UPDATE")
+    public ResponseEntity<FlowNodeResponse> addNode(
             @Valid @RequestBody
             AddFlowNodeRequest request) {
 
@@ -143,6 +143,7 @@ public class FlowController {
         );
     }
 
+
     /**
      * Updates a Flow node.
      *
@@ -150,8 +151,8 @@ public class FlowController {
      * @return updated node
      */
     @PutMapping("/nodes")
-    public ResponseEntity<FlowNodeResponse>
-    updateNode(
+    @RequiresPermission("FLOW_UPDATE")
+    public ResponseEntity<FlowNodeResponse> updateNode(
             @Valid @RequestBody
             UpdateFlowNodeRequest request) {
 
@@ -160,6 +161,7 @@ public class FlowController {
         );
     }
 
+
     /**
      * Deletes a Flow node.
      *
@@ -167,16 +169,36 @@ public class FlowController {
      * @return empty response
      */
     @DeleteMapping("/nodes/{publicId}")
+    @RequiresPermission("FLOW_DELETE")
     public ResponseEntity<Void> deleteNode(
             @PathVariable String publicId) {
 
-        flowService.deleteNode(
-                publicId
-        );
+        flowService.deleteNode(publicId);
 
-        return ResponseEntity.noContent()
-                .build();
+        return ResponseEntity.noContent().build();
     }
+
+
+    // =========================================================
+    // FLOW EDGES
+    // =========================================================
+
+    /**
+     * Gets all edges of a Flow.
+     *
+     * @param publicId Flow public ID
+     * @return Flow edges
+     */
+    @GetMapping("/{publicId}/edges")
+    @RequiresPermission("FLOW_VIEW")
+    public ResponseEntity<List<FlowEdgeResponse>> getEdges(
+            @PathVariable String publicId) {
+
+        return ResponseEntity.ok(
+                flowEdgeService.getEdges(publicId)
+        );
+    }
+
 
     /**
      * Creates an edge between two Flow nodes.
@@ -185,8 +207,8 @@ public class FlowController {
      * @return created edge
      */
     @PostMapping("/edges")
-    public ResponseEntity<FlowEdgeResponse>
-    addEdge(
+    @RequiresPermission("FLOW_UPDATE")
+    public ResponseEntity<FlowEdgeResponse> addEdge(
             @Valid @RequestBody
             AddFlowEdgeRequest request) {
 
@@ -195,6 +217,7 @@ public class FlowController {
         );
     }
 
+
     /**
      * Deletes a Flow edge.
      *
@@ -202,16 +225,19 @@ public class FlowController {
      * @return empty response
      */
     @DeleteMapping("/edges/{publicId}")
+    @RequiresPermission("FLOW_DELETE")
     public ResponseEntity<Void> deleteEdge(
             @PathVariable String publicId) {
 
-        flowEdgeService.deleteEdge(
-                publicId
-        );
+        flowEdgeService.deleteEdge(publicId);
 
-        return ResponseEntity.noContent()
-                .build();
+        return ResponseEntity.noContent().build();
     }
+
+
+    // =========================================================
+    // FLOW LIFECYCLE
+    // =========================================================
 
     /**
      * Activates a Flow.
@@ -220,14 +246,15 @@ public class FlowController {
      * @return empty response
      */
     @PatchMapping("/{publicId}/activate")
+    @RequiresPermission("FLOW_UPDATE")
     public ResponseEntity<Void> activate(
             @PathVariable String publicId) {
 
         flowService.activate(publicId);
 
-        return ResponseEntity.ok()
-                .build();
+        return ResponseEntity.ok().build();
     }
+
 
     /**
      * Deactivates a Flow.
@@ -236,14 +263,15 @@ public class FlowController {
      * @return empty response
      */
     @PatchMapping("/{publicId}/deactivate")
+    @RequiresPermission("FLOW_UPDATE")
     public ResponseEntity<Void> deactivate(
             @PathVariable String publicId) {
 
         flowService.deactivate(publicId);
 
-        return ResponseEntity.ok()
-                .build();
+        return ResponseEntity.ok().build();
     }
+
 
     /**
      * Soft-deletes a Flow.
@@ -252,21 +280,36 @@ public class FlowController {
      * @return empty response
      */
     @DeleteMapping("/{publicId}")
+    @RequiresPermission("FLOW_DELETE")
     public ResponseEntity<Void> delete(
             @PathVariable String publicId) {
 
         flowService.delete(publicId);
 
-        return ResponseEntity.noContent()
-                .build();
+        return ResponseEntity.noContent().build();
     }
 
+
+    // =========================================================
+    // FLOW TYPES
+    // =========================================================
+
+    /**
+     * Gets supported Flow types.
+     *
+     * @return Flow types
+     */
     @GetMapping("/types")
-    public ResponseEntity<ApiResponse<List<FlowTypeResponse>>> getFlowTypes() {
+    @RequiresPermission("FLOW_VIEW")
+    public ResponseEntity<ApiResponse<List<FlowTypeResponse>>>
+    getFlowTypes() {
 
-        log.info("Request received to retrieve supported flow types");
+        log.info(
+                "Request received to retrieve supported flow types"
+        );
 
-        List<FlowTypeResponse> flowTypes = flowService.getFlowTypes();
+        List<FlowTypeResponse> flowTypes =
+                flowService.getFlowTypes();
 
         return ResponseEntity.ok(
                 ApiResponse.success(
@@ -276,20 +319,20 @@ public class FlowController {
         );
     }
 
+
+    // =========================================================
+    // FLOW DEFINITION
+    // =========================================================
+
     /**
      * Gets the complete Flow definition.
      *
-     * <p>
-     * The response contains Flow metadata, active nodes and
-     * active edges required by the Flow Builder.
-     * </p>
-     *
-     * @param publicId Flow public identifier
+     * @param publicId Flow public ID
      * @return complete Flow definition
      */
     @GetMapping("/{publicId}/definition")
-    public ResponseEntity<FlowDefinitionResponse>
-    getDefinition(
+    @RequiresPermission("FLOW_VIEW")
+    public ResponseEntity<FlowDefinitionResponse> getDefinition(
             @PathVariable String publicId) {
 
         log.info(
@@ -298,28 +341,32 @@ public class FlowController {
         );
 
         return ResponseEntity.ok(
-                flowService.getDefinition(
-                        publicId
-                )
+                flowService.getDefinition(publicId)
         );
     }
+
+
+    // =========================================================
+    // FLOW WORKSPACE
+    // =========================================================
 
     /**
      * Saves the complete visual Flow Builder workspace.
      *
-     * @param publicId Flow public identifier
-     * @param request complete workspace
-     * @return updated Flow definition
+     * @param publicId Flow public ID
+     * @param request workspace request
+     * @return updated definition
      */
     @PutMapping("/{publicId}/workspace")
-    public ResponseEntity<FlowDefinitionResponse>
-    saveWorkspace(
+    @RequiresPermission("FLOW_UPDATE")
+    public ResponseEntity<FlowDefinitionResponse> saveWorkspace(
             @PathVariable String publicId,
             @Valid @RequestBody
             SaveFlowWorkspaceRequest request) {
 
         log.info(
-                "Save Flow workspace request received. flowPublicId={}",
+                "Save Flow workspace request received. " +
+                        "flowPublicId={}",
                 publicId
         );
 
@@ -331,6 +378,11 @@ public class FlowController {
         );
     }
 
+
+    // =========================================================
+    // AGENT FLOW
+    // =========================================================
+
     /**
      * Gets the latest Flow belonging to an Agent.
      *
@@ -338,7 +390,9 @@ public class FlowController {
      * @return latest Flow
      */
     @GetMapping("/agent/{agentPublicId}")
-    public ResponseEntity<ApiResponse<FlowResponse>> getLatestByAgent(
+    @RequiresPermission("FLOW_VIEW")
+    public ResponseEntity<ApiResponse<FlowResponse>>
+    getLatestByAgent(
             @PathVariable String agentPublicId) {
 
         log.info(

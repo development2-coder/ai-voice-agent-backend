@@ -9,7 +9,7 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-
+import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingRecoveryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infinitio.aivoiceplatform.telephony.constants.ExotelWebSocketConstants;
@@ -66,6 +66,9 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
      */
     private final VoiceGatewayWebSocketSessionRegistry
             webSocketSessionRegistry;
+
+    private final CallRecordingRecoveryService
+            callRecordingRecoveryService;
 
     /**
      * WebSocket session attribute containing the application call ID.
@@ -865,6 +868,37 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
         voiceGatewayService.stopStream(
                 stopRequest
         );
+
+        if (callId != null
+                && !callId.isBlank()
+                && callSid != null
+                && !callSid.isBlank()) {
+
+            try {
+
+                log.info(
+                        "Scheduling Exotel recording recovery after STOP event. "
+                                + "callId={}, callSid={}",
+                        callId,
+                        callSid
+                );
+
+                callRecordingRecoveryService.recoverRecording(
+                        callId,
+                        callSid
+                );
+
+            } catch (Exception exception) {
+
+                log.error(
+                        "Unable to schedule recording recovery after STOP event. "
+                                + "callId={}, callSid={}",
+                        callId,
+                        callSid,
+                        exception
+                );
+            }
+        }
     }
 
     /**
@@ -903,15 +937,37 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
      * @param session WebSocket session
      * @param status close status
      */
+    /**
+     * Handles WebSocket connection closure.
+     *
+     * <p>
+     * A normal WebSocket closure is expected to be followed by the
+     * normal Exotel status callback. Recording recovery is therefore
+     * triggered only when the WebSocket terminates abnormally.
+     * </p>
+     *
+     * <p>
+     * This is important because the current production issue shows
+     * Exotel WebSocket connection reset with close status 1006 while
+     * no recording callback is received by the backend.
+     * </p>
+     *
+     * @param session WebSocket session
+     * @param status close status
+     */
     @Override
     public void afterConnectionClosed(
             WebSocketSession session,
             CloseStatus status) {
 
         String callId =
-                getCallId(
-                        session
-                );
+                getCallId(session);
+
+        String callSid =
+                getCallSid(session);
+
+        String streamSid =
+                getStreamSid(session);
 
         log.info(
                 "Exotel WebSocket connection closed. " +
@@ -919,15 +975,15 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
                         "streamSid={}, status={}",
                 session.getId(),
                 callId,
-                getCallSid(session),
-                getStreamSid(session),
+                callSid,
+                streamSid,
                 status
         );
 
         /*
          * The normal Exotel STOP event should already have stopped
          * the Voice Gateway runtime. This removal is intentionally
-         * defensive for abnormal WebSocket termination.
+         * defensive for both normal and abnormal WebSocket termination.
          */
         if (callId != null
                 && !callId.isBlank()) {
@@ -935,6 +991,85 @@ public class ExotelWebSocketHandler extends TextWebSocketHandler {
             webSocketSessionRegistry.remove(
                     callId
             );
+        }
+
+        /*
+         * Trigger recording recovery only for an abnormal WebSocket
+         * termination.
+         *
+         * Exotel close code 1006 represents an abnormal connection
+         * closure and matches the current production error:
+         *
+         * Connection reset
+         */
+        if (status != null
+                && status.getCode() == 1006) {
+
+            if (callId == null
+                    || callId.isBlank()) {
+
+                log.warn(
+                        "Skipping recording recovery because " +
+                                "application Call ID is missing. " +
+                                "sessionId={}, callSid={}, status={}",
+                        session.getId(),
+                        callSid,
+                        status
+                );
+
+                return;
+            }
+
+            if (callSid == null
+                    || callSid.isBlank()) {
+
+                log.warn(
+                        "Skipping recording recovery because " +
+                                "Exotel Call SID is missing. " +
+                                "sessionId={}, callId={}, status={}",
+                        session.getId(),
+                        callId,
+                        status
+                );
+
+                return;
+            }
+
+            log.warn(
+                    "Abnormal Exotel WebSocket closure detected. " +
+                            "Scheduling call recording recovery. " +
+                            "sessionId={}, callId={}, callSid={}, " +
+                            "status={}",
+                    session.getId(),
+                    callId,
+                    callSid,
+                    status
+            );
+
+            try {
+
+                callRecordingRecoveryService.recoverRecording(
+                        callId,
+                        callSid
+                );
+
+                log.info(
+                        "Exotel call recording recovery scheduled. " +
+                                "callId={}, callSid={}",
+                        callId,
+                        callSid
+                );
+
+            } catch (Exception exception) {
+
+                log.error(
+                        "Unable to schedule Exotel call recording recovery. " +
+                                "callId={}, callSid={}",
+                        callId,
+                        callSid,
+                        exception
+                );
+            }
         }
     }
 

@@ -13,6 +13,7 @@ import com.infinitio.aivoiceplatform.campaigncontact.entity.CampaignContact;
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,8 @@ public class DialerCallServiceImpl
     private final DialerCallLifecycleService
             dialerCallLifecycleService;
 
+    private final TenantAccessService tenantAccessService;
+
     /**
      * Creates a new queued Dialer Call.
      *
@@ -105,6 +108,14 @@ public class DialerCallServiceImpl
                 campaignContactValidator.validateAndGet(
                         campaignContactPublicId
                 );
+
+        if (tenantAccessService.isAuthenticated()) {
+            tenantAccessService.validateAgentAccess(dialer.getAgent());
+            tenantAccessService.validateCampaignAccess(dialer.getCampaign());
+            tenantAccessService.validateCampaignAccess(
+                    campaignContact.getCampaign()
+            );
+        }
 
         dialerCallValidationService
                 .validateCampaignRelationship(
@@ -223,6 +234,8 @@ public class DialerCallServiceImpl
                         publicId
                 );
 
+        validateInteractiveCallAccess(call);
+
         return aiDialerMapper.toCallResponse(
                 call
         );
@@ -243,6 +256,11 @@ public class DialerCallServiceImpl
                 aiDialerValidator.validateAndGet(
                         dialerPublicId
                 );
+
+        if (tenantAccessService.isAuthenticated()) {
+            tenantAccessService.validateAgentAccess(dialer.getAgent());
+            tenantAccessService.validateCampaignAccess(dialer.getCampaign());
+        }
 
         return dialerCallRepository
                 .findAllByDialerIdAndIsDeleted(
@@ -272,6 +290,12 @@ public class DialerCallServiceImpl
                 campaignContactValidator.validateAndGet(
                         campaignContactPublicId
                 );
+
+        if (tenantAccessService.isAuthenticated()) {
+            tenantAccessService.validateCampaignAccess(
+                    campaignContact.getCampaign()
+            );
+        }
 
         return dialerCallRepository
                 .findAllByCampaignContactIdAndIsDeleted(
@@ -614,11 +638,42 @@ public class DialerCallServiceImpl
     }
 
     /**
-     * Creates and immediately initiates a call
-     * for a campaign contact.
+     * Validates tenant ownership for operations initiated by an authenticated
+     * application user. Unauthenticated invocations are reserved for trusted
+     * internal scheduler and lifecycle processing; HTTP access must be secured
+     * by Spring Security and controller permission annotations.
      *
-     * @param dialerPublicId AI Dialer public identifier
-     * @param campaignContactPublicId campaign contact public identifier
-     * @return initiated dialer call
+     * @param call dialer call to validate
      */
+    private void validateInteractiveCallAccess(DialerCall call) {
+        if (call == null || !tenantAccessService.isAuthenticated()) {
+            return;
+        }
+
+        AiDialer dialer = call.getDialer();
+
+        if (dialer == null || dialer.getAgent() == null
+                || dialer.getCampaign() == null) {
+            throw new BadRequestException(
+                    "Dialer Call has incomplete ownership information."
+            );
+        }
+
+        tenantAccessService.validateAgentAccess(dialer.getAgent());
+        tenantAccessService.validateCampaignAccess(dialer.getCampaign());
+
+        CampaignContact contact = call.getCampaignContact();
+
+        if (contact != null) {
+            if (contact.getCampaign() == null
+                    || !dialer.getCampaign().getId().equals(
+                    contact.getCampaign().getId())) {
+                throw new BadRequestException(
+                        "Dialer Call and Campaign Contact do not belong together."
+                );
+            }
+
+            tenantAccessService.validateCampaignAccess(contact.getCampaign());
+        }
+    }
 }

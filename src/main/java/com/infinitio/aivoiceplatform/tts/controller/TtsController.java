@@ -8,6 +8,7 @@ import com.infinitio.aivoiceplatform.tts.dto.request.CreateTtsRequest;
 import com.infinitio.aivoiceplatform.tts.dto.request.UpdateTtsRequest;
 import com.infinitio.aivoiceplatform.tts.dto.response.TtsResponse;
 import com.infinitio.aivoiceplatform.tts.service.TtsService;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -34,7 +35,14 @@ public class TtsController {
 
     private final TtsService ttsService;
 
+    /**
+     * Creates a TTS configuration.
+     *
+     * @param request create request
+     * @return created TTS
+     */
     @Operation(summary = "Create TTS")
+    @RequiresPermission("TTS_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<TtsResponse>> create(
             @Valid @RequestBody CreateTtsRequest request) {
@@ -50,7 +58,14 @@ public class TtsController {
         );
     }
 
+    /**
+     * Updates a TTS configuration.
+     *
+     * @param request update request
+     * @return updated TTS
+     */
     @Operation(summary = "Update TTS")
+    @RequiresPermission("TTS_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<TtsResponse>> update(
             @Valid @RequestBody UpdateTtsRequest request) {
@@ -66,7 +81,14 @@ public class TtsController {
         );
     }
 
+    /**
+     * Retrieves a TTS configuration.
+     *
+     * @param publicId TTS public ID
+     * @return TTS configuration
+     */
     @Operation(summary = "Get TTS By Public Id")
+    @RequiresPermission("TTS_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<TtsResponse>> getByPublicId(
             @PathVariable String publicId) {
@@ -85,7 +107,15 @@ public class TtsController {
         );
     }
 
+    /**
+     * Retrieves all TTS configurations.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated TTS configurations
+     */
     @Operation(summary = "Get All TTS Configurations")
+    @RequiresPermission("TTS_VIEW")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<TtsResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
@@ -106,7 +136,14 @@ public class TtsController {
         );
     }
 
+    /**
+     * Soft deletes a TTS configuration.
+     *
+     * @param publicId TTS public ID
+     * @return success response
+     */
     @Operation(summary = "Delete TTS")
+    @RequiresPermission("TTS_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -124,7 +161,14 @@ public class TtsController {
         );
     }
 
+    /**
+     * Activates a TTS configuration.
+     *
+     * @param publicId TTS public ID
+     * @return success response
+     */
     @Operation(summary = "Activate TTS")
+    @RequiresPermission("TTS_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -142,7 +186,14 @@ public class TtsController {
         );
     }
 
+    /**
+     * Deactivates a TTS configuration.
+     *
+     * @param publicId TTS public ID
+     * @return success response
+     */
     @Operation(summary = "Deactivate TTS")
+    @RequiresPermission("TTS_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

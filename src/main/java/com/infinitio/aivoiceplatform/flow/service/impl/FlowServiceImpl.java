@@ -26,6 +26,7 @@ import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowEdgeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowNodeRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.SaveFlowWorkspaceRequest;
 import com.infinitio.aivoiceplatform.flow.dto.request.UpdateFlowNodeRequest;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -98,7 +99,7 @@ public class FlowServiceImpl
     /**
      * Current authenticated user service.
      */
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
     private final FlowEdgeService flowEdgeService;
 
@@ -124,6 +125,10 @@ public class FlowServiceImpl
                         request.getAgentPublicId()
                 );
 
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
         flowValidator.validateForCreate(
                 request,
                 agent
@@ -139,7 +144,7 @@ public class FlowServiceImpl
         );
 
         flow.setCreatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         Flow saved =
@@ -175,20 +180,49 @@ public class FlowServiceImpl
                 request.getPublicId()
         );
 
+        /*
+         * First resolve the existing Flow.
+         */
+        Flow flow =
+                flowValidator.validateAndGet(
+                        request.getPublicId()
+                );
+
+        /*
+         * Validate access to the existing Flow.
+         *
+         * This prevents:
+         *
+         * Tenant A user
+         *      ↓
+         * Flow belonging to Tenant B
+         */
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
+
+        /*
+         * Resolve the requested Agent.
+         */
         Agent agent =
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
 
+        /*
+         * Validate access to the target Agent.
+         *
+         * This prevents moving a Flow from Tenant A
+         * into an Agent belonging to Tenant B.
+         */
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
         flowValidator.validateForUpdate(
                 request,
                 agent
         );
-
-        Flow flow =
-                flowValidator.validateAndGet(
-                        request.getPublicId()
-                );
 
         flowMapper.updateEntity(
                 request,
@@ -200,7 +234,7 @@ public class FlowServiceImpl
         );
 
         flow.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         Flow saved =
@@ -242,6 +276,10 @@ public class FlowServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
+
         return flowMapper.toResponse(
                 flow
         );
@@ -274,6 +312,10 @@ public class FlowServiceImpl
                 flowValidator.validateAndGet(
                         publicId
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         FlowResponse flowResponse =
                 flowMapper.toResponse(
@@ -422,6 +464,10 @@ public class FlowServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
+
         /*
          * Validate the complete graph before activation.
          *
@@ -441,7 +487,7 @@ public class FlowServiceImpl
         );
 
         flow.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         flowRepository.save(
@@ -475,12 +521,16 @@ public class FlowServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
+
         flow.setStatus(
                 FlowStatus.INACTIVE
         );
 
         flow.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         flowRepository.save(
@@ -514,12 +564,20 @@ public class FlowServiceImpl
                         publicId
                 );
 
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
+
         flow.setIsDeleted(
                 DELETED
         );
 
         flow.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
+        );
+
+        flowRepository.save(
+                flow
         );
 
         flowRepository.save(
@@ -605,6 +663,10 @@ public class FlowServiceImpl
                         agentPublicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
         Flow flow =
                 flowRepository
                         .findFirstByAgentIdAndIsDeletedOrderByVersionDesc(
@@ -652,6 +714,10 @@ public class FlowServiceImpl
                 flowValidator.validateAndGet(
                         publicId
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         /*
          * ---------------------------------------------------------

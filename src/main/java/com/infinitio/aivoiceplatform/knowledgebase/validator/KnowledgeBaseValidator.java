@@ -10,15 +10,11 @@ import com.infinitio.aivoiceplatform.knowledgebase.repository.KnowledgeBaseRepos
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/**
- * Validator for Knowledge Base.
- *
- * @author Infinitio Digital
- * @version 1.0.0
- */
 @Component
 @RequiredArgsConstructor
 public class KnowledgeBaseValidator {
+
+    private static final Integer NOT_DELETED = 0;
 
     private final KnowledgeBaseRepository knowledgeBaseRepository;
 
@@ -50,9 +46,8 @@ public class KnowledgeBaseValidator {
 
         if (!existing.getKnowledgeBaseCode()
                 .equals(request.getKnowledgeBaseCode())
-                && knowledgeBaseRepository
-                .existsByKnowledgeBaseCode(
-                        request.getKnowledgeBaseCode())) {
+                && knowledgeBaseRepository.existsByKnowledgeBaseCode(
+                request.getKnowledgeBaseCode())) {
 
             throw new ConflictException(
                     KnowledgeBaseMessages.CODE_ALREADY_EXISTS
@@ -61,9 +56,8 @@ public class KnowledgeBaseValidator {
 
         if (!existing.getKnowledgeBaseName()
                 .equals(request.getKnowledgeBaseName())
-                && knowledgeBaseRepository
-                .existsByKnowledgeBaseName(
-                        request.getKnowledgeBaseName())) {
+                && knowledgeBaseRepository.existsByKnowledgeBaseName(
+                request.getKnowledgeBaseName())) {
 
             throw new ConflictException(
                     KnowledgeBaseMessages.NAME_ALREADY_EXISTS
@@ -71,11 +65,19 @@ public class KnowledgeBaseValidator {
         }
     }
 
-    public KnowledgeBase validateAndGet(
-            String publicId) {
+    public KnowledgeBase validateAndGet(String publicId) {
+
+        if (publicId == null || publicId.isBlank()) {
+            throw new ResourceNotFoundException(
+                    KnowledgeBaseMessages.NOT_FOUND
+            );
+        }
 
         return knowledgeBaseRepository
-                .findByPublicId(publicId)
+                .findByPublicIdAndIsDeleted(
+                        publicId,
+                        NOT_DELETED
+                )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 KnowledgeBaseMessages.NOT_FOUND

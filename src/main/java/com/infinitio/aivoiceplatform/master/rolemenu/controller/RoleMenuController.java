@@ -15,7 +15,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
+import org.springframework.security.access.prepost.PreAuthorize;
+import java.util.List;
 /**
  * REST Controller for Role Menu Management.
  *
@@ -43,6 +44,7 @@ public class RoleMenuController {
             summary = "Create Role Menu"
     )
     @PostMapping
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_CREATE')")
     public ResponseEntity<ApiResponse<RoleMenuResponse>> create(
             @Valid
             @RequestBody
@@ -74,6 +76,7 @@ public class RoleMenuController {
             summary = "Update Role Menu"
     )
     @PutMapping
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_UPDATE')")
     public ResponseEntity<ApiResponse<RoleMenuResponse>> update(
             @Valid
             @RequestBody
@@ -104,6 +107,7 @@ public class RoleMenuController {
             summary = "Get Role Menu By Public Id"
     )
     @GetMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_VIEW')")
     public ResponseEntity<ApiResponse<RoleMenuResponse>> getByPublicId(
             @PathVariable
             String publicId) {
@@ -133,30 +137,13 @@ public class RoleMenuController {
             summary = "Get All Role Menus"
     )
     @GetMapping
-    public ResponseEntity<
-            ApiResponse<PageResponse<RoleMenuResponse>>
-            > getAll(
-            @RequestParam(
-                    defaultValue = "0"
-            )
-            int page,
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_VIEW')")
+    public ResponseEntity<ApiResponse<List<RoleMenuResponse>>> getAll() {
 
-            @RequestParam(
-                    defaultValue = "10"
-            )
-            int size) {
+        log.info("REST Request : Get All Role Menus");
 
-        log.info(
-                "REST Request : Get All Role Menus | page={} | size={}",
-                page,
-                size
-        );
-
-        PageResponse<RoleMenuResponse> response =
-                roleMenuService.getAll(
-                        page,
-                        size
-                );
+        List<RoleMenuResponse> response =
+                roleMenuService.getAll();
 
         return ResponseBuilder.success(
                 response,
@@ -173,6 +160,7 @@ public class RoleMenuController {
             summary = "Delete Role Menu"
     )
     @DeleteMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_DELETE')")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable
             String publicId) {
@@ -201,6 +189,7 @@ public class RoleMenuController {
             summary = "Activate Role Menu"
     )
     @PatchMapping("/{publicId}/activate")
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable
             String publicId) {
@@ -229,6 +218,7 @@ public class RoleMenuController {
             summary = "Deactivate Role Menu"
     )
     @PatchMapping("/{publicId}/deactivate")
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable
             String publicId) {
@@ -245,6 +235,30 @@ public class RoleMenuController {
         return ResponseBuilder.success(
                 null,
                 RoleMenuMessages.DEACTIVATED
+        );
+    }
+
+    @Operation(
+            summary = "Get Menus Assigned to a Role"
+    )
+    @GetMapping("/role/{rolePublicId}")
+    @PreAuthorize("hasPermission(null, 'ROLE_MENU_VIEW')")
+    public ResponseEntity<ApiResponse<List<RoleMenuResponse>>> getByRolePublicId(
+            @PathVariable String rolePublicId) {
+
+        log.info(
+                "REST Request : Get Menus Assigned to Role | rolePublicId={}",
+                rolePublicId
+        );
+
+        List<RoleMenuResponse> response =
+                roleMenuService.getByRolePublicId(
+                        rolePublicId
+                );
+
+        return ResponseBuilder.success(
+                response,
+                "Role menus fetched successfully."
         );
     }
 }

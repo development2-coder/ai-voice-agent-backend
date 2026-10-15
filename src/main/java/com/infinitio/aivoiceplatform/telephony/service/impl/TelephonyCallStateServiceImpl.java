@@ -338,13 +338,68 @@ public class TelephonyCallStateServiceImpl
             );
 
             /*
-             * Store recording information before returning
-             * from the completed-call branch.
+             * Process recording first.
+             *
+             * Recording download failure must NOT prevent
+             * complete transcript finalization.
              */
-            processRecording(
-                    call,
-                    event
-            );
+            CallRecordingResponse recordingResponse =
+                    processRecording(
+                            call,
+                            event
+                    );
+
+            /*
+             * Finalize the complete transcript independently
+             * from recording persistence.
+             *
+             * If recording was successfully persisted, associate
+             * the transcript with that recording.
+             *
+             * If recording is unavailable, transcript is still
+             * finalized with a null recording reference.
+             */
+            try {
+
+                String recordingPublicId = null;
+
+                if (recordingResponse != null
+                        && recordingResponse.getPublicId() != null
+                        && !recordingResponse
+                        .getPublicId()
+                        .isBlank()) {
+
+                    recordingPublicId =
+                            recordingResponse.getPublicId();
+                }
+
+                transcriptService.finalizeCallTranscript(
+                        call.getPublicId(),
+                        recordingPublicId
+                );
+
+                log.info(
+                        "Complete call transcript finalized "
+                                + "independently of recording. "
+                                + "callPublicId={}, recordingPublicId={}",
+                        call.getPublicId(),
+                        recordingPublicId
+                );
+
+            } catch (Exception exception) {
+
+                /*
+                 * Transcript finalization failure must not prevent
+                 * the call itself from being marked completed.
+                 */
+                log.error(
+                        "Unable to finalize complete call transcript. "
+                                + "callPublicId={}, reason={}",
+                        call.getPublicId(),
+                        exception.getMessage(),
+                        exception
+                );
+            }
 
             log.info(
                     "Call marked as completed. "
@@ -592,7 +647,7 @@ public class TelephonyCallStateServiceImpl
      * @param call call entity
      * @param event normalized provider event
      */
-    private void processRecording(
+    private CallRecordingResponse processRecording(
             Call call,
             NormalizedCallEventDto event) {
 
@@ -601,7 +656,13 @@ public class TelephonyCallStateServiceImpl
                 .getRecordingUrl()
                 .isBlank()) {
 
-            return;
+            log.info(
+                    "No recording URL available for call. "
+                            + "callPublicId={}",
+                    call.getPublicId()
+            );
+
+            return null;
         }
 
         call.setRecordingUrl(
@@ -634,19 +695,54 @@ public class TelephonyCallStateServiceImpl
                     .getPublicId()
                     .isBlank()) {
 
-                transcriptService.finalizeCallTranscript(
-                        call.getPublicId(),
-                        recordingResponse.getPublicId()
-                );
+                try {
 
-                log.info(
-                        "Complete call transcript finalized after "
-                                + "recording persistence. "
-                                + "callPublicId={}, recordingPublicId={}",
-                        call.getPublicId(),
-                        recordingResponse.getPublicId()
-                );
+                    transcriptService.finalizeCallTranscript(
+                            call.getPublicId(),
+                            recordingResponse.getPublicId()
+                    );
+
+                    log.info(
+                            "Complete call transcript updated with "
+                                    + "recording after recording callback. "
+                                    + "callPublicId={}, recordingPublicId={}",
+                            call.getPublicId(),
+                            recordingResponse.getPublicId()
+                    );
+
+                } catch (Exception exception) {
+
+                    log.error(
+                            "Unable to associate recording with complete "
+                                    + "call transcript. "
+                                    + "callPublicId={}, recordingPublicId={}, reason={}",
+                            call.getPublicId(),
+                            recordingResponse.getPublicId(),
+                            exception.getMessage(),
+                            exception
+                    );
+                }
             }
+
+//            if (recordingResponse != null
+//                    && recordingResponse.getPublicId() != null
+//                    && !recordingResponse
+//                    .getPublicId()
+//                    .isBlank()) {
+//
+//                transcriptService.finalizeCallTranscript(
+//                        call.getPublicId(),
+//                        recordingResponse.getPublicId()
+//                );
+//
+//                log.info(
+//                        "Complete call transcript finalized after "
+//                                + "recording persistence. "
+//                                + "callPublicId={}, recordingPublicId={}",
+//                        call.getPublicId(),
+//                        recordingResponse.getPublicId()
+//                );
+//            }
 
             log.info(
                     "CallRecording processed successfully. "
@@ -654,6 +750,8 @@ public class TelephonyCallStateServiceImpl
                     call.getPublicId(),
                     event.getRecordingUrl()
             );
+
+            return recordingResponse;
 
         } catch (Exception exception) {
 
@@ -667,6 +765,8 @@ public class TelephonyCallStateServiceImpl
                     exception.getMessage(),
                     exception
             );
+
+            return null;
         }
     }
 
@@ -759,26 +859,45 @@ public class TelephonyCallStateServiceImpl
      * @param call call entity
      * @param endedAt call end timestamp
      */
+    /**
+     * Persists call duration from the best available call timestamps.
+     *
+     * Answer time is preferred because it represents the connected
+     * conversation duration. Started time is the fallback for existing
+     * flows that do not provide a separate answer timestamp.
+     *
+     * @param call call entity
+     * @param endedAt call end timestamp
+     */
     private void updateDuration(
             Call call,
             LocalDateTime endedAt) {
 
-        if (call.getStartedAt() == null
-                || endedAt == null) {
+        if (call == null || endedAt == null) {
+            return;
+        }
 
+        LocalDateTime durationStart =
+                call.getAnsweredAt() != null
+                        ? call.getAnsweredAt()
+                        : call.getStartedAt();
+
+        /*
+         * Calls that never received a start/answer timestamp should still
+         * have a terminal duration value instead of remaining null.
+         */
+        if (durationStart == null) {
+            call.setDurationSeconds(0);
             return;
         }
 
         long durationSeconds =
-                Duration.between(
-                        call.getStartedAt(),
-                        endedAt
-                ).getSeconds();
+                Duration.between(durationStart, endedAt).getSeconds();
 
         call.setDurationSeconds(
-                (int) Math.max(
-                        durationSeconds,
-                        0
+                (int) Math.min(
+                        Math.max(durationSeconds, 0),
+                        Integer.MAX_VALUE
                 )
         );
     }

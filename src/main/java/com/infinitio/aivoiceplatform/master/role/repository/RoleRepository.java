@@ -55,4 +55,9 @@ public interface RoleRepository
             Integer isDeleted,
             Pageable pageable
     );
+
+    Optional<Role> findByRoleCodeAndIsDeleted(
+            String roleCode,
+            Integer isDeleted
+    );
 }

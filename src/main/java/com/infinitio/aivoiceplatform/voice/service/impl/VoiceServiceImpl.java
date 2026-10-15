@@ -11,6 +11,8 @@ import com.infinitio.aivoiceplatform.voice.mapper.VoiceMapper;
 import com.infinitio.aivoiceplatform.voice.repository.VoiceRepository;
 import com.infinitio.aivoiceplatform.voice.service.VoiceService;
 import com.infinitio.aivoiceplatform.voice.validator.VoiceValidator;
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -38,6 +40,8 @@ public class VoiceServiceImpl implements VoiceService {
 
     private final AgentValidator agentValidator;
 
+    private final TenantAccessService tenantAccessService;
+
     @Override
     public VoiceResponse create(CreateVoiceRequest request) {
 
@@ -52,6 +56,8 @@ public class VoiceServiceImpl implements VoiceService {
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
+
+        tenantAccessService.validateAgentAccess(agent);
 
         Voice voice =
                 voiceMapper.toEntity(request);
@@ -84,10 +90,16 @@ public class VoiceServiceImpl implements VoiceService {
                         request.getPublicId()
                 );
 
+        tenantAccessService.validateAgentAccess(
+                voice.getAgent()
+        );
+
         Agent agent =
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
+
+        tenantAccessService.validateAgentAccess(agent);
 
         voiceMapper.updateEntity(
                 request,
@@ -120,6 +132,10 @@ public class VoiceServiceImpl implements VoiceService {
         Voice voice =
                 voiceValidator.validateAndGet(publicId);
 
+        tenantAccessService.validateAgentAccess(
+                voice.getAgent()
+        );
+
         return voiceMapper.toResponse(voice);
     }
 
@@ -135,10 +151,24 @@ public class VoiceServiceImpl implements VoiceService {
                 size
         );
 
-        Page<Voice> result =
-                voiceRepository.findAll(
-                        PageRequest.of(page, size)
-                );
+        Page<Voice> result;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            result = voiceRepository.findByIsDeleted(
+                    NOT_DELETED,
+                    PageRequest.of(page, size)
+            );
+
+        } else {
+
+            result = voiceRepository
+                    .findByAgent_Tenant_IdAndIsDeleted(
+                            tenantAccessService.getCurrentTenantId(),
+                            NOT_DELETED,
+                            PageRequest.of(page, size)
+                    );
+        }
 
         return PageResponse.<VoiceResponse>builder()
                 .content(
@@ -167,7 +197,13 @@ public class VoiceServiceImpl implements VoiceService {
         Voice voice =
                 voiceValidator.validateAndGet(publicId);
 
-        voice.markAsDeleted(1L);
+        tenantAccessService.validateAgentAccess(
+                voice.getAgent()
+        );
+
+        voice.markAsDeleted(
+                tenantAccessService.getCurrentUserId()
+        );
 
         voiceRepository.save(voice);
 
@@ -188,7 +224,13 @@ public class VoiceServiceImpl implements VoiceService {
         Voice voice =
                 voiceValidator.validateAndGet(publicId);
 
-        voice.activate(1L);
+        tenantAccessService.validateAgentAccess(
+                voice.getAgent()
+        );
+
+        voice.activate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         voiceRepository.save(voice);
 
@@ -209,7 +251,13 @@ public class VoiceServiceImpl implements VoiceService {
         Voice voice =
                 voiceValidator.validateAndGet(publicId);
 
-        voice.deactivate(1L);
+        tenantAccessService.validateAgentAccess(
+                voice.getAgent()
+        );
+
+        voice.deactivate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         voiceRepository.save(voice);
 

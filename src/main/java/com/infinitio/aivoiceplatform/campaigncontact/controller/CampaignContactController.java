@@ -13,6 +13,7 @@ import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignSampleExcelService;
+import com.infi.library.annotation.RequiresPermission;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import io.swagger.v3.oas.annotations.Operation;
@@ -50,6 +51,7 @@ public class CampaignContactController {
     private final CampaignContactExcelService campaignContactExcelService;
 
     @Operation(summary = "Create Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_CREATE")
     @PostMapping
     public ResponseEntity<
             ApiResponse<CampaignContactResponse>>
@@ -69,6 +71,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Update Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_UPDATE")
     @PutMapping
     public ResponseEntity<
             ApiResponse<CampaignContactResponse>>
@@ -90,6 +93,7 @@ public class CampaignContactController {
     @Operation(
             summary = "Upload Campaign Contacts Excel"
     )
+    @RequiresPermission("CAMPAIGN_CONTACT_CREATE")
     @PostMapping(
             value = "/upload",
             consumes =
@@ -126,6 +130,7 @@ public class CampaignContactController {
     @Operation(
             summary = "Generate Campaign Contacts Sample Excel"
     )
+    @RequiresPermission("CAMPAIGN_CONTACT_VIEW")
     @GetMapping(
             "/sample-excel/{campaignPublicId}"
     )
@@ -158,6 +163,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Get Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<
             ApiResponse<CampaignContactResponse>>
@@ -176,6 +182,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Get All Campaign Contacts")
+    @RequiresPermission("CAMPAIGN_CONTACT_VIEW")
     @GetMapping
     public ResponseEntity<
             ApiResponse<
@@ -196,6 +203,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Get Contacts By Campaign")
+    @RequiresPermission("CAMPAIGN_CONTACT_VIEW")
     @GetMapping(
             "/campaign/{campaignPublicId}"
     )
@@ -222,6 +230,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Delete Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>>
     delete(
@@ -238,6 +247,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Activate Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>>
     activate(
@@ -254,6 +264,7 @@ public class CampaignContactController {
     }
 
     @Operation(summary = "Deactivate Campaign Contact")
+    @RequiresPermission("CAMPAIGN_CONTACT_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>>
     deactivate(
@@ -269,6 +280,7 @@ public class CampaignContactController {
         );
     }
 
+    @RequiresPermission("CAMPAIGN_CONTACT_VIEW")
     @PostMapping(
             value = "/upload/preview",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
@@ -295,6 +307,7 @@ public class CampaignContactController {
         );
     }
 
+    @RequiresPermission("CAMPAIGN_CONTACT_CREATE")
     @PostMapping("/upload/confirm")
     public ApiResponse<CampaignContactExcelUploadResponse> confirm(
             @Valid @RequestBody

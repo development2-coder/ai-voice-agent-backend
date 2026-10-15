@@ -143,9 +143,6 @@ public class AgentConfigurationOptionsServiceImpl
     private List<ConfigurationOptionResponse>
     buildSpeakerOptions() {
 
-        Set<String> speakers =
-                new LinkedHashSet<>();
-
         Map<String, List<String>> supportedSpeakers =
                 ttsProperties.getSupportedSpeakers();
 
@@ -159,37 +156,83 @@ public class AgentConfigurationOptionsServiceImpl
             return List.of();
         }
 
-        supportedSpeakers.values()
-                .stream()
-                .filter(
-                        values ->
-                                values != null
-                )
-                .flatMap(
-                        Collection::stream
-                )
-                .filter(
-                        value ->
-                                value != null
-                                        && !value.isBlank()
-                )
-                .map(
-                        String::trim
-                )
-                .forEach(
-                        speakers::add
-                );
+        List<ConfigurationOptionResponse> speakerOptions =
+                new ArrayList<>();
 
-        return speakers
-                .stream()
-                .map(
-                        speaker ->
-                                buildOption(
-                                        speaker,
-                                        speaker
-                                )
-                )
-                .toList();
+        supportedSpeakers.forEach(
+                (gender, speakers) -> {
+
+                    if (speakers == null) {
+                        return;
+                    }
+
+                    speakers.stream()
+                            .filter(
+                                    speaker ->
+                                            speaker != null
+                                                    && !speaker.isBlank()
+                            )
+                            .map(String::trim)
+                            .forEach(
+                                    speaker -> {
+
+                                        String voiceName =
+                                                formatVoiceName(speaker);
+
+                                        speakerOptions.add(
+                                                ConfigurationOptionResponse
+                                                        .builder()
+                                                        .value(speaker)
+                                                        .label(voiceName)
+                                                        .voiceId(speaker)
+                                                        .voiceName(voiceName)
+                                                        .gender(gender)
+                                                        .sampleAudioUrl(
+                                                                buildSampleAudioUrl(
+                                                                        speaker
+                                                                )
+                                                        )
+                                                        .build()
+                                        );
+                                    }
+                            );
+                }
+        );
+
+        return speakerOptions;
+    }
+
+
+    private String buildSampleAudioUrl(
+            String voiceId) {
+
+        String baseUrl =
+                ttsProperties.getAudioBaseUrl();
+
+        if (baseUrl == null
+                || baseUrl.isBlank()) {
+
+            return null;
+        }
+
+        return baseUrl.replaceAll("/$", "")
+                + "/"
+                + voiceId
+                + ".mp3";
+    }
+
+    private String formatVoiceName(
+            String voiceId) {
+
+        if (voiceId == null
+                || voiceId.isBlank()) {
+
+            return voiceId;
+        }
+
+        return Character.toUpperCase(
+                voiceId.charAt(0)
+        ) + voiceId.substring(1);
     }
 
     /**

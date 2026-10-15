@@ -55,4 +55,9 @@ public interface AgentConfigRepository
     List<AgentConfig> findByIsDeleted(
             Integer isDeleted
     );
+
+    List<AgentConfig> findByAgent_Tenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
+    );
 }

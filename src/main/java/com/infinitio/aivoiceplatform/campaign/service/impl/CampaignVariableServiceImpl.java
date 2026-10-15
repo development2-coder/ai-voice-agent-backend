@@ -14,6 +14,7 @@ import com.infinitio.aivoiceplatform.flow.entity.Flow;
 import com.infinitio.aivoiceplatform.flow.entity.FlowNode;
 import com.infinitio.aivoiceplatform.flow.repository.FlowNodeRepository;
 import com.infinitio.aivoiceplatform.flow.repository.FlowRepository;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,8 @@ public class CampaignVariableServiceImpl
 
     private final AiDialerRepository aiDialerRepository;
 
+    private final TenantAccessService tenantAccessService;
+
     /**
      * {@inheritDoc}
      */
@@ -88,6 +91,10 @@ public class CampaignVariableServiceImpl
                 campaignValidator.validateAndGet(
                         campaignPublicId
                 );
+
+        tenantAccessService.validateAgentAccess(
+                campaign.getAgent()
+        );
 
         Flow flow =
                 resolveCampaignFlow(

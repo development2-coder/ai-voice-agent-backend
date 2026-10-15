@@ -1,29 +1,44 @@
 package com.infinitio.aivoiceplatform.campaign.repository;
 
 import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for Campaign.
+ * Repository for Campaign persistence operations.
+ *
+ * <p>
+ * Tenant relationship:
+ *
+ * <pre>
+ * Campaign
+ *     ↓
+ * Agent
+ *     ↓
+ * Tenant
+ * </pre>
+ *
+ * Tenant-scoped queries should be used for ADMIN and USER operations
+ * wherever a campaign is retrieved by its public identifier.
  *
  * @author Infinitio Digital
  * @version 1.0.0
  */
-public interface CampaignRepository
-        extends JpaRepository<Campaign, Long> {
+public interface CampaignRepository extends JpaRepository<Campaign, Long> {
 
     /**
-     * Finds a non-deleted campaign by public ID.
+     * Finds a non-deleted Campaign by public ID.
      *
-     * @param publicId campaign public identifier
+     * <p>
+     * Use for global access only, such as SUPER_ADMIN operations
+     * and trusted internal workflows that explicitly require it.
+     * </p>
+     *
+     * @param publicId campaign public ID
      * @param isDeleted deleted flag
-     * @return campaign
+     * @return campaign when found
      */
     Optional<Campaign> findByPublicIdAndIsDeleted(
             String publicId,
@@ -31,22 +46,59 @@ public interface CampaignRepository
     );
 
     /**
-     * Finds campaigns by deleted status.
+     * Finds a non-deleted Campaign by public ID and tenant ID.
      *
+     * <p>
+     * The tenant restriction is applied by the database query.
+     * ADMIN and USER operations should use this method to avoid
+     * loading another tenant's campaign by public ID.
+     * </p>
+     *
+     * @param publicId campaign public ID
+     * @param tenantId tenant database ID
      * @param isDeleted deleted flag
-     * @param pageable pagination information
-     * @return campaigns
+     * @return campaign when it belongs to the specified tenant
      */
-    List<Campaign> findByIsDeleted(
+    Optional<Campaign> findByPublicIdAndAgent_Tenant_IdAndIsDeleted(
+            String publicId,
+            Long tenantId,
             Integer isDeleted
     );
 
     /**
-     * Checks whether campaign code already exists.
+     * Finds all non-deleted campaigns globally.
+     *
+     * <p>
+     * Used for SUPER_ADMIN access.
+     * </p>
+     *
+     * @param isDeleted deleted flag
+     * @return campaigns
+     */
+    List<Campaign> findByIsDeleted(Integer isDeleted);
+
+    /**
+     * Finds all non-deleted campaigns belonging to a tenant.
+     *
+     * <p>
+     * Tenant is resolved through Campaign → Agent → Tenant.
+     * </p>
+     *
+     * @param tenantId tenant database ID
+     * @param isDeleted deleted flag
+     * @return tenant campaigns
+     */
+    List<Campaign> findByAgent_Tenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
+    );
+
+    /**
+     * Checks whether Campaign code already exists.
      *
      * @param campaignCode campaign code
      * @param isDeleted deleted flag
-     * @return true if exists
+     * @return true when a matching campaign exists
      */
     boolean existsByCampaignCodeAndIsDeleted(
             String campaignCode,
@@ -54,11 +106,11 @@ public interface CampaignRepository
     );
 
     /**
-     * Checks whether campaign name already exists.
+     * Checks whether Campaign name already exists.
      *
      * @param campaignName campaign name
      * @param isDeleted deleted flag
-     * @return true if exists
+     * @return true when a matching campaign exists
      */
     boolean existsByCampaignNameAndIsDeleted(
             String campaignName,
@@ -66,12 +118,12 @@ public interface CampaignRepository
     );
 
     /**
-     * Checks whether campaign code exists for another campaign.
+     * Checks whether another Campaign has the same code.
      *
      * @param campaignCode campaign code
      * @param isDeleted deleted flag
      * @param publicId current campaign public ID
-     * @return true if another campaign exists
+     * @return true when another campaign exists
      */
     boolean existsByCampaignCodeAndIsDeletedAndPublicIdNot(
             String campaignCode,
@@ -80,12 +132,12 @@ public interface CampaignRepository
     );
 
     /**
-     * Checks whether campaign name exists for another campaign.
+     * Checks whether another Campaign has the same name.
      *
      * @param campaignName campaign name
      * @param isDeleted deleted flag
      * @param publicId current campaign public ID
-     * @return true if another campaign exists
+     * @return true when another campaign exists
      */
     boolean existsByCampaignNameAndIsDeletedAndPublicIdNot(
             String campaignName,

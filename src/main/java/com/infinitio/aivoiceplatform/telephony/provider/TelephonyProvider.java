@@ -97,4 +97,14 @@ public interface TelephonyProvider {
     List<NumberResponseDto> getAvailableNumbers(
             NumberSearchRequestDto request
     );
+
+    /**
+     * Retrieves completed call details from the provider.
+     *
+     * @param providerCallId provider call identifier
+     * @return normalized completed call event
+     */
+    NormalizedCallEventDto getCallDetails(
+            String providerCallId
+    );
 }

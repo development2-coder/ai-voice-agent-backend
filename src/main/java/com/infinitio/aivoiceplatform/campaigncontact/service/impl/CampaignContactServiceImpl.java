@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.campaigncontact.service.impl;
 
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
 import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
 import com.infinitio.aivoiceplatform.campaign.validator.CampaignValidator;
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactConstants;
@@ -15,6 +16,9 @@ import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignContactServ
 import com.infinitio.aivoiceplatform.campaigncontact.validator.CampaignContactValidator;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,7 +26,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-
+import java.util.Set;
+import java.util.Locale;
 import java.util.List;
 
 /**
@@ -54,6 +59,8 @@ public class CampaignContactServiceImpl
 
     private final CurrentUserService currentUserService;
 
+    private final TenantAccessService tenantAccessService;
+
     @Override
     public CampaignContactResponse create(
             CreateCampaignContactRequest request) {
@@ -65,10 +72,18 @@ public class CampaignContactServiceImpl
                         : null
         );
 
+        if (request == null) {
+            throw new BadRequestException(
+                    CampaignContactMessages.REQUEST_REQUIRED
+            );
+        }
+
         Campaign campaign =
                 campaignValidator.validateAndGet(
                         request.getCampaignPublicId()
                 );
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         campaignContactValidator.validateForCreate(
                 request,
@@ -115,10 +130,18 @@ public class CampaignContactServiceImpl
                         : null
         );
 
+        if (request == null) {
+            throw new BadRequestException(
+                    CampaignContactMessages.UPDATE_REQUEST_REQUIRED
+            );
+        }
+
         Campaign campaign =
                 campaignValidator.validateAndGet(
                         request.getCampaignPublicId()
                 );
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         campaignContactValidator.validateForUpdate(
                 request,
@@ -130,9 +153,17 @@ public class CampaignContactServiceImpl
                         request.getPublicId()
                 );
 
+        tenantAccessService.validateCampaignAccess(
+                contact.getCampaign()
+        );
+
         campaignContactMapper.updateEntity(
                 request,
                 contact
+        );
+
+        contact.setUpdatedBy(
+                tenantAccessService.getCurrentUserId()
         );
 
         contact.setCampaign(
@@ -166,9 +197,11 @@ public class CampaignContactServiceImpl
         );
 
         CampaignContact contact =
-                campaignContactValidator.validateAndGet(
-                        publicId
-                );
+                campaignContactValidator.validateAndGet(publicId);
+
+        tenantAccessService.validateCampaignAccess(
+                contact.getCampaign()
+        );
 
         return campaignContactMapper.toResponse(
                 contact
@@ -179,16 +212,31 @@ public class CampaignContactServiceImpl
     @Transactional(readOnly = true)
     public PageResponse<CampaignContactResponse> getAll() {
 
-        log.info(
-                "Fetching all Campaign Contacts"
-        );
+        log.info("Fetching campaign contacts for current user");
 
-        List<CampaignContact> contacts =
-                campaignContactRepository.findAll();
+        List<CampaignContact> contacts;
 
-        return buildPageResponse(
-                contacts
-        );
+        if (tenantAccessService.isSuperAdmin()) {
+            contacts = campaignContactRepository
+                    .findByIsDeleted(0);
+        } else {
+            Long tenantId =
+                    tenantAccessService.getCurrentTenantId();
+
+            if (tenantId == null) {
+                throw new ForbiddenException(
+                        "Current user's tenant is unavailable."
+                );
+            }
+
+            contacts = campaignContactRepository
+                    .findByCampaign_Agent_Tenant_IdAndIsDeleted(
+                            tenantId,
+                            0
+                    );
+        }
+
+        return buildPageResponse(contacts);
     }
 
     @Override
@@ -202,9 +250,9 @@ public class CampaignContactServiceImpl
         );
 
         Campaign campaign =
-                campaignValidator.validateAndGet(
-                        campaignPublicId
-                );
+                campaignValidator.validateAndGet(campaignPublicId);
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         List<CampaignContact> contacts =
                 campaignContactRepository
@@ -261,57 +309,54 @@ public class CampaignContactServiceImpl
     }
 
     @Override
-    public void delete(
-            String publicId) {
+    public void delete(String publicId) {
 
         CampaignContact contact =
-                campaignContactValidator.validateAndGet(
-                        publicId
-                );
+                campaignContactValidator.validateAndGet(publicId);
+
+        tenantAccessService.validateCampaignAccess(
+                contact.getCampaign()
+        );
 
         contact.markAsDeleted(
-                1L
+                tenantAccessService.getCurrentUserId()
         );
 
-        campaignContactRepository.save(
-                contact
-        );
+        campaignContactRepository.save(contact);
     }
 
     @Override
-    public void activate(
-            String publicId) {
+    public void activate(String publicId) {
 
         CampaignContact contact =
-                campaignContactValidator.validateAndGet(
-                        publicId
-                );
+                campaignContactValidator.validateAndGet(publicId);
+
+        tenantAccessService.validateCampaignAccess(
+                contact.getCampaign()
+        );
 
         contact.activate(
-                1L
+                tenantAccessService.getCurrentUserId()
         );
 
-        campaignContactRepository.save(
-                contact
-        );
+        campaignContactRepository.save(contact);
     }
 
     @Override
-    public void deactivate(
-            String publicId) {
+    public void deactivate(String publicId) {
 
         CampaignContact contact =
-                campaignContactValidator.validateAndGet(
-                        publicId
-                );
+                campaignContactValidator.validateAndGet(publicId);
+
+        tenantAccessService.validateCampaignAccess(
+                contact.getCampaign()
+        );
 
         contact.deactivate(
-                1L
+                tenantAccessService.getCurrentUserId()
         );
 
-        campaignContactRepository.save(
-                contact
-        );
+        campaignContactRepository.save(contact);
     }
 
     @Override
@@ -351,10 +396,23 @@ public class CampaignContactServiceImpl
             String publicId,
             String status) {
 
+        if (status == null || status.isBlank()
+                || !ALLOWED_DIALING_STATUSES.contains(
+                status.trim().toUpperCase(Locale.ROOT)
+        )) {
+            throw new BadRequestException(
+                    CampaignContactMessages.STATUS_INVALID
+            );
+        }
+
         CampaignContact contact =
                 campaignContactValidator.validateAndGet(
                         publicId
                 );
+
+        contact.setStatus(
+                status.trim().toUpperCase(Locale.ROOT)
+        );
 
         contact.setStatus(
                 status
@@ -403,4 +461,14 @@ public class CampaignContactServiceImpl
                 updatedContact
         );
     }
+
+
+    private static final Set<String> ALLOWED_DIALING_STATUSES =
+            Set.of(
+                    CampaignContactConstants.STATUS_PENDING,
+                    CampaignContactConstants.STATUS_DIALING,
+                    CampaignContactConstants.STATUS_NO_ANSWER,
+                    CampaignContactConstants.STATUS_BUSY,
+                    CampaignContactConstants.STATUS_FAILED
+            );
 }

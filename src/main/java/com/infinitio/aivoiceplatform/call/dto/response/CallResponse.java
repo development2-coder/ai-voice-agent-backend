@@ -1,11 +1,15 @@
 package com.infinitio.aivoiceplatform.call.dto.response;
 
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 
 /**
- * Call Response.
+ * Response DTO for call details.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -39,7 +43,15 @@ public class CallResponse {
 
     private LocalDateTime endedAt;
 
+    /**
+     * Call duration in seconds.
+     */
     private Integer durationSeconds;
+
+    /**
+     * Formatted call duration, HH:mm:ss.
+     */
+    private String duration;
 
     private String failureReason;
 

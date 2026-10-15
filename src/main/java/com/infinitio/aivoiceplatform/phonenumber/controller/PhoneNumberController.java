@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.phonenumber.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
@@ -17,7 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * REST Controller for Phone Number Management.
+ * REST controller for phone-number management.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -36,13 +37,9 @@ public class PhoneNumberController {
 
     @Operation(summary = "Create Phone Number")
     @PostMapping
+    @RequiresPermission("PHONE_NUMBER_CREATE")
     public ResponseEntity<ApiResponse<PhoneNumberResponse>> create(
-            @Valid @RequestBody
-            CreatePhoneNumberRequest request) {
-
-        log.info(
-                "REST Request : Create Phone Number"
-        );
+            @Valid @RequestBody CreatePhoneNumberRequest request) {
 
         PhoneNumberResponse response =
                 phoneNumberService.create(request);
@@ -55,13 +52,9 @@ public class PhoneNumberController {
 
     @Operation(summary = "Update Phone Number")
     @PutMapping
+    @RequiresPermission("PHONE_NUMBER_UPDATE")
     public ResponseEntity<ApiResponse<PhoneNumberResponse>> update(
-            @Valid @RequestBody
-            UpdatePhoneNumberRequest request) {
-
-        log.info(
-                "REST Request : Update Phone Number"
-        );
+            @Valid @RequestBody UpdatePhoneNumberRequest request) {
 
         PhoneNumberResponse response =
                 phoneNumberService.update(request);
@@ -74,19 +67,12 @@ public class PhoneNumberController {
 
     @Operation(summary = "Get Phone Number By Public Id")
     @GetMapping("/{publicId}")
-    public ResponseEntity<ApiResponse<PhoneNumberResponse>>
-    getByPublicId(
+    @RequiresPermission("PHONE_NUMBER_VIEW")
+    public ResponseEntity<ApiResponse<PhoneNumberResponse>> getByPublicId(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Get Phone Number : {}",
-                publicId
-        );
-
         PhoneNumberResponse response =
-                phoneNumberService.getByPublicId(
-                        publicId
-                );
+                phoneNumberService.getByPublicId(publicId);
 
         return ResponseBuilder.success(
                 response,
@@ -96,17 +82,10 @@ public class PhoneNumberController {
 
     @Operation(summary = "Get All Phone Numbers")
     @GetMapping
-    public ResponseEntity<
-            ApiResponse<PageResponse<PhoneNumberResponse>>>
-    getAll(
+    @RequiresPermission("PHONE_NUMBER_VIEW")
+    public ResponseEntity<ApiResponse<PageResponse<PhoneNumberResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
             @RequestParam(defaultValue = "10") Integer size) {
-
-        log.info(
-                "REST Request : Get All Phone Numbers. Page : {}, Size : {}",
-                page,
-                size
-        );
 
         PageResponse<PhoneNumberResponse> response =
                 phoneNumberService.getAll(page, size);
@@ -119,13 +98,9 @@ public class PhoneNumberController {
 
     @Operation(summary = "Delete Phone Number")
     @DeleteMapping("/{publicId}")
+    @RequiresPermission("PHONE_NUMBER_DELETE")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Delete Phone Number : {}",
-                publicId
-        );
 
         phoneNumberService.delete(publicId);
 
@@ -137,13 +112,9 @@ public class PhoneNumberController {
 
     @Operation(summary = "Activate Phone Number")
     @PatchMapping("/{publicId}/activate")
+    @RequiresPermission("PHONE_NUMBER_UPDATE")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Activate Phone Number : {}",
-                publicId
-        );
 
         phoneNumberService.activate(publicId);
 
@@ -155,13 +126,9 @@ public class PhoneNumberController {
 
     @Operation(summary = "Deactivate Phone Number")
     @PatchMapping("/{publicId}/deactivate")
+    @RequiresPermission("PHONE_NUMBER_UPDATE")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Deactivate Phone Number : {}",
-                publicId
-        );
 
         phoneNumberService.deactivate(publicId);
 

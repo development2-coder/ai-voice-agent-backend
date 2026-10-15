@@ -4,6 +4,9 @@ import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResp
 import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import com.infinitio.aivoiceplatform.campaigncontact.constant.CampaignContactConstants;
 import com.infinitio.aivoiceplatform.campaigncontact.service.CampaignSampleExcelService;
+import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
+import com.infinitio.aivoiceplatform.campaign.validator.CampaignValidator;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Cell;
@@ -70,6 +73,10 @@ public class CampaignSampleExcelServiceImpl
     private final CampaignVariableService
             campaignVariableService;
 
+    private final CampaignValidator campaignValidator;
+
+    private final TenantAccessService tenantAccessService;
+
     /**
      * {@inheritDoc}
      */
@@ -82,6 +89,13 @@ public class CampaignSampleExcelServiceImpl
                         + "Campaign : {}",
                 campaignPublicId
         );
+
+        Campaign campaign =
+                campaignValidator.validateAndGet(
+                        campaignPublicId
+                );
+
+        tenantAccessService.validateCampaignAccess(campaign);
 
         CampaignVariablesResponse variablesResponse =
                 campaignVariableService.getVariables(

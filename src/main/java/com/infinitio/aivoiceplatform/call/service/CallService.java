@@ -107,4 +107,15 @@ public interface CallService {
     void deactivate(
             String publicId
     );
+
+    /**
+     * Retrieves calls associated with a campaign accessible to the
+     * authenticated user.
+     *
+     * @param campaignPublicId campaign public identifier
+     * @return calls belonging to the campaign
+     */
+    List<CallResponse> getByCampaign(
+            String campaignPublicId
+    );
 }

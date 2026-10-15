@@ -67,6 +67,12 @@ public class TtsAudioResourceConfig
                 resourceLocation
         );
 
+        registry.addResourceHandler(
+                "/api/v1/voices/samples/**"
+        ).addResourceLocations(
+                "classpath:/static/voice-samples/"
+        );
+
         log.info(
                 "TTS audio resource handler initialized. urlPattern=/tts-audio/**, storagePath={}",
                 absolutePath

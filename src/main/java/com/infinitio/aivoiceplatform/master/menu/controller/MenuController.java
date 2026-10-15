@@ -10,12 +10,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * Menu Controller.
  *
  * Provides REST APIs for managing application menus.
+ *
+ * Menu management is restricted through RBAC permissions.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -42,6 +47,7 @@ public class MenuController {
      * @return created menu
      */
     @PostMapping
+    @PreAuthorize("hasPermission(null, 'MENU_CREATE')")
     public ResponseEntity<MenuResponse> create(
             @Valid @RequestBody CreateMenuRequest request) {
 
@@ -74,6 +80,7 @@ public class MenuController {
      * @return updated menu
      */
     @PutMapping
+    @PreAuthorize("hasPermission(null, 'MENU_UPDATE')")
     public ResponseEntity<MenuResponse> update(
             @Valid @RequestBody UpdateMenuRequest request) {
 
@@ -106,6 +113,7 @@ public class MenuController {
      * @return menu
      */
     @GetMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'MENU_VIEW')")
     public ResponseEntity<MenuResponse> getByPublicId(
             @PathVariable String publicId) {
 
@@ -134,37 +142,19 @@ public class MenuController {
      *
      * GET /api/v1/menus?page=0&size=10
      *
-     * @param page page number
-     * @param size page size
+     *
      * @return paginated menu response
      */
     @GetMapping
-    public ResponseEntity<PageResponse<MenuResponse>> getAll(
-            @RequestParam(
-                    defaultValue = "0"
-            )
-            int page,
+    @PreAuthorize("hasPermission(null, 'MENU_VIEW')")
+    public ResponseEntity<List<MenuResponse>> getAll() {
 
-            @RequestParam(
-                    defaultValue = "10"
-            )
-            int size) {
+        log.info("REST Request : Get All Menus");
 
-        log.info(
-                "REST Request : Get All Menus | page={} | size={}",
-                page,
-                size
-        );
+        List<MenuResponse> response =
+                menuService.getAll();
 
-        PageResponse<MenuResponse> response =
-                menuService.getAll(
-                        page,
-                        size
-                );
-
-        return ResponseEntity.ok(
-                response
-        );
+        return ResponseEntity.ok(response);
     }
 
 
@@ -181,6 +171,7 @@ public class MenuController {
      * @return no content
      */
     @DeleteMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'MENU_DELETE')")
     public ResponseEntity<Void> delete(
             @PathVariable String publicId) {
 
@@ -193,7 +184,8 @@ public class MenuController {
                 publicId
         );
 
-        return ResponseEntity.noContent()
+        return ResponseEntity
+                .noContent()
                 .build();
     }
 
@@ -211,6 +203,7 @@ public class MenuController {
      * @return no content
      */
     @PatchMapping("/{publicId}/activate")
+    @PreAuthorize("hasPermission(null, 'MENU_UPDATE')")
     public ResponseEntity<Void> activate(
             @PathVariable String publicId) {
 
@@ -223,7 +216,8 @@ public class MenuController {
                 publicId
         );
 
-        return ResponseEntity.noContent()
+        return ResponseEntity
+                .noContent()
                 .build();
     }
 
@@ -241,6 +235,7 @@ public class MenuController {
      * @return no content
      */
     @PatchMapping("/{publicId}/deactivate")
+    @PreAuthorize("hasPermission(null, 'MENU_UPDATE')")
     public ResponseEntity<Void> deactivate(
             @PathVariable String publicId) {
 
@@ -253,7 +248,8 @@ public class MenuController {
                 publicId
         );
 
-        return ResponseEntity.noContent()
+        return ResponseEntity
+                .noContent()
                 .build();
     }
 }

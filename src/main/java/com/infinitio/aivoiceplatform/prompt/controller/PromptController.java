@@ -8,6 +8,7 @@ import com.infinitio.aivoiceplatform.prompt.dto.request.CreatePromptRequest;
 import com.infinitio.aivoiceplatform.prompt.dto.request.UpdatePromptRequest;
 import com.infinitio.aivoiceplatform.prompt.dto.response.PromptResponse;
 import com.infinitio.aivoiceplatform.prompt.service.PromptService;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -34,7 +35,14 @@ public class PromptController {
 
     private final PromptService promptService;
 
+    /**
+     * Creates a Prompt.
+     *
+     * @param request create prompt request
+     * @return created prompt
+     */
     @Operation(summary = "Create Prompt")
+    @RequiresPermission("PROMPT_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<PromptResponse>> create(
             @Valid @RequestBody CreatePromptRequest request) {
@@ -50,7 +58,14 @@ public class PromptController {
         );
     }
 
+    /**
+     * Updates a Prompt.
+     *
+     * @param request update prompt request
+     * @return updated prompt
+     */
     @Operation(summary = "Update Prompt")
+    @RequiresPermission("PROMPT_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<PromptResponse>> update(
             @Valid @RequestBody UpdatePromptRequest request) {
@@ -66,7 +81,14 @@ public class PromptController {
         );
     }
 
+    /**
+     * Gets a Prompt by public ID.
+     *
+     * @param publicId prompt public ID
+     * @return prompt
+     */
     @Operation(summary = "Get Prompt By Public Id")
+    @RequiresPermission("PROMPT_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<PromptResponse>> getByPublicId(
             @PathVariable String publicId) {
@@ -85,7 +107,15 @@ public class PromptController {
         );
     }
 
+    /**
+     * Gets all Prompts.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated prompts
+     */
     @Operation(summary = "Get All Prompts")
+    @RequiresPermission("PROMPT_VIEW")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<PromptResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
@@ -106,7 +136,14 @@ public class PromptController {
         );
     }
 
+    /**
+     * Soft deletes a Prompt.
+     *
+     * @param publicId prompt public ID
+     * @return success response
+     */
     @Operation(summary = "Delete Prompt")
+    @RequiresPermission("PROMPT_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -124,7 +161,14 @@ public class PromptController {
         );
     }
 
+    /**
+     * Activates a Prompt.
+     *
+     * @param publicId prompt public ID
+     * @return success response
+     */
     @Operation(summary = "Activate Prompt")
+    @RequiresPermission("PROMPT_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -142,7 +186,14 @@ public class PromptController {
         );
     }
 
+    /**
+     * Deactivates a Prompt.
+     *
+     * @param publicId prompt public ID
+     * @return success response
+     */
     @Operation(summary = "Deactivate Prompt")
+    @RequiresPermission("PROMPT_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

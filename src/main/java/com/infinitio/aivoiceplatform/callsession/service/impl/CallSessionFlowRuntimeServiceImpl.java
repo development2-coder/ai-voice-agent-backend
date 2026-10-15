@@ -5,11 +5,13 @@ import com.infinitio.aivoiceplatform.callsession.dto.response.CallSessionRespons
 import com.infinitio.aivoiceplatform.callsession.entity.CallSession;
 import com.infinitio.aivoiceplatform.callsession.mapper.CallSessionMapper;
 import com.infinitio.aivoiceplatform.callsession.repository.CallSessionRepository;
+import com.infinitio.aivoiceplatform.callsession.service.CallSessionFlowLinkService;
 import com.infinitio.aivoiceplatform.callsession.service.CallSessionFlowRuntimeService;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import com.infinitio.aivoiceplatform.flow.dto.request.StartFlowExecutionRequest;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
+import com.infinitio.aivoiceplatform.flow.service.FlowExecutionInitializationService;
 import com.infinitio.aivoiceplatform.flow.service.FlowExecutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,7 +31,7 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
+//@Transactional
 public class CallSessionFlowRuntimeServiceImpl
         implements CallSessionFlowRuntimeService {
 
@@ -41,6 +43,12 @@ public class CallSessionFlowRuntimeServiceImpl
 
     private final FlowExecutionService
             flowExecutionService;
+
+    private final FlowExecutionInitializationService
+            flowExecutionInitializationService;
+
+    private final CallSessionFlowLinkService
+            callSessionFlowLinkService;
 
     @Override
     public CallSessionResponseDto startFlow(
@@ -110,9 +118,45 @@ public class CallSessionFlowRuntimeServiceImpl
                         )
                         .build();
 
-        FlowExecutionResult execution =
-                flowExecutionService.start(
+//
+        /*
+         * Phase 1:
+         * Create and COMMIT the Flow Execution before any TTS/Flow
+         * runtime work starts.
+         */
+        FlowExecutionResult initializedExecution =
+                flowExecutionInitializationService.initialize(
                         request
+                );
+
+        if (initializedExecution == null
+                || initializedExecution.getExecutionPublicId() == null
+                || initializedExecution.getExecutionPublicId().isBlank()) {
+
+            throw new IllegalStateException(
+                    "Flow execution initialization failed."
+            );
+        }
+
+        /*
+         * Phase 2:
+         * Immediately commit the Flow Execution ID into the Call Session.
+         *
+         * This must happen before TTS starts because STT can receive
+         * caller speech while the initial greeting is being played.
+         */
+        callSessionFlowLinkService.linkExecution(
+                callId,
+                initializedExecution
+        );
+
+        /*
+         * Phase 3:
+         * Now execute START -> MESSAGE -> TTS -> next nodes.
+         */
+        FlowExecutionResult execution =
+                flowExecutionService.executeExisting(
+                        initializedExecution.getExecutionPublicId()
                 );
 
         if (execution == null) {
@@ -123,25 +167,37 @@ public class CallSessionFlowRuntimeServiceImpl
         }
 
         /*
-         * Existing mapper owns the mapping between
-         * FlowExecutionResult and CallSession.
+         * Reload the Call Session because the Flow Execution ID was
+         * committed by a separate transaction.
          */
+        CallSession latestCallSession =
+                callSessionRepository
+                        .findByCallId(
+                                callId
+                        )
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        CallSessionMessages
+                                                .CALL_SESSION_NOT_FOUND
+                                )
+                        );
+
         callSessionMapper.updateFromExecution(
-                callSession,
+                latestCallSession,
                 execution
         );
 
         if (language != null
                 && !language.isBlank()) {
 
-            callSession.setLanguage(
+            latestCallSession.setLanguage(
                     language
             );
         }
 
         CallSession savedCallSession =
                 callSessionRepository.save(
-                        callSession
+                        latestCallSession
                 );
 
         log.info(

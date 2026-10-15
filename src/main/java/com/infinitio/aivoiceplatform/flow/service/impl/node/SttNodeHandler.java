@@ -2,6 +2,7 @@ package com.infinitio.aivoiceplatform.flow.service.impl.node;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionContextKeys;
 import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionStatus;
 import com.infinitio.aivoiceplatform.flow.constant.FlowMessages;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
@@ -98,6 +99,9 @@ public class SttNodeHandler
             runtimeConfigurationResolver;
 
     private final ObjectMapper objectMapper;
+
+    private static final String CURRENT_USER_LANGUAGE =
+            FlowExecutionContextKeys.CURRENT_USER_LANGUAGE;
 
     /**
      * {@inheritDoc}
@@ -334,7 +338,7 @@ public class SttNodeHandler
                 && !response.getLanguage().isBlank()) {
 
             context.put(
-                    LANGUAGE,
+                    CURRENT_USER_LANGUAGE,
                     response.getLanguage()
             );
         }

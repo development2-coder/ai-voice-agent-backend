@@ -15,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+
+import java.util.List;
 
 /**
  * REST Controller for Permission Management.
@@ -43,6 +46,7 @@ public class PermissionController {
             summary = "Create Permission"
     )
     @PostMapping
+    @PreAuthorize("hasPermission(null, 'PERMISSION_CREATE')")
     public ResponseEntity<ApiResponse<PermissionResponse>> create(
             @Valid @RequestBody CreatePermissionRequest request) {
 
@@ -66,6 +70,7 @@ public class PermissionController {
             summary = "Update Permission"
     )
     @PutMapping
+    @PreAuthorize("hasPermission(null, 'PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<PermissionResponse>> update(
             @Valid @RequestBody UpdatePermissionRequest request) {
 
@@ -89,6 +94,7 @@ public class PermissionController {
             summary = "Get Permission By Public Id"
     )
     @GetMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'PERMISSION_VIEW')")
     public ResponseEntity<ApiResponse<PermissionResponse>> getByPublicId(
             @PathVariable String publicId) {
 
@@ -115,21 +121,13 @@ public class PermissionController {
             summary = "Get All Permissions"
     )
     @GetMapping
-    public ResponseEntity<ApiResponse<PageResponse<PermissionResponse>>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+    @PreAuthorize("hasPermission(null, 'PERMISSION_VIEW')")
+    public ResponseEntity<ApiResponse<List<PermissionResponse>>> getAll() {
 
-        log.info(
-                "REST Request : Get All Permissions. Page : {}, Size : {}",
-                page,
-                size
-        );
+        log.info("REST Request : Get All Permissions");
 
-        PageResponse<PermissionResponse> response =
-                permissionService.getAll(
-                        page,
-                        size
-                );
+        List<PermissionResponse> response =
+                permissionService.getAll();
 
         return ResponseBuilder.success(
                 response,
@@ -146,6 +144,7 @@ public class PermissionController {
             summary = "Delete Permission"
     )
     @DeleteMapping("/{publicId}")
+    @PreAuthorize("hasPermission(null, 'PERMISSION_DELETE')")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
 
@@ -173,6 +172,7 @@ public class PermissionController {
             summary = "Activate Permission"
     )
     @PatchMapping("/{publicId}/activate")
+    @PreAuthorize("hasPermission(null, 'PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
 
@@ -200,6 +200,7 @@ public class PermissionController {
             summary = "Deactivate Permission"
     )
     @PatchMapping("/{publicId}/deactivate")
+    @PreAuthorize("hasPermission(null, 'PERMISSION_UPDATE')")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {
 

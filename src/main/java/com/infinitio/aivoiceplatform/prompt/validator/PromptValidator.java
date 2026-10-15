@@ -10,6 +10,8 @@ import com.infinitio.aivoiceplatform.prompt.repository.PromptRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
+
 /**
  * Validator for Prompt.
  *
@@ -22,7 +24,14 @@ public class PromptValidator {
 
     private final PromptRepository promptRepository;
 
-    public void validateForCreate(CreatePromptRequest request) {
+
+    /**
+     * Validates Prompt creation request.
+     *
+     * @param request create request
+     */
+    public void validateForCreate(
+            CreatePromptRequest request) {
 
         if (promptRepository.existsByPromptCode(
                 request.getPromptCode())) {
@@ -41,10 +50,19 @@ public class PromptValidator {
         }
     }
 
-    public void validateForUpdate(UpdatePromptRequest request) {
+
+    /**
+     * Validates Prompt update request.
+     *
+     * @param request update request
+     */
+    public void validateForUpdate(
+            UpdatePromptRequest request) {
 
         Prompt existing =
-                validateAndGet(request.getPublicId());
+                validateAndGet(
+                        request.getPublicId()
+                );
 
         if (!existing.getPromptCode()
                 .equals(request.getPromptCode())
@@ -67,13 +85,25 @@ public class PromptValidator {
         }
     }
 
-    public Prompt validateAndGet(String publicId) {
+
+    /**
+     * Finds a non-deleted Prompt by public ID.
+     *
+     * @param publicId prompt public ID
+     * @return Prompt
+     */
+    public Prompt validateAndGet(
+            String publicId) {
 
         return promptRepository
-                .findByPublicId(publicId)
+                .findByPublicIdAndIsDeleted(
+                        publicId,
+                        NOT_DELETED
+                )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 PromptMessages.PROMPT_NOT_FOUND
-                        ));
+                        )
+                );
     }
 }

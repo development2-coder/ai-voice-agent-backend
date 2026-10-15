@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.aidialer.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.aidialer.dto.request.CreateAiDialerRequest;
 import com.infinitio.aivoiceplatform.aidialer.dto.request.PauseDialerRequest;
 import com.infinitio.aivoiceplatform.aidialer.dto.request.ResumeDialerRequest;
@@ -38,6 +39,7 @@ public class AiDialerController {
     // CREATE
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_CREATE")
     @PostMapping
     public ResponseEntity<DialerResponse> create(
             @Valid @RequestBody CreateAiDialerRequest request) {
@@ -55,6 +57,7 @@ public class AiDialerController {
     // GET BY PUBLIC ID
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<DialerResponse> getByPublicId(
             @PathVariable String publicId) {
@@ -71,6 +74,7 @@ public class AiDialerController {
     // GET ALL
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping
     public ResponseEntity<List<DialerResponse>> getAll() {
 
@@ -84,6 +88,7 @@ public class AiDialerController {
     // GET BY CAMPAIGN
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping("/campaign/{campaignPublicId}")
     public ResponseEntity<List<DialerResponse>> getByCampaign(
             @PathVariable String campaignPublicId) {
@@ -100,6 +105,7 @@ public class AiDialerController {
     // UPDATE
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PutMapping("/{publicId}")
     public ResponseEntity<DialerResponse> update(
             @PathVariable String publicId,
@@ -118,6 +124,7 @@ public class AiDialerController {
     // DELETE
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<Void> delete(
             @PathVariable String publicId) {
@@ -135,6 +142,7 @@ public class AiDialerController {
     // START
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/start")
     public ResponseEntity<DialerResponse> start(
             @Valid @RequestBody StartDialerRequest request) {
@@ -151,6 +159,7 @@ public class AiDialerController {
     // PAUSE
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/pause")
     public ResponseEntity<DialerResponse> pause(
             @Valid @RequestBody PauseDialerRequest request) {
@@ -167,6 +176,7 @@ public class AiDialerController {
     // RESUME
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/resume")
     public ResponseEntity<DialerResponse> resume(
             @Valid @RequestBody ResumeDialerRequest request) {
@@ -183,6 +193,7 @@ public class AiDialerController {
     // STOP
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/{publicId}/stop")
     public ResponseEntity<DialerResponse> stop(
             @PathVariable String publicId) {
@@ -199,6 +210,7 @@ public class AiDialerController {
     // PROCESS ONE DIALER MANUALLY
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/{publicId}/process")
     public ResponseEntity<List<DialerCallResponse>> processDialer(
             @PathVariable String publicId) {
@@ -215,6 +227,7 @@ public class AiDialerController {
     // GET DIALER CALLS
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping("/{publicId}/calls")
     public ResponseEntity<List<DialerCallResponse>> getCalls(
             @PathVariable String publicId) {
@@ -231,6 +244,7 @@ public class AiDialerController {
     // GET SINGLE CALL
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping("/calls/{callPublicId}")
     public ResponseEntity<DialerCallResponse> getCall(
             @PathVariable String callPublicId) {
@@ -247,6 +261,7 @@ public class AiDialerController {
     // GET CONTACT CALL HISTORY
     // =========================================================
 
+    @RequiresPermission("AI_DIALER_VIEW")
     @GetMapping(
             "/calls/contact/{campaignContactPublicId}"
     )
@@ -262,6 +277,7 @@ public class AiDialerController {
         );
     }
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping("/calls/{callPublicId}/initiate")
     public ResponseEntity<DialerCallResponse> initiateCall(
             @PathVariable String callPublicId) {
@@ -281,6 +297,7 @@ public class AiDialerController {
 // CREATE AND INITIATE CONTACT CALL
 // =========================================================
 
+    @RequiresPermission("AI_DIALER_UPDATE")
     @PostMapping(
             "/{dialerPublicId}/calls/contact/{campaignContactPublicId}"
     )

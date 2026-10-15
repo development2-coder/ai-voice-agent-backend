@@ -8,7 +8,6 @@ import com.infinitio.aivoiceplatform.agent.mapper.AgentMapper;
 import com.infinitio.aivoiceplatform.agent.repository.AgentRepository;
 import com.infinitio.aivoiceplatform.agent.service.AgentService;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
-import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeDefinitionResponse;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
@@ -36,7 +35,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import java.util.List;
 
 /**
@@ -62,8 +61,6 @@ public class AgentServiceImpl implements AgentService {
 
     private final TenantValidator tenantValidator;
 
-    private final CurrentUserService currentUserService;
-
     private final FlowService flowService;
 
     private final FlowEdgeService flowEdgeService;
@@ -72,6 +69,8 @@ public class AgentServiceImpl implements AgentService {
             flowNodeDefinitionService;
 
     private final AgentCopyService agentCopyService;
+
+    private final TenantAccessService tenantAccessService;
 
     // =========================================================
     // CREATE
@@ -109,6 +108,13 @@ public class AgentServiceImpl implements AgentService {
                         request.getTenantPublicId()
                 );
 
+        if (!tenantAccessService.isSuperAdmin()) {
+
+            tenantAccessService.validateTenantAccess(
+                    tenant
+            );
+        }
+
         agentValidator.validateCreate(
                 request,
                 tenant.getId()
@@ -118,7 +124,7 @@ public class AgentServiceImpl implements AgentService {
                 agentMapper.toEntity(request);
 
         agent.setCreatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         agent.setTenant(tenant);
@@ -207,6 +213,14 @@ public class AgentServiceImpl implements AgentService {
                     existingAgent.getTenant();
         }
 
+        tenantAccessService.validateAgentAccess(
+                existingAgent
+        );
+
+        tenantAccessService.validateTenantAccess(
+                tenant
+        );
+
         agentValidator.validateUpdate(
                 request,
                 tenant.getId(),
@@ -265,6 +279,10 @@ public class AgentServiceImpl implements AgentService {
                         publicId
                 );
 
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
         return agentMapper.toResponse(agent);
     }
 
@@ -279,10 +297,23 @@ public class AgentServiceImpl implements AgentService {
 
         log.info("Fetching all Agents");
 
-        List<Agent> agents =
-                agentRepository.findByIsDeleted(
-                        NOT_DELETED
-                );
+        List<Agent> agents;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            agents =
+                    agentRepository.findByIsDeleted(
+                            NOT_DELETED
+                    );
+
+        } else {
+
+            agents =
+                    agentRepository.findByTenant_IdAndIsDeleted(
+                            tenantAccessService.getCurrentTenantId(),
+                            NOT_DELETED
+                    );
+        }
 
         List<AgentResponse> content =
                 agents.stream()
@@ -344,7 +375,13 @@ public class AgentServiceImpl implements AgentService {
                         publicId
                 );
 
-        agent.markAsDeleted(1L);
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
+        agent.markAsDeleted(
+                tenantAccessService.getCurrentUserId()
+        );
 
         agentRepository.save(agent);
 
@@ -373,7 +410,13 @@ public class AgentServiceImpl implements AgentService {
                         publicId
                 );
 
-        agent.activate(1L);
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
+        agent.activate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         agentRepository.save(agent);
 
@@ -402,7 +445,13 @@ public class AgentServiceImpl implements AgentService {
                         publicId
                 );
 
-        agent.deactivate(1L);
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
+        agent.deactivate(
+                tenantAccessService.getCurrentUserId()
+        );
 
         agentRepository.save(agent);
 

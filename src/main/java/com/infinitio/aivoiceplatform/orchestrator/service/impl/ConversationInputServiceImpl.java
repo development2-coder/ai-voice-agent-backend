@@ -33,6 +33,7 @@ import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.concurrent.TimeUnit;
 import java.util.Base64;
@@ -109,6 +110,7 @@ public class ConversationInputServiceImpl
      * {@inheritDoc}
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ConversationOrchestratorResponseDto processAudio(
             ProcessAudioRequestDto request) {
 
@@ -247,6 +249,7 @@ public class ConversationInputServiceImpl
      * {@inheritDoc}
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ConversationOrchestratorResponseDto processTranscript(
             ProcessTranscriptRequestDto request) {
 
@@ -393,6 +396,26 @@ public class ConversationInputServiceImpl
                         request.getLanguage()
                 );
 
+        /*
+         * The Agent language must never be overwritten.
+         *
+         * The customer's detected language is stored separately and
+         * becomes the language for the next AI response.
+         */
+        flowContext.put(
+                FlowExecutionContextKeys.CURRENT_USER_LANGUAGE,
+                language
+        );
+
+        flowContext.put(
+                FlowExecutionContextKeys.RESPONSE_LANGUAGE,
+                language
+        );
+
+        /*
+         * Keep the existing language context updated for components
+         * that still use the generic LANGUAGE key.
+         */
         flowContext.put(
                 LANGUAGE,
                 language
@@ -825,11 +848,9 @@ public class ConversationInputServiceImpl
                 || normalized.equals("एवढेच")
                 || normalized.equals("झाले")
 
-                || normalized.equals("no")
                 || normalized.equals("no thanks")
                 || normalized.equals("no thank you")
 
-                || normalized.equals("नाही")
                 || normalized.equals("नको")
                 || normalized.equals("नको धन्यवाद");
     }
@@ -938,11 +959,10 @@ public class ConversationInputServiceImpl
              * application-level conversation. Therefore a provider
              * hangup exception should not undo that state.
              */
-            log.error(
-                    "Unable to request provider hangup after customer " +
-                            "conversation termination. callId={}",
-                    callId,
-                    exception
+            log.warn(
+                    "Provider hangup could not be completed because the Exotel " +
+                            "Legs API is not enabled. callId={}",
+                    callId
             );
         }
     }
@@ -1113,7 +1133,7 @@ public class ConversationInputServiceImpl
             return session;
         }
 
-        final long timeoutMs = 3000L;
+        final long timeoutMs = 10000L;
         final long pollIntervalMs = 100L;
 
         final long deadline =

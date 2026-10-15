@@ -7,10 +7,10 @@ import com.infinitio.aivoiceplatform.tts.dto.request.CreateTtsRequest;
 import com.infinitio.aivoiceplatform.tts.dto.request.UpdateTtsRequest;
 import com.infinitio.aivoiceplatform.tts.entity.Tts;
 import com.infinitio.aivoiceplatform.tts.repository.TtsRepository;
-
 import lombok.RequiredArgsConstructor;
-
 import org.springframework.stereotype.Component;
+
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
 
 /**
  * Validator for TTS.
@@ -88,7 +88,8 @@ public class TtsValidator {
     }
 
     /**
-     * Retrieves a TTS configuration by public identifier.
+     * Retrieves a non-deleted TTS configuration
+     * by public identifier.
      *
      * @param publicId TTS public identifier
      * @return TTS entity
@@ -97,8 +98,9 @@ public class TtsValidator {
             String publicId) {
 
         return ttsRepository
-                .findByPublicId(
-                        publicId
+                .findByPublicIdAndIsDeleted(
+                        publicId,
+                        NOT_DELETED
                 )
                 .orElseThrow(
                         () -> new ResourceNotFoundException(

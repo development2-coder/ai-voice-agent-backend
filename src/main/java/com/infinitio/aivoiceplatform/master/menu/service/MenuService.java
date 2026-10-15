@@ -4,6 +4,7 @@ import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.master.menu.dto.request.CreateMenuRequest;
 import com.infinitio.aivoiceplatform.master.menu.dto.request.UpdateMenuRequest;
 import com.infinitio.aivoiceplatform.master.menu.dto.response.MenuResponse;
+import java.util.List;
 
 public interface MenuService {
 
@@ -13,7 +14,7 @@ public interface MenuService {
 
     MenuResponse getByPublicId(String publicId);
 
-    PageResponse<MenuResponse> getAll(int page, int size);
+    List<MenuResponse> getAll();
 
     void delete(String publicId);
 

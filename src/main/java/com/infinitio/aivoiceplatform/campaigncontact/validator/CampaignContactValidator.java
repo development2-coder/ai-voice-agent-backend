@@ -210,8 +210,9 @@ public class CampaignContactValidator {
         }
 
         return campaignContactRepository
-                .findByPublicId(
-                        publicId
+                .findByPublicIdAndIsDeleted(
+                        publicId,
+                        0
                 )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(

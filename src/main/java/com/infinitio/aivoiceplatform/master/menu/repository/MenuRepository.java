@@ -267,4 +267,8 @@ public interface MenuRepository
             Integer isActive,
             Integer isDeleted
     );
+
+    List<Menu> findByIsDeletedOrderByDisplayOrderAsc(
+            Integer isDeleted
+    );
 }

@@ -186,6 +186,9 @@ public class LlmNodeHandler
      */
     private final LlmRuntimeService llmRuntimeService;
 
+    private static final String RESPONSE_LANGUAGE =
+            "responseLanguage";
+
     /**
      * {@inheritDoc}
      */
@@ -248,8 +251,18 @@ public class LlmNodeHandler
         String language =
                 getOptionalContextString(
                         context,
-                        LANGUAGE
+                        RESPONSE_LANGUAGE
                 );
+
+        if (language == null
+                || language.isBlank()) {
+
+            language =
+                    getOptionalContextString(
+                            context,
+                            LANGUAGE
+                    );
+        }
 
         boolean finalResponse =
                 getBooleanConfigurationValue(
@@ -363,7 +376,7 @@ public class LlmNodeHandler
                 && !response.getLanguage().isBlank()) {
 
             context.put(
-                    LANGUAGE,
+                    RESPONSE_LANGUAGE,
                     response.getLanguage()
             );
         }

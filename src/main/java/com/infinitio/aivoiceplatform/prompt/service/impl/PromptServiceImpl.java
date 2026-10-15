@@ -2,7 +2,7 @@ package com.infinitio.aivoiceplatform.prompt.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
-import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.prompt.dto.request.CreatePromptRequest;
 import com.infinitio.aivoiceplatform.prompt.dto.request.UpdatePromptRequest;
@@ -16,15 +16,31 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
 
 /**
  * Service implementation for Prompt.
  *
  * <p>
- * Handles Prompt lifecycle operations and maintains audit information
- * using the currently authenticated user.
+ * Handles Prompt CRUD operations together with
+ * RBAC-compatible tenant isolation and audit handling.
+ * </p>
+ *
+ * <p>
+ * Tenant relationship:
+ *
+ * <pre>
+ * Prompt
+ *   ↓
+ * Agent
+ *   ↓
+ * Tenant
+ * </pre>
+ *
  * </p>
  *
  * @author Infinitio Digital
@@ -44,7 +60,7 @@ public class PromptServiceImpl implements PromptService {
 
     private final AgentValidator agentValidator;
 
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
 
     // =========================================================
@@ -66,14 +82,30 @@ public class PromptServiceImpl implements PromptService {
                 request.getPromptCode()
         );
 
+        /*
+         * Validate Prompt code/name uniqueness.
+         */
         promptValidator.validateForCreate(
                 request
         );
 
+        /*
+         * Resolve the requested Agent.
+         */
         Agent agent =
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
+
+        /*
+         * Validate Agent tenant access.
+         *
+         * SUPER_ADMIN can access any tenant.
+         * ADMIN and USER can access only their own tenant.
+         */
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
 
         Prompt prompt =
                 promptMapper.toEntity(
@@ -85,16 +117,10 @@ public class PromptServiceImpl implements PromptService {
         );
 
         /*
-         * Populate audit information from the authenticated user.
-         *
-         * BaseEntity.createdBy is NOT NULL in the database,
-         * therefore this must be set before persistence.
+         * Set audit information.
          */
-        Long currentUserId =
-                currentUserService.getCurrentUserId();
-
         prompt.setCreatedBy(
-                currentUserId
+                tenantAccessService.getCurrentUserId()
         );
 
         Prompt savedPrompt =
@@ -106,7 +132,7 @@ public class PromptServiceImpl implements PromptService {
                 "Prompt created successfully. " +
                         "Public Id : {}, Created By : {}",
                 savedPrompt.getPublicId(),
-                currentUserId
+                savedPrompt.getCreatedBy()
         );
 
         return promptMapper.toResponse(
@@ -134,20 +160,51 @@ public class PromptServiceImpl implements PromptService {
                 request.getPublicId()
         );
 
+        /*
+         * Validate uniqueness rules.
+         */
         promptValidator.validateForUpdate(
                 request
         );
 
+        /*
+         * Retrieve existing Prompt.
+         */
         Prompt prompt =
                 promptValidator.validateAndGet(
                         request.getPublicId()
                 );
 
+        /*
+         * Validate access to the existing Prompt.
+         *
+         * Prompt → Agent → Tenant
+         */
+        tenantAccessService.validateAgentAccess(
+                prompt.getAgent()
+        );
+
+        /*
+         * Resolve the target Agent.
+         */
         Agent agent =
                 agentValidator.validateAndGet(
                         request.getAgentPublicId()
                 );
 
+        /*
+         * Validate target Agent as well.
+         *
+         * This prevents an ADMIN from moving a Prompt
+         * into another tenant.
+         */
+        tenantAccessService.validateAgentAccess(
+                agent
+        );
+
+        /*
+         * Update editable fields.
+         */
         promptMapper.updateEntity(
                 request,
                 prompt
@@ -159,11 +216,9 @@ public class PromptServiceImpl implements PromptService {
 
         /*
          * Update audit information.
-         *
-         * Do NOT modify createdBy during update.
          */
         prompt.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         Prompt updatedPrompt =
@@ -209,6 +264,13 @@ public class PromptServiceImpl implements PromptService {
                         publicId
                 );
 
+        /*
+         * Prevent cross-tenant access.
+         */
+        tenantAccessService.validateAgentAccess(
+                prompt.getAgent()
+        );
+
         return promptMapper.toResponse(
                 prompt
         );
@@ -220,7 +282,13 @@ public class PromptServiceImpl implements PromptService {
     // =========================================================
 
     /**
-     * Fetches all prompts.
+     * Fetches Prompts according to the current user's tenant.
+     *
+     * <p>
+     * SUPER_ADMIN receives Prompts across all tenants.
+     * ADMIN and USER receive only Prompts belonging to
+     * their current tenant.
+     * </p>
      *
      * @param page page number
      * @param size page size
@@ -238,13 +306,39 @@ public class PromptServiceImpl implements PromptService {
                 size
         );
 
-        Page<Prompt> result =
-                promptRepository.findAll(
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+        Pageable pageable =
+                PageRequest.of(
+                        page,
+                        size
                 );
+
+        Page<Prompt> result;
+
+        if (tenantAccessService.isSuperAdmin()) {
+
+            /*
+             * SUPER_ADMIN has global access.
+             */
+            result =
+                    promptRepository.findByIsDeleted(
+                            NOT_DELETED,
+                            pageable
+                    );
+
+        } else {
+
+            /*
+             * ADMIN and USER are restricted
+             * to their current tenant.
+             */
+            result =
+                    promptRepository
+                            .findByAgent_Tenant_IdAndIsDeleted(
+                                    tenantAccessService.getCurrentTenantId(),
+                                    NOT_DELETED,
+                                    pageable
+                            );
+        }
 
         return PageResponse
                 .<PromptResponse>builder()
@@ -301,8 +395,15 @@ public class PromptServiceImpl implements PromptService {
                         publicId
                 );
 
+        /*
+         * Prevent cross-tenant deletion.
+         */
+        tenantAccessService.validateAgentAccess(
+                prompt.getAgent()
+        );
+
         prompt.markAsDeleted(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         promptRepository.save(
@@ -339,8 +440,15 @@ public class PromptServiceImpl implements PromptService {
                         publicId
                 );
 
+        /*
+         * Prevent cross-tenant activation.
+         */
+        tenantAccessService.validateAgentAccess(
+                prompt.getAgent()
+        );
+
         prompt.activate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         promptRepository.save(
@@ -377,8 +485,15 @@ public class PromptServiceImpl implements PromptService {
                         publicId
                 );
 
+        /*
+         * Prevent cross-tenant deactivation.
+         */
+        tenantAccessService.validateAgentAccess(
+                prompt.getAgent()
+        );
+
         prompt.deactivate(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         promptRepository.save(

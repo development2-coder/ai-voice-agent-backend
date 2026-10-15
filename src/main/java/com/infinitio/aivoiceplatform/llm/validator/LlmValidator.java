@@ -7,6 +7,7 @@ import com.infinitio.aivoiceplatform.llm.dto.request.CreateLlmRequest;
 import com.infinitio.aivoiceplatform.llm.dto.request.UpdateLlmRequest;
 import com.infinitio.aivoiceplatform.llm.entity.Llm;
 import com.infinitio.aivoiceplatform.llm.repository.LlmRepository;
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.NOT_DELETED;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -72,7 +73,10 @@ public class LlmValidator {
     public Llm validateAndGet(String publicId) {
 
         return llmRepository
-                .findByPublicId(publicId)
+                .findByPublicIdAndIsDeleted(
+                        publicId,
+                        NOT_DELETED
+                )
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 LlmMessages.NOT_FOUND

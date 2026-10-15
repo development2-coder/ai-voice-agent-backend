@@ -1,6 +1,9 @@
 package com.infinitio.aivoiceplatform.master.platformmodule.service.impl;
 
+import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
 import com.infinitio.aivoiceplatform.master.platformmodule.dto.request.CreatePlatformModuleRequest;
 import com.infinitio.aivoiceplatform.master.platformmodule.dto.request.UpdatePlatformModuleRequest;
 import com.infinitio.aivoiceplatform.master.platformmodule.dto.response.PlatformModuleResponse;
@@ -9,7 +12,6 @@ import com.infinitio.aivoiceplatform.master.platformmodule.mapper.PlatformModule
 import com.infinitio.aivoiceplatform.master.platformmodule.repository.PlatformModuleRepository;
 import com.infinitio.aivoiceplatform.master.platformmodule.service.PlatformModuleService;
 import com.infinitio.aivoiceplatform.master.platformmodule.validator.PlatformModuleValidator;
-import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -21,6 +23,9 @@ import org.springframework.transaction.annotation.Transactional;
  * Platform Module Service Implementation.
  *
  * Handles platform module business operations.
+ *
+ * Platform modules are system-level configuration and therefore
+ * can only be managed by SUPER_ADMIN.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -44,14 +49,49 @@ public class PlatformModuleServiceImpl
 
     private final PlatformModuleValidator platformModuleValidator;
 
+    private final CurrentUserService currentUserService;
+
+    // =========================================================
+    // AUTHORIZATION
+    // =========================================================
+
+    /**
+     * Validate that the current user is authenticated and is
+     * a SUPER_ADMIN.
+     *
+     * Platform modules are system-level configuration and must
+     * not be managed by ADMIN or USER.
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+            throw new ForbiddenException(
+                    "Authentication is required to manage platform modules."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+            throw new ForbiddenException(
+                    "Only Super Admin can manage platform modules."
+            );
+        }
+    }
 
     // =========================================================
     // CREATE
     // =========================================================
 
+    /**
+     * Create a new Platform Module.
+     *
+     * @param request create request
+     * @return created Platform Module
+     */
     @Override
     public PlatformModuleResponse create(
             CreatePlatformModuleRequest request) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Creating Platform Module. moduleCode={}",
@@ -63,60 +103,51 @@ public class PlatformModuleServiceImpl
         /*
          * Validate request and duplicate values.
          */
-        platformModuleValidator.validateForCreate(
-                request
-        );
+        platformModuleValidator.validateForCreate(request);
 
         /*
          * Convert request to entity.
          */
         PlatformModule platformModule =
-                platformModuleMapper.toEntity(
-                        request
-                );
+                platformModuleMapper.toEntity(request);
 
         /*
          * New platform modules are active
          * and non-deleted by default.
-         *
-         * BaseEntity also provides these defaults
-         * during @PrePersist, but setting them here
-         * makes the service behaviour explicit.
          */
-        platformModule.setIsActive(
-                ACTIVE
-        );
+        platformModule.setIsActive(ACTIVE);
 
-        platformModule.setIsDeleted(
-                NOT_DELETED
-        );
+        platformModule.setIsDeleted(NOT_DELETED);
 
         /*
          * Persist entity.
          */
         PlatformModule savedModule =
-                platformModuleRepository.save(
-                        platformModule
-                );
+                platformModuleRepository.save(platformModule);
 
         log.info(
                 "Platform Module created successfully. publicId={}",
                 savedModule.getPublicId()
         );
 
-        return platformModuleMapper.toResponse(
-                savedModule
-        );
+        return platformModuleMapper.toResponse(savedModule);
     }
-
 
     // =========================================================
     // UPDATE
     // =========================================================
 
+    /**
+     * Update an existing Platform Module.
+     *
+     * @param request update request
+     * @return updated Platform Module
+     */
     @Override
     public PlatformModuleResponse update(
             UpdatePlatformModuleRequest request) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Updating Platform Module. publicId={}",
@@ -128,9 +159,7 @@ public class PlatformModuleServiceImpl
         /*
          * Validate request and duplicate values.
          */
-        platformModuleValidator.validateForUpdate(
-                request
-        );
+        platformModuleValidator.validateForUpdate(request);
 
         /*
          * Get existing non-deleted module.
@@ -142,9 +171,6 @@ public class PlatformModuleServiceImpl
 
         /*
          * Update only fields supplied by request.
-         *
-         * Mapper uses:
-         * NullValuePropertyMappingStrategy.IGNORE
          */
         platformModuleMapper.updateEntityFromRequest(
                 request,
@@ -155,25 +181,26 @@ public class PlatformModuleServiceImpl
          * Persist updated module.
          */
         PlatformModule updatedModule =
-                platformModuleRepository.save(
-                        existingModule
-                );
+                platformModuleRepository.save(existingModule);
 
         log.info(
                 "Platform Module updated successfully. publicId={}",
                 updatedModule.getPublicId()
         );
 
-        return platformModuleMapper.toResponse(
-                updatedModule
-        );
+        return platformModuleMapper.toResponse(updatedModule);
     }
-
 
     // =========================================================
     // GET BY PUBLIC ID
     // =========================================================
 
+    /**
+     * Get Platform Module by public ID.
+     *
+     * @param publicId public UUID
+     * @return Platform Module
+     */
     @Override
     @Transactional(readOnly = true)
     public PlatformModuleResponse getByPublicId(
@@ -185,20 +212,22 @@ public class PlatformModuleServiceImpl
         );
 
         PlatformModule platformModule =
-                platformModuleValidator.validateAndGet(
-                        publicId
-                );
+                platformModuleValidator.validateAndGet(publicId);
 
-        return platformModuleMapper.toResponse(
-                platformModule
-        );
+        return platformModuleMapper.toResponse(platformModule);
     }
-
 
     // =========================================================
     // GET ALL
     // =========================================================
 
+    /**
+     * Get all non-deleted Platform Modules.
+     *
+     * @param page page number
+     * @param size page size
+     * @return paginated Platform Modules
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<PlatformModuleResponse> getAll(
@@ -215,40 +244,24 @@ public class PlatformModuleServiceImpl
          * Validate pagination.
          */
         if (page < 0) {
-
             throw new BadRequestException(
                     "Page number cannot be negative."
             );
         }
 
         if (size <= 0) {
-
             throw new BadRequestException(
                     "Page size must be greater than zero."
             );
         }
 
         /*
-         * IMPORTANT:
-         *
-         * Do not use repository.findAll().
-         *
-         * findAll() would also return soft-deleted
-         * platform modules.
-         *
-         * Only records with:
-         *
-         * is_deleted = 0
-         *
-         * are returned.
+         * Only non-deleted platform modules are returned.
          */
         Page<PlatformModule> modulePage =
                 platformModuleRepository.findByIsDeleted(
                         NOT_DELETED,
-                        PageRequest.of(
-                                page,
-                                size
-                        )
+                        PageRequest.of(page, size)
                 );
 
         return PageResponse
@@ -257,69 +270,48 @@ public class PlatformModuleServiceImpl
                         modulePage
                                 .getContent()
                                 .stream()
-                                .map(
-                                        platformModuleMapper::toResponse
-                                )
+                                .map(platformModuleMapper::toResponse)
                                 .toList()
                 )
-                .pageNumber(
-                        modulePage.getNumber()
-                )
-                .pageSize(
-                        modulePage.getSize()
-                )
-                .totalElements(
-                        modulePage.getTotalElements()
-                )
-                .totalPages(
-                        modulePage.getTotalPages()
-                )
-                .first(
-                        modulePage.isFirst()
-                )
-                .last(
-                        modulePage.isLast()
-                )
+                .pageNumber(modulePage.getNumber())
+                .pageSize(modulePage.getSize())
+                .totalElements(modulePage.getTotalElements())
+                .totalPages(modulePage.getTotalPages())
+                .first(modulePage.isFirst())
+                .last(modulePage.isLast())
                 .build();
     }
-
 
     // =========================================================
     // DELETE
     // =========================================================
 
+    /**
+     * Soft delete a Platform Module.
+     *
+     * @param publicId public UUID
+     */
     @Override
-    public void delete(
-            String publicId) {
+    public void delete(String publicId) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Deleting Platform Module. publicId={}",
                 publicId
         );
 
-        /*
-         * Only non-deleted modules can be deleted.
-         */
         PlatformModule platformModule =
-                platformModuleValidator.validateAndGet(
-                        publicId
-                );
+                platformModuleValidator.validateAndGet(publicId);
 
         /*
          * Soft delete.
-         *
-         * This also:
-         * - sets isActive = 0
-         * - sets isDeleted = 1
-         * - sets deletedAt
          */
         platformModule.markAsDeleted(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
-        platformModuleRepository.save(
-                platformModule
-        );
+        platformModuleRepository.save(platformModule);
 
         log.info(
                 "Platform Module deleted successfully. publicId={}",
@@ -327,14 +319,19 @@ public class PlatformModuleServiceImpl
         );
     }
 
-
     // =========================================================
     // ACTIVATE
     // =========================================================
 
+    /**
+     * Activate a Platform Module.
+     *
+     * @param publicId public UUID
+     */
     @Override
-    public void activate(
-            String publicId) {
+    public void activate(String publicId) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Activating Platform Module. publicId={}",
@@ -342,23 +339,17 @@ public class PlatformModuleServiceImpl
         );
 
         PlatformModule platformModule =
-                platformModuleValidator.validateAndGet(
-                        publicId
-                );
+                platformModuleValidator.validateAndGet(publicId);
 
         /*
-         * Activate the module.
-         *
-         * Do not activate a deleted module because
-         * validateAndGet() only returns isDeleted = 0.
+         * Deleted modules cannot be activated because
+         * validateAndGet() only returns non-deleted records.
          */
         platformModule.activate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
-        platformModuleRepository.save(
-                platformModule
-        );
+        platformModuleRepository.save(platformModule);
 
         log.info(
                 "Platform Module activated successfully. publicId={}",
@@ -366,14 +357,19 @@ public class PlatformModuleServiceImpl
         );
     }
 
-
     // =========================================================
     // DEACTIVATE
     // =========================================================
 
+    /**
+     * Deactivate a Platform Module.
+     *
+     * @param publicId public UUID
+     */
     @Override
-    public void deactivate(
-            String publicId) {
+    public void deactivate(String publicId) {
+
+        validateSuperAdminAccess();
 
         log.info(
                 "Deactivating Platform Module. publicId={}",
@@ -381,9 +377,7 @@ public class PlatformModuleServiceImpl
         );
 
         PlatformModule platformModule =
-                platformModuleValidator.validateAndGet(
-                        publicId
-                );
+                platformModuleValidator.validateAndGet(publicId);
 
         /*
          * Deactivate without deleting.
@@ -393,12 +387,10 @@ public class PlatformModuleServiceImpl
          * isDeleted = 0
          */
         platformModule.deactivate(
-                1L
+                currentUserService.getCurrentUserId()
         );
 
-        platformModuleRepository.save(
-                platformModule
-        );
+        platformModuleRepository.save(platformModule);
 
         log.info(
                 "Platform Module deactivated successfully. publicId={}",

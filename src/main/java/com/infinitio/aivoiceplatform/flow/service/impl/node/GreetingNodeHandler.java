@@ -41,6 +41,24 @@ public class GreetingNodeHandler
     private static final String ACTION =
             "SPEAK";
 
+    /**
+     * Runtime configuration key containing the Agent welcome message.
+     */
+    private static final String WELCOME_MESSAGE =
+            "welcomeMessage";
+
+    /**
+     * Runtime configuration key containing the Agent Configuration greeting.
+     */
+    private static final String GREETING_MESSAGE =
+            "greetingMessage";
+
+    /**
+     * Runtime configuration key used by the conversation runtime.
+     */
+    private static final String RUNTIME_CONFIGURATION =
+            "runtimeConfiguration";
+
     private final ObjectMapper objectMapper;
 
     private final FlowContextService flowContextService;
@@ -109,6 +127,17 @@ public class GreetingNodeHandler
                         context
                 );
 
+        String welcomeMessage =
+                resolveWelcomeMessage(
+                        context
+                );
+
+        String finalGreeting =
+                combineWelcomeAndGreeting(
+                        welcomeMessage,
+                        resolvedGreeting
+                );
+
         /*
          * Store the generated speech text in Flow context.
          *
@@ -117,7 +146,19 @@ public class GreetingNodeHandler
          */
         context.put(
                 TTS_TEXT,
-                resolvedGreeting
+                finalGreeting
+        );
+
+        log.debug(
+                "GREETING text prepared for TTS. " +
+                        "executionPublicId={}, nodeKey={}, " +
+                        "welcomeConfigured={}, flowGreetingConfigured={}, " +
+                        "textLength={}",
+                execution.getPublicId(),
+                node.getNodeKey(),
+                isConfigured(welcomeMessage),
+                isConfigured(resolvedGreeting),
+                finalGreeting.length()
         );
 
         log.debug(
@@ -136,13 +177,182 @@ public class GreetingNodeHandler
                         ACTION
                 )
                 .outputText(
-                        resolvedGreeting
+                        finalGreeting
                 )
                 .waiting(false)
                 .completed(false)
                 .transferred(false)
                 .context(context)
                 .build();
+    }
+
+    /**
+     * Resolves the Agent-level welcome message from the runtime context.
+     *
+     * <p>
+     * The welcome message is stored inside the runtime configuration
+     * by the conversation session service. It is intentionally read
+     * from the context instead of loading the Agent entity again.
+     * </p>
+     *
+     * @param context current Flow context
+     * @return configured welcome message, or {@code null}
+     */
+    /**
+     * Resolves the Agent-level welcome message from the runtime context.
+     *
+     * <p>
+     * Resolution order:
+     * </p>
+     *
+     * <ol>
+     *     <li>Agent welcome message</li>
+     *     <li>Agent Configuration greeting message</li>
+     * </ol>
+     *
+     * <p>
+     * The Flow GREETING node message is handled separately and is
+     * appended after this message.
+     * </p>
+     *
+     * @param context current Flow runtime context
+     * @return configured welcome message, or {@code null}
+     */
+    private String resolveWelcomeMessage(
+            Map<String, Object> context) {
+
+        Object runtimeConfigurationValue =
+                context.get(
+                        RUNTIME_CONFIGURATION
+                );
+
+        if (!(runtimeConfigurationValue
+                instanceof Map<?, ?> runtimeConfiguration)) {
+
+            log.debug(
+                    "Runtime configuration is not available in Flow context. " +
+                            "Agent welcome message will be skipped."
+            );
+
+            return null;
+        }
+
+        /*
+         * First priority:
+         * Agent creation/update welcome message.
+         */
+        Object welcomeValue =
+                runtimeConfiguration.get(
+                        WELCOME_MESSAGE
+                );
+
+        if (welcomeValue != null) {
+
+            String welcomeMessage =
+                    String.valueOf(
+                            welcomeValue
+                    ).trim();
+
+            if (!welcomeMessage.isBlank()) {
+
+                return welcomeMessage;
+            }
+        }
+
+        /*
+         * Second priority:
+         * Agent Configuration greeting message.
+         *
+         * This is used only when the Agent-level welcome message
+         * is not configured.
+         */
+        Object greetingValue =
+                runtimeConfiguration.get(
+                        GREETING_MESSAGE
+                );
+
+        if (greetingValue != null) {
+
+            String greetingMessage =
+                    String.valueOf(
+                            greetingValue
+                    ).trim();
+
+            if (!greetingMessage.isBlank()) {
+
+                return greetingMessage;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Combines the Agent welcome message with the Flow greeting.
+     *
+     * <p>
+     * The Agent welcome message is played first, followed by the
+     * Flow Builder greeting. Blank messages are ignored so that
+     * either configuration can be omitted safely.
+     * </p>
+     *
+     * @param welcomeMessage Agent-level welcome message
+     * @param flowGreeting Flow GREETING node message
+     * @return combined speech text
+     */
+    private String combineWelcomeAndGreeting(
+            String welcomeMessage,
+            String flowGreeting) {
+
+        boolean hasWelcome =
+                isConfigured(
+                        welcomeMessage
+                );
+
+        boolean hasFlowGreeting =
+                isConfigured(
+                        flowGreeting
+                );
+
+        if (hasWelcome && hasFlowGreeting) {
+
+            return welcomeMessage
+                    + " "
+                    + flowGreeting;
+        }
+
+        if (hasWelcome) {
+
+            return welcomeMessage;
+        }
+
+        if (hasFlowGreeting) {
+
+            return flowGreeting;
+        }
+
+        log.warn(
+                "Neither Agent welcome message nor Flow greeting " +
+                        "is configured."
+        );
+
+        throw new IllegalArgumentException(
+                FlowMessages.INVALID_CONFIGURATION
+        );
+    }
+
+
+    /**
+     * Checks whether a text value is configured.
+     *
+     * @param value text value
+     * @return true when the value is not null or blank
+     */
+    private boolean isConfigured(
+            String value) {
+
+        return value != null
+                && !value.isBlank();
     }
 
     /**

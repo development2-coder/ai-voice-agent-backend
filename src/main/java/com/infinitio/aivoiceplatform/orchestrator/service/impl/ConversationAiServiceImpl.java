@@ -49,6 +49,9 @@ public class ConversationAiServiceImpl
     private static final String LANGUAGE =
             "language";
 
+    private static final String RESPONSE_LANGUAGE =
+            FlowExecutionContextKeys.RESPONSE_LANGUAGE;
+
     private static final String CONVERSATION_MESSAGES =
             "conversationMessages";
 
@@ -271,26 +274,65 @@ public class ConversationAiServiceImpl
     /**
      * Resolves the language used by the LLM runtime.
      */
+    /**
+     * Resolves the language that must be used for the current
+     * AI response.
+     *
+     * <p>
+     * Response language is intentionally separated from the Agent
+     * language and the customer's detected language.
+     * </p>
+     *
+     * <p>
+     * Priority:
+     * </p>
+     *
+     * <pre>
+     * responseLanguage
+     *      ↓
+     * language
+     *      ↓
+     * default language
+     * </pre>
+     *
+     * @param context Flow execution context
+     * @return language for the current AI response
+     */
     private String resolveLanguage(
             Map<String, Object> context) {
+
+        Object responseLanguage =
+                context.get(
+                        RESPONSE_LANGUAGE
+                );
+
+        if (responseLanguage != null
+                && !String.valueOf(
+                responseLanguage
+        ).isBlank()) {
+
+            return String.valueOf(
+                    responseLanguage
+            ).trim();
+        }
 
         Object languageValue =
                 context.get(
                         LANGUAGE
                 );
 
-        if (languageValue == null
-                || String.valueOf(
+        if (languageValue != null
+                && !String.valueOf(
                 languageValue
         ).isBlank()) {
 
-            return ConversationOrchestratorConstants
-                    .DEFAULT_LANGUAGE;
+            return String.valueOf(
+                    languageValue
+            ).trim();
         }
 
-        return String.valueOf(
-                languageValue
-        ).trim();
+        return ConversationOrchestratorConstants
+                .DEFAULT_LANGUAGE;
     }
 
     /**
@@ -614,6 +656,11 @@ public class ConversationAiServiceImpl
                 messages.size()
         );
 
+        addFinalResponseLanguageInstruction(
+                messages,
+                context
+        );
+
         return messages;
     }
 
@@ -817,15 +864,144 @@ public class ConversationAiServiceImpl
                         language
                 );
 
+        String normalizedLanguage =
+                language == null
+                        ? ""
+                        : language
+                        .trim()
+                        .toLowerCase(
+                                java.util.Locale.ROOT
+                        );
+
+        StringBuilder languageInstruction =
+                new StringBuilder();
+
+        languageInstruction
+                .append("\n\n")
+                .append("==================================================\n")
+                .append("CURRENT RESPONSE LANGUAGE CONTROL\n")
+                .append("==================================================\n")
+                .append("Current response language: ")
+                .append(languageName)
+                .append("\n\n")
+                .append("STRICT RULES:\n")
+                .append("1. Respond ONLY in ")
+                .append(languageName)
+                .append(".\n")
+                .append("2. The current runtime language is authoritative.\n")
+                .append("3. Ignore the language used by previous assistant "
+                        + "responses when deciding the language of this response.\n")
+                .append("4. Do not imitate the language of previous conversation "
+                        + "messages.\n")
+                .append("5. Do not mix Marathi, Hindi, or any other Indian "
+                        + "language into an English response.\n")
+                .append("6. Do not mix English into a Marathi response unless "
+                        + "the customer explicitly uses an English word, "
+                        + "name, number, product name, or technical term.\n")
+                .append("7. Keep the meaning and intent of the response unchanged. "
+                        + "Only the response language must follow the current "
+                        + "runtime language.\n");
+
+        if (normalizedLanguage.startsWith("en")) {
+
+            languageInstruction
+                    .append("8. Because the current language is English, "
+                            + "the response must be written in English using "
+                            + "Latin/English script.\n")
+                    .append("9. Do NOT generate Devanagari script.\n")
+                    .append("10. Do NOT answer in Marathi or Hindi even if "
+                            + "previous assistant messages were in Marathi.\n");
+        }
+
+        if (normalizedLanguage.startsWith("mr")) {
+
+            languageInstruction
+                    .append("8. Because the current language is Marathi, "
+                            + "respond in Marathi.\n")
+                    .append("9. Marathi should be the primary language of "
+                            + "the response.\n");
+        }
+
+        languageInstruction
+                .append("\n")
+                .append("The customer may have spoken a different language "
+                        + "in previous turns. That does not affect this response. "
+                        + "Use ONLY the current runtime language specified above.\n")
+                .append("==================================================\n");
+
         return prompt
-                + "\n\n"
-                + "IMPORTANT LANGUAGE RULE:\n"
-                + "Respond to the customer only in "
-                + languageName
-                + ".\n"
-                + "Use the customer's detected language for this turn. "
-                + "Do not continue using the previous language if the "
-                + "customer has switched languages.";
+                + languageInstruction;
+    }
+
+    private void addFinalResponseLanguageInstruction(
+            List<LlmMessageDto> messages,
+            Map<String, Object> context) {
+
+        if (messages == null) {
+            return;
+        }
+
+        String language =
+                resolveLanguage(
+                        context
+                );
+
+        String languageName =
+                resolveLanguageName(
+                        language
+                );
+
+        String normalizedLanguage =
+                language == null
+                        ? ""
+                        : language
+                        .trim()
+                        .toLowerCase(
+                                java.util.Locale.ROOT
+                        );
+
+        StringBuilder instruction =
+                new StringBuilder();
+
+        instruction
+                .append("FINAL RESPONSE LANGUAGE INSTRUCTION.\n")
+                .append("This instruction applies to the CURRENT assistant "
+                        + "response only.\n")
+                .append("Current response language: ")
+                .append(languageName)
+                .append(".\n")
+                .append("Previous assistant messages are historical context "
+                        + "only and MUST NOT determine the language of this "
+                        + "response.\n")
+                .append("Respond ONLY in ")
+                .append(languageName)
+                .append(".\n");
+
+        if (normalizedLanguage.startsWith("en")) {
+
+            instruction
+                    .append("Use English only.\n")
+                    .append("Use Latin/English script only.\n")
+                    .append("Do not use Devanagari.\n")
+                    .append("Do not respond in Marathi or Hindi.\n");
+        }
+
+        if (normalizedLanguage.startsWith("mr")) {
+
+            instruction
+                    .append("Use Marathi as the primary language.\n");
+        }
+
+        messages.add(
+                LlmMessageDto.builder()
+                        .role(
+                                SYSTEM_ROLE
+                        )
+                        .content(
+                                instruction.toString()
+                        )
+                        .build()
+        );
     }
 
     /**

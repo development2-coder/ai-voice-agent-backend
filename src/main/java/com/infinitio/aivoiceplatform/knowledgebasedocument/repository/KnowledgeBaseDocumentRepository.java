@@ -3,26 +3,31 @@ package com.infinitio.aivoiceplatform.knowledgebasedocument.repository;
 import com.infinitio.aivoiceplatform.knowledgebasedocument.entity.KnowledgeBaseDocument;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository for Knowledge Base Document.
- *
- * @author Infinitio Digital
- * @version 1.0.0
+ * Repository for Knowledge Base Documents.
  */
 public interface KnowledgeBaseDocumentRepository
         extends JpaRepository<KnowledgeBaseDocument, Long> {
 
-    Optional<KnowledgeBaseDocument> findByPublicId(
-            String publicId
+    Optional<KnowledgeBaseDocument> findByPublicIdAndIsDeleted(
+            String publicId,
+            Integer isDeleted
     );
 
-    boolean existsByDocumentCode(
-            String documentCode
+    List<KnowledgeBaseDocument> findByIsDeleted(
+            Integer isDeleted
     );
 
-    boolean existsByDocumentName(
-            String documentName
+    List<KnowledgeBaseDocument>
+    findByKnowledgeBase_Agent_Tenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
     );
+
+    boolean existsByDocumentCode(String documentCode);
+
+    boolean existsByDocumentName(String documentName);
 }

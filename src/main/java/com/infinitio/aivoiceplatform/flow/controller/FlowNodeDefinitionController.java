@@ -3,6 +3,7 @@ package com.infinitio.aivoiceplatform.flow.controller;
 import com.infinitio.aivoiceplatform.flow.constant.FlowNodeType;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowNodeDefinitionResponse;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeDefinitionService;
+import com.infi.library.annotation.RequiresPermission;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +31,7 @@ public class FlowNodeDefinitionController {
      *
      * @return node definitions
      */
+    @RequiresPermission("FLOW_VIEW")
     @GetMapping
     public ResponseEntity<List<FlowNodeDefinitionResponse>>
     getAll() {
@@ -49,6 +51,7 @@ public class FlowNodeDefinitionController {
      * @param nodeType node type
      * @return node definition
      */
+    @RequiresPermission("FLOW_VIEW")
     @GetMapping("/{nodeType}")
     public ResponseEntity<FlowNodeDefinitionResponse>
     getByType(

@@ -20,6 +20,8 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import static com.infinitio.aivoiceplatform.common.constants.ApplicationConstants.*;
+
 /**
  * Base Entity.
  *
@@ -77,11 +79,11 @@ public abstract class BaseEntity {
         }
 
         if (isActive == null) {
-            isActive = 1;
+            isActive = ACTIVE;
         }
 
         if (isDeleted == null) {
-            isDeleted = 0;
+            isDeleted = NOT_DELETED;
         }
 
     }
@@ -100,8 +102,8 @@ public abstract class BaseEntity {
      */
     public void markAsDeleted(Long updatedBy) {
 
-        this.isDeleted = 1;
-        this.isActive = 0;
+        this.isDeleted = DELETED;
+        this.isActive = INACTIVE;
         this.deletedAt = LocalDateTime.now();
         this.updatedBy = updatedBy;
 
@@ -114,7 +116,7 @@ public abstract class BaseEntity {
      */
     public void activate(Long updatedBy) {
 
-        this.isActive = 1;
+        this.isActive = ACTIVE;
         this.updatedBy = updatedBy;
 
     }
@@ -126,7 +128,7 @@ public abstract class BaseEntity {
      */
     public void deactivate(Long updatedBy) {
 
-        this.isActive = 0;
+        this.isActive = INACTIVE;
         this.updatedBy = updatedBy;
 
     }

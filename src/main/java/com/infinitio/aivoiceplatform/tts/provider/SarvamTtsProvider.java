@@ -2,6 +2,9 @@ package com.infinitio.aivoiceplatform.tts.provider;
 
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeUnit;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -201,6 +204,12 @@ public class SarvamTtsProvider implements TtsProvider {
                     listener != null
             );
 
+            long requestStartNanos = System.nanoTime();
+            AtomicLong firstAudioNanos = new AtomicLong(0L);
+
+            AtomicReference<String> providerRequestId =
+                    new AtomicReference<>();
+
             Flux<DataBuffer> audioFlux =
                     sarvamWebClient
                             .post()
@@ -218,10 +227,37 @@ public class SarvamTtsProvider implements TtsProvider {
                             .bodyValue(
                                     sarvamRequest
                             )
-                            .retrieve()
-                            .bodyToFlux(
-                                    DataBuffer.class
-                            );
+                            .exchangeToFlux(response -> {
+
+                                String requestId =
+                                        response.headers()
+                                                .asHttpHeaders()
+                                                .getFirst("x-request-id");
+
+                                providerRequestId.set(requestId);
+
+                                log.info(
+                                        "Sarvam TTS HTTP response. " +
+                                                "callId={}, status={}, requestId={}",
+                                        request.getCallId(),
+                                        response.statusCode(),
+                                        requestId
+                                );
+
+                                if (response.statusCode().isError()) {
+
+                                    return response.createException()
+                                            .flatMapMany(Flux::error);
+                                }
+
+                                return response.bodyToFlux(DataBuffer.class)
+                                        .doOnNext(dataBuffer ->
+                                                firstAudioNanos.compareAndSet(
+                                                        0L,
+                                                        System.nanoTime()
+                                                )
+                                        );
+                            });
 
             /*
              * Sarvam sends audio as a stream of DataBuffer chunks.
@@ -290,6 +326,54 @@ public class SarvamTtsProvider implements TtsProvider {
                             audioChunks
                     );
 
+            if (ttsProperties.isDiagnosticAudioCaptureEnabled()
+                    && audioBytes != null
+                    && audioBytes.length > 0) {
+
+                try {
+                    java.nio.file.Path directory =
+                            java.nio.file.Paths.get(
+                                    ttsProperties.getDiagnosticAudioStoragePath()
+                            );
+
+                    java.nio.file.Files.createDirectories(directory);
+
+                    String safeCallId = request.getCallId() == null
+                            ? "unknown"
+                            : request.getCallId().replaceAll(
+                            "[^a-zA-Z0-9_-]",
+                            "_"
+                    );
+
+                    String timestamp = java.time.format.DateTimeFormatter
+                            .ofPattern("yyyyMMdd_HHmmss_SSS")
+                            .withZone(java.time.ZoneOffset.UTC)
+                            .format(java.time.Instant.now());
+
+                    java.nio.file.Path audioFile = directory.resolve(
+                            "sarvam_" + safeCallId + "_" + timestamp + ".pcm"
+                    );
+
+                    java.nio.file.Files.write(audioFile, audioBytes);
+
+                    log.info(
+                            "Saved raw Sarvam TTS diagnostic audio. " +
+                                    "callId={}, file={}, audioBytes={}",
+                            request.getCallId(),
+                            audioFile.toAbsolutePath(),
+                            audioBytes.length
+                    );
+
+                } catch (java.io.IOException exception) {
+
+                    log.warn(
+                            "Could not save raw Sarvam TTS diagnostic audio. callId={}",
+                            request.getCallId(),
+                            exception
+                    );
+                }
+            }
+
             long latencyMs =
                     System.currentTimeMillis()
                             - startTime;
@@ -336,6 +420,27 @@ public class SarvamTtsProvider implements TtsProvider {
                     listener != null
             );
 
+            long completedNanos = System.nanoTime();
+            long totalLatencyMs = TimeUnit.NANOSECONDS.toMillis(
+                    completedNanos - requestStartNanos
+            );
+
+            long firstAudioLatencyMs = firstAudioNanos.get() == 0L
+                    ? -1L
+                    : TimeUnit.NANOSECONDS.toMillis(
+                    firstAudioNanos.get() - requestStartNanos
+            );
+
+            log.info(
+                    "Sarvam TTS latency. callId={}, requestId={}, " +
+                            "firstAudioLatencyMs={}, totalLatencyMs={}, audioBytes={}",
+                    request.getCallId(),
+                    providerRequestId.get(),
+                    firstAudioLatencyMs,
+                    totalLatencyMs,
+                    audioBytes.length
+            );
+
             return TtsSynthesisResponse.builder()
                     .callId(
                             request.getCallId()
@@ -375,7 +480,7 @@ public class SarvamTtsProvider implements TtsProvider {
                                     : 0
                     )
                     .providerRequestId(
-                            null
+                            providerRequestId.get()
                     )
                     .build();
 

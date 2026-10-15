@@ -2,8 +2,11 @@ package com.infinitio.aivoiceplatform.phonenumber.service.impl;
 
 import com.infinitio.aivoiceplatform.agent.entity.Agent;
 import com.infinitio.aivoiceplatform.agent.validator.AgentValidator;
-import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.exception.BadRequestException;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.phonenumber.constant.PhoneNumberMessages;
 import com.infinitio.aivoiceplatform.phonenumber.dto.request.CreatePhoneNumberRequest;
 import com.infinitio.aivoiceplatform.phonenumber.dto.request.UpdatePhoneNumberRequest;
 import com.infinitio.aivoiceplatform.phonenumber.dto.response.PhoneNumberResponse;
@@ -20,9 +23,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service implementation for Phone Number.
+ * Service implementation for phone-number management.
  *
- * Handles phone-number registration and lifecycle operations.
+ * Applies RBAC-adjacent tenant isolation through TenantAccessService.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -31,17 +34,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Transactional
-public class PhoneNumberServiceImpl
-        implements PhoneNumberService {
+public class PhoneNumberServiceImpl implements PhoneNumberService {
 
-    /**
-     * System user used only when an operation is executed
-     * without an authenticated user.
-     *
-     * Normal Swagger/UI requests use the authenticated
-     * user's actual database ID.
-     */
-    private static final Long SYSTEM_USER_ID = 1L;
+    private static final Integer NOT_DELETED = 0;
 
     private final PhoneNumberRepository phoneNumberRepository;
 
@@ -51,413 +46,278 @@ public class PhoneNumberServiceImpl
 
     private final AgentValidator agentValidator;
 
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
-
-    // =========================================================
-    // CREATE PHONE NUMBER
-    // =========================================================
-
+    /**
+     * Creates a phone number for an accessible agent.
+     *
+     * @param request create request
+     * @return created phone number
+     */
     @Override
     public PhoneNumberResponse create(
             CreatePhoneNumberRequest request) {
 
-        log.info(
-                "Creating Phone Number. Number : {}, Provider : {}",
-                request != null
-                        ? request.getPhoneNumber()
-                        : null,
-                request != null
-                        ? request.getProvider()
-                        : null
+        phoneNumberValidator.validateForCreate(request);
+
+        Agent agent = agentValidator.validateAndGet(
+                request.getAgentPublicId()
         );
 
-        /*
-         * Validate request according to the existing
-         * PhoneNumberValidator implementation.
-         */
-        phoneNumberValidator.validateForCreate(
-                request
-        );
+        tenantAccessService.validateAgentAccess(agent);
 
-        /*
-         * Validate and load the Agent.
-         */
-        Agent agent =
-                agentValidator.validateAndGet(
-                        request.getAgentPublicId()
-                );
-
-        /*
-         * Resolve the authenticated user.
-         *
-         * phone_numbers.created_by is NOT NULL in the DB,
-         * therefore this value must always be populated.
-         */
-        Long currentUserId =
-                resolveCurrentUserId();
-
-        /*
-         * Convert request into entity using the existing mapper.
-         */
         PhoneNumber phoneNumber =
-                phoneNumberMapper.toEntity(
-                        request
-                );
+                phoneNumberMapper.toEntity(request);
 
-        /*
-         * Set the Agent relationship.
-         */
-        phoneNumber.setAgent(
-                agent
-        );
+        phoneNumber.setAgent(agent);
+        phoneNumber.setCreatedBy(requireCurrentUserId());
 
-        /*
-         * Set audit information.
-         *
-         * This is the important fix for:
-         *
-         * Column 'created_by' cannot be null
-         */
-        phoneNumber.setCreatedBy(
-                currentUserId
-        );
-
-        /*
-         * Save.
-         */
         PhoneNumber savedPhoneNumber =
-                phoneNumberRepository.save(
-                        phoneNumber
-                );
+                phoneNumberRepository.save(phoneNumber);
 
         log.info(
-                "Phone Number created successfully. " +
-                        "Public Id : {}, Created By : {}",
-                savedPhoneNumber.getPublicId(),
-                currentUserId
+                "Phone number created. Public ID: {}",
+                savedPhoneNumber.getPublicId()
         );
 
-        return phoneNumberMapper.toResponse(
-                savedPhoneNumber
-        );
+        return phoneNumberMapper.toResponse(savedPhoneNumber);
     }
 
-
-    // =========================================================
-    // UPDATE PHONE NUMBER
-    // =========================================================
-
+    /**
+     * Updates a phone number only when both the existing number
+     * and the target agent belong to an accessible tenant.
+     *
+     * @param request update request
+     * @return updated phone number
+     */
     @Override
     public PhoneNumberResponse update(
             UpdatePhoneNumberRequest request) {
 
-        log.info(
-                "Updating Phone Number. Public Id : {}",
-                request != null
-                        ? request.getPublicId()
-                        : null
-        );
+        if (request == null) {
+            throw new BadRequestException(
+                    "Phone number update request is required."
+            );
+        }
 
-        phoneNumberValidator.validateForUpdate(
-                request
-        );
-
-        PhoneNumber phoneNumber =
+        PhoneNumber existingPhoneNumber =
                 phoneNumberValidator.validateAndGet(
                         request.getPublicId()
                 );
 
-        Agent agent =
-                agentValidator.validateAndGet(
-                        request.getAgentPublicId()
-                );
+        tenantAccessService.validateAgentAccess(
+                existingPhoneNumber.getAgent()
+        );
+
+        phoneNumberValidator.validateForUpdate(request);
+
+        Agent targetAgent = agentValidator.validateAndGet(
+                request.getAgentPublicId()
+        );
+
+        tenantAccessService.validateAgentAccess(targetAgent);
 
         phoneNumberMapper.updateEntity(
                 request,
-                phoneNumber
+                existingPhoneNumber
         );
 
-        phoneNumber.setAgent(
-                agent
-        );
+        existingPhoneNumber.setAgent(targetAgent);
+        existingPhoneNumber.setUpdatedBy(requireCurrentUserId());
 
-        /*
-         * Update audit information.
-         */
-        Long currentUserId =
-                resolveCurrentUserId();
-
-        phoneNumber.setUpdatedBy(
-                currentUserId
-        );
-
-        PhoneNumber updatedPhoneNumber =
-                phoneNumberRepository.save(
-                        phoneNumber
-                );
+        PhoneNumber savedPhoneNumber =
+                phoneNumberRepository.save(existingPhoneNumber);
 
         log.info(
-                "Phone Number updated successfully. " +
-                        "Public Id : {}, Updated By : {}",
-                updatedPhoneNumber.getPublicId(),
-                currentUserId
+                "Phone number updated. Public ID: {}",
+                savedPhoneNumber.getPublicId()
         );
 
-        return phoneNumberMapper.toResponse(
-                updatedPhoneNumber
-        );
+        return phoneNumberMapper.toResponse(savedPhoneNumber);
     }
 
-
-    // =========================================================
-    // GET BY PUBLIC ID
-    // =========================================================
-
+    /**
+     * Fetches a phone number after validating tenant access.
+     *
+     * @param publicId phone-number public ID
+     * @return phone-number response
+     */
     @Override
     @Transactional(readOnly = true)
-    public PhoneNumberResponse getByPublicId(
-            String publicId) {
-
-        log.info(
-                "Fetching Phone Number. Public Id : {}",
-                publicId
-        );
+    public PhoneNumberResponse getByPublicId(String publicId) {
 
         PhoneNumber phoneNumber =
-                phoneNumberValidator.validateAndGet(
-                        publicId
-                );
+                phoneNumberValidator.validateAndGet(publicId);
 
-        return phoneNumberMapper.toResponse(
-                phoneNumber
+        tenantAccessService.validateAgentAccess(
+                phoneNumber.getAgent()
         );
+
+        return phoneNumberMapper.toResponse(phoneNumber);
     }
 
-
-    // =========================================================
-    // GET ALL
-    // =========================================================
-
+    /**
+     * Lists phone numbers visible to the current user.
+     *
+     * SUPER_ADMIN can list across tenants. ADMIN and USER are
+     * restricted to records belonging to their current tenant.
+     *
+     * @param page zero-based page number
+     * @param size page size
+     * @return tenant-scoped phone-number page
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<PhoneNumberResponse> getAll(
             int page,
             int size) {
 
-        log.info(
-                "Fetching Phone Numbers. Page : {}, Size : {}",
-                page,
-                size
-        );
-
-        Page<PhoneNumber> result =
-                phoneNumberRepository.findAll(
-                        PageRequest.of(
-                                page,
-                                size
-                        )
-                );
-
-        return PageResponse
-                .<PhoneNumberResponse>builder()
-                .content(
-                        result.getContent()
-                                .stream()
-                                .map(
-                                        phoneNumberMapper::toResponse
-                                )
-                                .toList()
-                )
-                .pageNumber(
-                        result.getNumber()
-                )
-                .pageSize(
-                        result.getSize()
-                )
-                .totalPages(
-                        result.getTotalPages()
-                )
-                .totalElements(
-                        result.getTotalElements()
-                )
-                .first(
-                        result.isFirst()
-                )
-                .last(
-                        result.isLast()
-                )
-                .build();
-    }
-
-
-    // =========================================================
-    // DELETE
-    // =========================================================
-
-    @Override
-    public void delete(
-            String publicId) {
-
-        log.info(
-                "Deleting Phone Number. Public Id : {}",
-                publicId
-        );
-
-        PhoneNumber phoneNumber =
-                phoneNumberValidator.validateAndGet(
-                        publicId
-                );
-
-        Long currentUserId =
-                resolveCurrentUserId();
-
-        /*
-         * Existing entity lifecycle method.
-         *
-         * The hardcoded 1L has been replaced with
-         * the authenticated user ID.
-         */
-        phoneNumber.markAsDeleted(
-                currentUserId
-        );
-
-        phoneNumberRepository.save(
-                phoneNumber
-        );
-
-        log.info(
-                "Phone Number deleted successfully. " +
-                        "Public Id : {}, Deleted By : {}",
-                publicId,
-                currentUserId
-        );
-    }
-
-
-    // =========================================================
-    // ACTIVATE
-    // =========================================================
-
-    @Override
-    public void activate(
-            String publicId) {
-
-        log.info(
-                "Activating Phone Number. Public Id : {}",
-                publicId
-        );
-
-        PhoneNumber phoneNumber =
-                phoneNumberValidator.validateAndGet(
-                        publicId
-                );
-
-        Long currentUserId =
-                resolveCurrentUserId();
-
-        /*
-         * Existing entity lifecycle method.
-         */
-        phoneNumber.activate(
-                currentUserId
-        );
-
-        phoneNumberRepository.save(
-                phoneNumber
-        );
-
-        log.info(
-                "Phone Number activated successfully. " +
-                        "Public Id : {}, Updated By : {}",
-                publicId,
-                currentUserId
-        );
-    }
-
-
-    // =========================================================
-    // DEACTIVATE
-    // =========================================================
-
-    @Override
-    public void deactivate(
-            String publicId) {
-
-        log.info(
-                "Deactivating Phone Number. Public Id : {}",
-                publicId
-        );
-
-        PhoneNumber phoneNumber =
-                phoneNumberValidator.validateAndGet(
-                        publicId
-                );
-
-        Long currentUserId =
-                resolveCurrentUserId();
-
-        /*
-         * Existing entity lifecycle method.
-         */
-        phoneNumber.deactivate(
-                currentUserId
-        );
-
-        phoneNumberRepository.save(
-                phoneNumber
-        );
-
-        log.info(
-                "Phone Number deactivated successfully. " +
-                        "Public Id : {}, Updated By : {}",
-                publicId,
-                currentUserId
-        );
-    }
-
-
-    // =========================================================
-    // CURRENT USER
-    // =========================================================
-
-    /**
-     * Resolves the user responsible for the operation.
-     *
-     * Priority:
-     *
-     * 1. Authenticated user's database ID.
-     * 2. System user when the operation is executed
-     *    without an authenticated request.
-     *
-     * This follows the same pattern already used by
-     * RuntimePersistenceService.
-     */
-    private Long resolveCurrentUserId() {
-
-        try {
-
-            if (currentUserService.isAuthenticated()) {
-
-                Long currentUserId =
-                        currentUserService
-                                .getCurrentUserId();
-
-                if (currentUserId != null) {
-
-                    return currentUserId;
-                }
-            }
-
-        } catch (Exception exception) {
-
-            log.warn(
-                    "Unable to resolve authenticated user. " +
-                            "Using system user.",
-                    exception
+        if (page < 0) {
+            throw new BadRequestException(
+                    "Page number cannot be negative."
             );
         }
 
-        return SYSTEM_USER_ID;
+        if (size < 1 || size > 200) {
+            throw new BadRequestException(
+                    "Page size must be between 1 and 200."
+            );
+        }
+
+        PageRequest pageable = PageRequest.of(page, size);
+
+        Page<PhoneNumber> result;
+
+        if (tenantAccessService.isSuperAdmin()) {
+            result = phoneNumberRepository.findByIsDeleted(
+                    NOT_DELETED,
+                    pageable
+            );
+        } else {
+            Long tenantId =
+                    tenantAccessService.getCurrentTenantId();
+
+            if (tenantId == null) {
+                throw new ForbiddenException(
+                        "Current user's tenant is unavailable."
+                );
+            }
+
+            result =
+                    phoneNumberRepository
+                            .findByAgent_Tenant_IdAndIsDeleted(
+                                    tenantId,
+                                    NOT_DELETED,
+                                    pageable
+                            );
+        }
+
+        return PageResponse.<PhoneNumberResponse>builder()
+                .content(
+                        result.getContent()
+                                .stream()
+                                .map(phoneNumberMapper::toResponse)
+                                .toList()
+                )
+                .pageNumber(result.getNumber())
+                .pageSize(result.getSize())
+                .totalPages(result.getTotalPages())
+                .totalElements(result.getTotalElements())
+                .first(result.isFirst())
+                .last(result.isLast())
+                .build();
+    }
+
+    /**
+     * Soft-deletes a phone number after checking tenant access.
+     *
+     * @param publicId phone-number public ID
+     */
+    @Override
+    public void delete(String publicId) {
+
+        PhoneNumber phoneNumber =
+                getAuthorizedPhoneNumber(publicId);
+
+        phoneNumber.markAsDeleted(requireCurrentUserId());
+
+        phoneNumberRepository.save(phoneNumber);
+
+        log.info("Phone number deleted. Public ID: {}", publicId);
+    }
+
+    /**
+     * Activates a phone number after checking tenant access.
+     *
+     * @param publicId phone-number public ID
+     */
+    @Override
+    public void activate(String publicId) {
+
+        PhoneNumber phoneNumber =
+                getAuthorizedPhoneNumber(publicId);
+
+        phoneNumber.activate(requireCurrentUserId());
+
+        phoneNumberRepository.save(phoneNumber);
+
+        log.info("Phone number activated. Public ID: {}", publicId);
+    }
+
+    /**
+     * Deactivates a phone number after checking tenant access.
+     *
+     * @param publicId phone-number public ID
+     */
+    @Override
+    public void deactivate(String publicId) {
+
+        PhoneNumber phoneNumber =
+                getAuthorizedPhoneNumber(publicId);
+
+        phoneNumber.deactivate(requireCurrentUserId());
+
+        phoneNumberRepository.save(phoneNumber);
+
+        log.info("Phone number deactivated. Public ID: {}", publicId);
+    }
+
+    /**
+     * Retrieves a phone number and validates its agent's tenant.
+     *
+     * @param publicId phone-number public ID
+     * @return authorized phone number
+     */
+    private PhoneNumber getAuthorizedPhoneNumber(String publicId) {
+
+        PhoneNumber phoneNumber =
+                phoneNumberValidator.validateAndGet(publicId);
+
+        tenantAccessService.validateAgentAccess(
+                phoneNumber.getAgent()
+        );
+
+        return phoneNumber;
+    }
+
+    /**
+     * Returns the authenticated user's database ID.
+     * Management operations must not silently fall back to a
+     * hardcoded system-user ID.
+     *
+     * @return current user database ID
+     */
+    private Long requireCurrentUserId() {
+
+        Long currentUserId =
+                tenantAccessService.getCurrentUserId();
+
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
+
+        return currentUserId;
     }
 }

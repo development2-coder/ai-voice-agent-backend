@@ -68,4 +68,15 @@ public interface AgentRepository
     // =========================================================
 
     List<Agent> findByIsDeleted(Integer isDeleted);
+
+    Optional<Agent> findByTenant_IdAndPublicIdAndIsDeleted(
+            Long tenantId,
+            String publicId,
+            Integer isDeleted
+    );
+
+    List<Agent> findByTenant_IdAndIsDeleted(
+            Long tenantId,
+            Integer isDeleted
+    );
 }

@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.callrecording.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.callrecording.constant.CallRecordingMessages;
 import com.infinitio.aivoiceplatform.callrecording.dto.request.CreateCallRecordingRequest;
 import com.infinitio.aivoiceplatform.callrecording.dto.request.UpdateCallRecordingRequest;
@@ -8,19 +9,19 @@ import com.infinitio.aivoiceplatform.callrecording.service.CallRecordingService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
-import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * REST Controller for Call Recording Management.
+ * REST controller for call recording management.
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -39,15 +40,9 @@ public class CallRecordingController {
 
     @Operation(summary = "Create Call Recording")
     @PostMapping
-    public ResponseEntity<
-            ApiResponse<CallRecordingResponse>>
-    create(
-            @Valid @RequestBody
-            CreateCallRecordingRequest request) {
-
-        log.info(
-                "REST Request : Create Call Recording"
-        );
+    @RequiresPermission("CALL_RECORDING_CREATE")
+    public ResponseEntity<ApiResponse<CallRecordingResponse>> create(
+            @Valid @RequestBody CreateCallRecordingRequest request) {
 
         CallRecordingResponse response =
                 callRecordingService.create(request);
@@ -60,15 +55,9 @@ public class CallRecordingController {
 
     @Operation(summary = "Update Call Recording")
     @PutMapping
-    public ResponseEntity<
-            ApiResponse<CallRecordingResponse>>
-    update(
-            @Valid @RequestBody
-            UpdateCallRecordingRequest request) {
-
-        log.info(
-                "REST Request : Update Call Recording"
-        );
+    @RequiresPermission("CALL_RECORDING_UPDATE")
+    public ResponseEntity<ApiResponse<CallRecordingResponse>> update(
+            @Valid @RequestBody UpdateCallRecordingRequest request) {
 
         CallRecordingResponse response =
                 callRecordingService.update(request);
@@ -79,80 +68,46 @@ public class CallRecordingController {
         );
     }
 
-    @Operation(summary = "Get Call Recording By Public Id")
+    @Operation(summary = "Get Call Recording By Public ID")
     @GetMapping("/{publicId}")
-    public ResponseEntity<
-            ApiResponse<CallRecordingResponse>>
-    getByPublicId(
+    @RequiresPermission("CALL_RECORDING_VIEW")
+    public ResponseEntity<ApiResponse<CallRecordingResponse>> getByPublicId(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Get Call Recording : {}",
-                publicId
-        );
-
-        CallRecordingResponse response =
-                callRecordingService.getByPublicId(
-                        publicId
-                );
-
         return ResponseBuilder.success(
-                response,
+                callRecordingService.getByPublicId(publicId),
                 "Call recording fetched successfully."
         );
     }
 
-    @Operation(summary = "Get All Call Recordings")
+    @Operation(summary = "Get All Accessible Call Recordings")
     @GetMapping
-    public ResponseEntity<
-            ApiResponse<PageResponse<CallRecordingResponse>>>
-    getAll() {
-
-        log.info(
-                "REST Request : Get All Call Recordings"
-        );
-
-        PageResponse<CallRecordingResponse> response =
-                callRecordingService.getAll();
+    @RequiresPermission("CALL_RECORDING_VIEW")
+    public ResponseEntity<ApiResponse<PageResponse<CallRecordingResponse>>> getAll() {
 
         return ResponseBuilder.success(
-                response,
+                callRecordingService.getAll(),
                 "Call recordings fetched successfully."
         );
     }
 
     @Operation(summary = "Get Recordings By Call")
     @GetMapping("/call/{callPublicId}")
-    public ResponseEntity<
-            ApiResponse<PageResponse<CallRecordingResponse>>>
-    getByCall(
+    @RequiresPermission("CALL_RECORDING_VIEW")
+    public ResponseEntity<ApiResponse<PageResponse<CallRecordingResponse>>> getByCall(
             @PathVariable String callPublicId) {
 
-        log.info(
-                "REST Request : Get Recordings By Call : {}",
-                callPublicId
-        );
-
-        PageResponse<CallRecordingResponse> response =
-                callRecordingService.getByCall(
-                        callPublicId
-                );
-
         return ResponseBuilder.success(
-                response,
+                callRecordingService.getByCall(callPublicId),
                 "Call recordings fetched successfully."
         );
     }
 
     @Operation(summary = "Delete Call Recording")
     @DeleteMapping("/{publicId}")
+    @RequiresPermission("CALL_RECORDING_DELETE")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Delete Call Recording : {}",
-                publicId
-        );
 
         callRecordingService.delete(publicId);
 
@@ -164,13 +119,9 @@ public class CallRecordingController {
 
     @Operation(summary = "Activate Call Recording")
     @PatchMapping("/{publicId}/activate")
+    @RequiresPermission("CALL_RECORDING_UPDATE")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Activate Call Recording : {}",
-                publicId
-        );
 
         callRecordingService.activate(publicId);
 
@@ -182,13 +133,9 @@ public class CallRecordingController {
 
     @Operation(summary = "Deactivate Call Recording")
     @PatchMapping("/{publicId}/deactivate")
+    @RequiresPermission("CALL_RECORDING_UPDATE")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {
-
-        log.info(
-                "REST Request : Deactivate Call Recording : {}",
-                publicId
-        );
 
         callRecordingService.deactivate(publicId);
 
@@ -198,36 +145,21 @@ public class CallRecordingController {
         );
     }
 
-    @Operation(
-            summary = "Stream Local Call Recording"
-    )
+    @Operation(summary = "Stream Local Call Recording")
     @GetMapping("/{publicId}/stream")
+    @RequiresPermission("CALL_RECORDING_VIEW")
     public ResponseEntity<Resource> streamRecording(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Stream Local Call Recording : {}",
-                publicId
-        );
-
         Resource resource =
-                callRecordingService
-                        .getRecordingResource(
-                                publicId
-                        );
+                callRecordingService.getRecordingResource(publicId);
 
         return ResponseEntity.ok()
-                .contentType(
-                        MediaType.parseMediaType(
-                                "audio/mpeg"
-                        )
-                )
+                .contentType(MediaType.parseMediaType("audio/mpeg"))
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
                         "inline"
                 )
-                .body(
-                        resource
-                );
+                .body(resource);
     }
 }

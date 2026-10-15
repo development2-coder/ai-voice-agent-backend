@@ -17,16 +17,13 @@ import com.infinitio.aivoiceplatform.flow.entity.FlowExecution;
 import com.infinitio.aivoiceplatform.flow.entity.FlowNode;
 import com.infinitio.aivoiceplatform.flow.repository.FlowExecutionRepository;
 import com.infinitio.aivoiceplatform.flow.repository.FlowNodeRepository;
-import com.infinitio.aivoiceplatform.flow.service.FlowContextService;
-import com.infinitio.aivoiceplatform.flow.service.FlowExecutionContinuationService;
-import com.infinitio.aivoiceplatform.flow.service.FlowExecutionRuntimeService;
-import com.infinitio.aivoiceplatform.flow.service.FlowExecutionService;
-import com.infinitio.aivoiceplatform.flow.service.FlowResultService;
+import com.infinitio.aivoiceplatform.flow.service.*;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
 import com.infinitio.aivoiceplatform.user.constant.UserConstants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -101,6 +98,9 @@ public class FlowExecutionServiceImpl
     private final CurrentUserService
             currentUserService;
 
+    private final FlowExecutionInitializationService
+            initializationService;
+
     // =========================================================
     // START FLOW EXECUTION
     // =========================================================
@@ -108,216 +108,284 @@ public class FlowExecutionServiceImpl
     /**
      * {@inheritDoc}
      */
+//    @Override
+//    public FlowExecutionResult start(
+//            StartFlowExecutionRequest request) {
+//
+//        validateStartRequest(
+//                request
+//        );
+//
+//        log.info(
+//                "Starting Flow execution. " +
+//                        "flowPublicId={}, callPublicId={}, " +
+//                        "conversationPublicId={}",
+//                request.getFlowPublicId(),
+//                request.getCallPublicId(),
+//                request.getConversationPublicId()
+//        );
+//
+//        /*
+//         * Validate the requested Flow and retrieve
+//         * the persistent Flow entity.
+//         */
+//        Flow flow =
+//                flowValidator.validateAndGet(
+//                        request.getFlowPublicId()
+//                );
+//
+//        if (flow.getStatus()
+//                != FlowStatus.ACTIVE) {
+//
+//            log.warn(
+//                    "Cannot start inactive Flow. " +
+//                            "flowPublicId={}, status={}",
+//                    request.getFlowPublicId(),
+//                    flow.getStatus()
+//            );
+//
+//            throw new IllegalStateException(
+//                    FlowMessages.FLOW_NOT_ACTIVE
+//            );
+//        }
+//
+//        /*
+//         * Retrieve the START node.
+//         *
+//         * The Flow validator is responsible for graph-level
+//         * validation. This lookup retrieves the persistent node
+//         * that represents the beginning of runtime execution.
+//         */
+//        FlowNode startNode =
+//                nodeRepository
+//                        .findByFlowIdAndNodeTypeAndIsDeleted(
+//                                flow.getId(),
+//                                FlowNodeType.START,
+//                                NOT_DELETED
+//                        )
+//                        .orElseThrow(() -> {
+//
+//                            log.error(
+//                                    "START node not found. " +
+//                                            "flowPublicId={}",
+//                                    request.getFlowPublicId()
+//                            );
+//
+//                            return new IllegalStateException(
+//                                    FlowMessages.START_NODE_REQUIRED
+//                            );
+//                        });
+//
+//        /*
+//         * Create the initial runtime context.
+//         *
+//         * A copy is created so that the request object is not
+//         * modified during Flow execution.
+//         */
+//        Map<String, Object> context =
+//                request.getContext() == null
+//                        ? new HashMap<>()
+//                        : new HashMap<>(
+//                        request.getContext()
+//                );
+//
+//        /*
+//         * Store identifiers required by runtime nodes.
+//         */
+//        if (request.getCallPublicId() != null
+//                && !request.getCallPublicId().isBlank()) {
+//
+//            context.put(
+//                    "callId",
+//                    request.getCallPublicId()
+//            );
+//        }
+//
+//        if (request.getConversationPublicId() != null
+//                && !request.getConversationPublicId().isBlank()) {
+//
+//            context.put(
+//                    "conversationPublicId",
+//                    request.getConversationPublicId()
+//            );
+//        }
+//
+//        /*
+//         * Resolve the audit user.
+//         *
+//         * Provider-driven runtime requests such as Exotel
+//         * callbacks may not have an authenticated HTTP user.
+//         */
+//        Long currentUserId =
+//                resolveExecutionUserId();
+//
+//        log.debug(
+//                "Resolved Flow execution audit user. " +
+//                        "flowPublicId={}, callPublicId={}, " +
+//                        "createdBy={}",
+//                request.getFlowPublicId(),
+//                request.getCallPublicId(),
+//                currentUserId
+//        );
+//
+//        /*
+//         * Create the Flow execution.
+//         *
+//         * The execution starts at the START node. The runtime
+//         * service owns all subsequent graph traversal.
+//         */
+//        FlowExecution execution =
+//                FlowExecution.builder()
+//                        .flow(
+//                                flow
+//                        )
+//                        .callPublicId(
+//                                request.getCallPublicId()
+//                        )
+//                        .conversationPublicId(
+//                                request.getConversationPublicId()
+//                        )
+//                        .currentNodeId(
+//                                startNode.getId()
+//                        )
+//                        .status(
+//                                FlowExecutionStatus.RUNNING
+//                        )
+//                        .contextData(
+//                                flowContextService.writeContext(
+//                                        context
+//                                )
+//                        )
+//                        .startedAt(
+//                                LocalDateTime.now()
+//                        )
+//                        .createdBy(
+//                                currentUserId
+//                        )
+//                        .build();
+//
+//        FlowExecution savedExecution =
+//                executionRepository.save(
+//                        execution
+//                );
+//
+//        log.info(
+//                "Flow execution created successfully. " +
+//                        "executionPublicId={}, flowPublicId={}, " +
+//                        "startNode={}, createdBy={}",
+//                savedExecution.getPublicId(),
+//                request.getFlowPublicId(),
+//                startNode.getNodeKey(),
+//                currentUserId
+//        );
+//
+//        /*
+//         * The runtime service owns execution of the START node
+//         * and traversal to the next configured node.
+//         *
+//         * Do not execute START manually here.
+//         *
+//         * Example:
+//         *
+//         * START
+//         *   ↓
+//         * FlowTransitionService
+//         *   ↓
+//         * AI_RESPONSE / STT / TTS / API / etc.
+//         */
+//        FlowExecutionResult result =
+//                runtimeService.execute(
+//                        savedExecution,
+//                        startNode,
+//                        context
+//                );
+//
+//        log.info(
+//                "Flow execution started successfully. " +
+//                        "executionPublicId={}, flowPublicId={}, " +
+//                        "currentNode={}, status={}, action={}",
+//                savedExecution.getPublicId(),
+//                request.getFlowPublicId(),
+//                result == null
+//                        ? null
+//                        : result.getCurrentNodeKey(),
+//                result == null
+//                        ? null
+//                        : result.getStatus(),
+//                result == null
+//                        ? null
+//                        : result.getAction()
+//        );
+//
+//        return result;
+//    }
+
     @Override
     public FlowExecutionResult start(
             StartFlowExecutionRequest request) {
 
-        validateStartRequest(
+        FlowExecutionResult initialized =
+                initialize(
+                        request
+                );
+
+        return executeExisting(
+                initialized.getExecutionPublicId()
+        );
+    }
+
+    @Override
+    public FlowExecutionResult initialize(
+            StartFlowExecutionRequest request) {
+
+        return initializationService.initialize(
                 request
         );
+    }
 
-        log.info(
-                "Starting Flow execution. " +
-                        "flowPublicId={}, callPublicId={}, " +
-                        "conversationPublicId={}",
-                request.getFlowPublicId(),
-                request.getCallPublicId(),
-                request.getConversationPublicId()
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public FlowExecutionResult executeExisting(
+            String executionPublicId) {
+
+        validateExecutionPublicId(
+                executionPublicId
         );
 
-        /*
-         * Validate the requested Flow and retrieve
-         * the persistent Flow entity.
-         */
-        Flow flow =
-                flowValidator.validateAndGet(
-                        request.getFlowPublicId()
-                );
-
-        if (flow.getStatus()
-                != FlowStatus.ACTIVE) {
-
-            log.warn(
-                    "Cannot start inactive Flow. " +
-                            "flowPublicId={}, status={}",
-                    request.getFlowPublicId(),
-                    flow.getStatus()
-            );
-
-            throw new IllegalStateException(
-                    FlowMessages.FLOW_NOT_ACTIVE
-            );
-        }
-
-        /*
-         * Retrieve the START node.
-         *
-         * The Flow validator is responsible for graph-level
-         * validation. This lookup retrieves the persistent node
-         * that represents the beginning of runtime execution.
-         */
-        FlowNode startNode =
-                nodeRepository
-                        .findByFlowIdAndNodeTypeAndIsDeleted(
-                                flow.getId(),
-                                FlowNodeType.START,
-                                NOT_DELETED
-                        )
-                        .orElseThrow(() -> {
-
-                            log.error(
-                                    "START node not found. " +
-                                            "flowPublicId={}",
-                                    request.getFlowPublicId()
-                            );
-
-                            return new IllegalStateException(
-                                    FlowMessages.START_NODE_REQUIRED
-                            );
-                        });
-
-        /*
-         * Create the initial runtime context.
-         *
-         * A copy is created so that the request object is not
-         * modified during Flow execution.
-         */
-        Map<String, Object> context =
-                request.getContext() == null
-                        ? new HashMap<>()
-                        : new HashMap<>(
-                        request.getContext()
-                );
-
-        /*
-         * Store identifiers required by runtime nodes.
-         */
-        if (request.getCallPublicId() != null
-                && !request.getCallPublicId().isBlank()) {
-
-            context.put(
-                    "callId",
-                    request.getCallPublicId()
-            );
-        }
-
-        if (request.getConversationPublicId() != null
-                && !request.getConversationPublicId().isBlank()) {
-
-            context.put(
-                    "conversationPublicId",
-                    request.getConversationPublicId()
-            );
-        }
-
-        /*
-         * Resolve the audit user.
-         *
-         * Provider-driven runtime requests such as Exotel
-         * callbacks may not have an authenticated HTTP user.
-         */
-        Long currentUserId =
-                resolveExecutionUserId();
-
-        log.debug(
-                "Resolved Flow execution audit user. " +
-                        "flowPublicId={}, callPublicId={}, " +
-                        "createdBy={}",
-                request.getFlowPublicId(),
-                request.getCallPublicId(),
-                currentUserId
-        );
-
-        /*
-         * Create the Flow execution.
-         *
-         * The execution starts at the START node. The runtime
-         * service owns all subsequent graph traversal.
-         */
         FlowExecution execution =
-                FlowExecution.builder()
-                        .flow(
-                                flow
+                executionRepository
+                        .findByPublicIdForUpdate(
+                                executionPublicId
                         )
-                        .callPublicId(
-                                request.getCallPublicId()
-                        )
-                        .conversationPublicId(
-                                request.getConversationPublicId()
-                        )
-                        .currentNodeId(
-                                startNode.getId()
-                        )
-                        .status(
-                                FlowExecutionStatus.RUNNING
-                        )
-                        .contextData(
-                                flowContextService.writeContext(
-                                        context
+                        .orElseThrow(() ->
+                                new ResourceNotFoundException(
+                                        FlowMessages.EXECUTION_NOT_FOUND
                                 )
-                        )
-                        .startedAt(
-                                LocalDateTime.now()
-                        )
-                        .createdBy(
-                                currentUserId
-                        )
-                        .build();
+                        );
 
-        FlowExecution savedExecution =
-                executionRepository.save(
+        FlowNode currentNode =
+                findCurrentNode(
                         execution
                 );
 
-        log.info(
-                "Flow execution created successfully. " +
-                        "executionPublicId={}, flowPublicId={}, " +
-                        "startNode={}, createdBy={}",
-                savedExecution.getPublicId(),
-                request.getFlowPublicId(),
-                startNode.getNodeKey(),
-                currentUserId
-        );
-
-        /*
-         * The runtime service owns execution of the START node
-         * and traversal to the next configured node.
-         *
-         * Do not execute START manually here.
-         *
-         * Example:
-         *
-         * START
-         *   ↓
-         * FlowTransitionService
-         *   ↓
-         * AI_RESPONSE / STT / TTS / API / etc.
-         */
-        FlowExecutionResult result =
-                runtimeService.execute(
-                        savedExecution,
-                        startNode,
-                        context
+        Map<String, Object> context =
+                flowContextService.readContext(
+                        execution.getContextData()
                 );
 
         log.info(
-                "Flow execution started successfully. " +
-                        "executionPublicId={}, flowPublicId={}, " +
-                        "currentNode={}, status={}, action={}",
-                savedExecution.getPublicId(),
-                request.getFlowPublicId(),
-                result == null
-                        ? null
-                        : result.getCurrentNodeKey(),
-                result == null
-                        ? null
-                        : result.getStatus(),
-                result == null
-                        ? null
-                        : result.getAction()
+                "Executing initialized Flow execution. " +
+                        "executionPublicId={}, nodeKey={}, nodeType={}",
+                executionPublicId,
+                currentNode.getNodeKey(),
+                currentNode.getNodeType()
         );
 
-        return result;
+        return runtimeService.execute(
+                execution,
+                currentNode,
+                context
+        );
     }
 
     // =========================================================

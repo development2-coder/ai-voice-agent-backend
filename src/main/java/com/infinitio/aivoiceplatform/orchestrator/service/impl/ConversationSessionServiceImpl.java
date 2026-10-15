@@ -13,6 +13,7 @@ import com.infinitio.aivoiceplatform.callsession.service.CallSessionUpdateServic
 import com.infinitio.aivoiceplatform.campaign.entity.Campaign;
 import com.infinitio.aivoiceplatform.exception.BadRequestException;
 import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
+import com.infinitio.aivoiceplatform.flow.constant.FlowExecutionContextKeys;
 import com.infinitio.aivoiceplatform.flow.dto.response.FlowExecutionResult;
 import com.infinitio.aivoiceplatform.flow.service.FlowExecutionService;
 import com.infinitio.aivoiceplatform.orchestrator.constant.ConversationOrchestratorConstants;
@@ -35,7 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.infinitio.aivoiceplatform.orchestrator.service.ConversationAiService;
 import java.util.HashMap;
 import java.util.Map;
-
+import com.infinitio.aivoiceplatform.transcript.service.TranscriptService;
+import java.time.LocalDateTime;
 /**
  * Default implementation of Conversation Session Service.
  *
@@ -168,6 +170,18 @@ public class ConversationSessionServiceImpl
     private static final String MAX_TOKENS =
             "maxTokens";
 
+    /**
+     * Runtime configuration key for Agent welcome message.
+     */
+    private static final String WELCOME_MESSAGE =
+            "welcomeMessage";
+
+    /**
+     * Runtime configuration key for Agent Configuration greeting.
+     */
+    private static final String GREETING_MESSAGE =
+            "greetingMessage";
+
     private final CallSessionRuntimeService
             callSessionRuntimeService;
 
@@ -198,6 +212,9 @@ public class ConversationSessionServiceImpl
 
     private final ConversationAiService
             conversationAiService;
+
+    private final TranscriptService
+            transcriptService;
 
     /**
      * {@inheritDoc}
@@ -543,6 +560,38 @@ public class ConversationSessionServiceImpl
                 "Conversation session ended successfully. callId={}",
                 request.getCallId()
         );
+
+        /*
+         * Finalize the runtime transcript immediately when the
+         * conversation ends.
+         *
+         * The recording may not yet be available because Exotel
+         * can send the recording callback later. Therefore the
+         * transcript must not depend on recording availability.
+         */
+        try {
+
+            transcriptService.finalizeCallTranscript(
+                    request.getCallId(),
+                    null
+            );
+
+            log.info(
+                    "Conversation transcript finalized independently "
+                            + "of Exotel recording callback. callId={}",
+                    request.getCallId()
+            );
+
+        } catch (Exception exception) {
+
+            log.error(
+                    "Unable to finalize conversation transcript when "
+                            + "ending conversation. callId={}, reason={}",
+                    request.getCallId(),
+                    exception.getMessage(),
+                    exception
+            );
+        }
 
         return conversationResponseService
                 .buildCompletedResponse(
@@ -1010,11 +1059,28 @@ public class ConversationSessionServiceImpl
          * The Call Session is the runtime source of truth for the
          * active conversation.
          */
-        context.put(
-                LANGUAGE,
+        String agentLanguage =
                 resolveLanguage(
                         session.getLanguage()
-                )
+                );
+
+        /*
+         * Keep Agent language separate from the language detected
+         * from the customer during the conversation.
+         */
+        context.put(
+                LANGUAGE,
+                agentLanguage
+        );
+
+        context.put(
+                FlowExecutionContextKeys.AGENT_LANGUAGE,
+                agentLanguage
+        );
+
+        context.put(
+                FlowExecutionContextKeys.RESPONSE_LANGUAGE,
+                agentLanguage
         );
 
         /*
@@ -1093,6 +1159,16 @@ public class ConversationSessionServiceImpl
             );
 
             configuration.put(
+                    WELCOME_MESSAGE,
+                    runtimeConfiguration.getWelcomeMessage()
+            );
+
+            configuration.put(
+                    GREETING_MESSAGE,
+                    runtimeConfiguration.getGreetingMessage()
+            );
+
+            configuration.put(
                     CONFIGURATION_LANGUAGE,
                     runtimeConfiguration.getLanguage()
             );
@@ -1131,7 +1207,8 @@ public class ConversationSessionServiceImpl
                             "callId={}, tenantId={}, agentId={}, " +
                             "flowPublicId={}, sttProvider={}, sttModel={}, " +
                             "llmProvider={}, llmModel={}, ttsProvider={}, " +
-                            "ttsModel={}, language={}, voice={}",
+                            "ttsModel={}, welcomeConfigured={}, " +
+                            "greetingConfigured={}, language={}, voice={}",
                     request.getCallId(),
                     runtimeConfiguration.getTenantId(),
                     runtimeConfiguration.getAgentId(),
@@ -1142,6 +1219,12 @@ public class ConversationSessionServiceImpl
                     runtimeConfiguration.getLlmModel(),
                     runtimeConfiguration.getTtsProvider(),
                     runtimeConfiguration.getTtsModel(),
+                    isConfigured(
+                            runtimeConfiguration.getWelcomeMessage()
+                    ),
+                    isConfigured(
+                            runtimeConfiguration.getGreetingMessage()
+                    ),
                     runtimeConfiguration.getLanguage(),
                     runtimeConfiguration.getVoice()
             );
@@ -1547,5 +1630,18 @@ public class ConversationSessionServiceImpl
 
             return new HashMap<>();
         }
+    }
+
+    /**
+     * Checks whether a runtime configuration text value is configured.
+     *
+     * @param value configuration value
+     * @return true when the value is not null or blank
+     */
+    private boolean isConfigured(
+            String value) {
+
+        return value != null
+                && !value.isBlank();
     }
 }

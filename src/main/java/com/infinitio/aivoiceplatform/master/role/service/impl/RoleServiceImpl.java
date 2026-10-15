@@ -2,6 +2,8 @@ package com.infinitio.aivoiceplatform.master.role.service.impl;
 
 import com.infinitio.aivoiceplatform.auth.service.CurrentUserService;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.master.role.constant.RoleConstants;
 import com.infinitio.aivoiceplatform.master.role.dto.request.CreateRoleRequest;
 import com.infinitio.aivoiceplatform.master.role.dto.request.UpdateRoleRequest;
 import com.infinitio.aivoiceplatform.master.role.dto.response.RoleResponse;
@@ -20,8 +22,15 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Role Service Implementation.
  *
+ * <p>
  * Handles role creation, update, retrieval, deletion,
  * activation and deactivation operations.
+ * </p>
+ *
+ * <p>
+ * Role management is restricted to SUPER_ADMIN because
+ * roles are platform-level RBAC configuration.
+ * </p>
  *
  * @author Infinitio Digital
  * @version 1.0.0
@@ -33,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RoleServiceImpl implements RoleService {
 
     private static final Integer ACTIVE = 1;
+
     private static final Integer NOT_DELETED = 0;
 
     private final RoleRepository roleRepository;
@@ -60,8 +70,12 @@ public class RoleServiceImpl implements RoleService {
 
         log.info(
                 "Creating Role : {}",
-                request.getRoleCode()
+                request != null
+                        ? request.getRoleCode()
+                        : null
         );
+
+        validateSuperAdminAccess();
 
         roleValidator.validateForCreate(
                 request
@@ -72,13 +86,6 @@ public class RoleServiceImpl implements RoleService {
                         request
                 );
 
-        /*
-         * Get the authenticated user who is creating
-         * the role.
-         *
-         * createdBy is mandatory in BaseEntity/database,
-         * therefore it must be populated before save.
-         */
         Long currentUserId =
                 currentUserService.getCurrentUserId();
 
@@ -142,39 +149,37 @@ public class RoleServiceImpl implements RoleService {
 
         log.info(
                 "Updating Role : {}",
-                request.getPublicId()
+                request != null
+                        ? request.getPublicId()
+                        : null
         );
 
-        /*
-         * Validate request and duplicate values.
-         */
+        validateSuperAdminAccess();
+
         roleValidator.validateForUpdate(
                 request
         );
 
-        /*
-         * Get only non-deleted role.
-         */
         Role existingRole =
                 roleValidator.validateAndGet(
                         request.getPublicId()
                 );
 
         /*
-         * Update only allowed request fields.
+         * System roles are protected from modification.
          *
-         * RoleMapper intentionally ignores createdBy
-         * so the original creator is preserved.
+         * This prevents accidental modification of
+         * SUPER_ADMIN / ADMIN / USER system roles.
          */
+        validateSystemRoleModification(
+                existingRole
+        );
+
         roleMapper.updateEntity(
                 request,
                 existingRole
         );
 
-        /*
-         * Store the authenticated user who performed
-         * the update.
-         */
         Long currentUserId =
                 currentUserService.getCurrentUserId();
 
@@ -312,21 +317,16 @@ public class RoleServiceImpl implements RoleService {
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Role role =
                 roleValidator.validateAndGet(
                         publicId
                 );
 
-        /*
-         * Do not allow deletion of a system role.
-         */
-        if (role.getIsSystem() != null
-                && role.getIsSystem() == ACTIVE) {
-
-            throw new IllegalStateException(
-                    "System role cannot be deleted."
-            );
-        }
+        validateSystemRoleModification(
+                role
+        );
 
         Long currentUserId =
                 currentUserService.getCurrentUserId();
@@ -365,10 +365,16 @@ public class RoleServiceImpl implements RoleService {
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Role role =
                 roleValidator.validateAndGet(
                         publicId
                 );
+
+        validateSystemRoleModification(
+                role
+        );
 
         Long currentUserId =
                 currentUserService.getCurrentUserId();
@@ -407,22 +413,16 @@ public class RoleServiceImpl implements RoleService {
                 publicId
         );
 
+        validateSuperAdminAccess();
+
         Role role =
                 roleValidator.validateAndGet(
                         publicId
                 );
 
-        /*
-         * A system role should not accidentally be
-         * disabled.
-         */
-        if (role.getIsSystem() != null
-                && role.getIsSystem() == ACTIVE) {
-
-            throw new IllegalStateException(
-                    "System role cannot be deactivated."
-            );
-        }
+        validateSystemRoleModification(
+                role
+        );
 
         Long currentUserId =
                 currentUserService.getCurrentUserId();
@@ -440,5 +440,81 @@ public class RoleServiceImpl implements RoleService {
                 publicId,
                 currentUserId
         );
+    }
+
+
+    // =========================================================
+    // AUTHORIZATION
+    // =========================================================
+
+    /**
+     * Validates that the current authenticated user is SUPER_ADMIN.
+     *
+     * <p>
+     * Controller-level RBAC protects the API endpoint, while
+     * this service-level validation protects the business
+     * operation itself.
+     * </p>
+     */
+    private void validateSuperAdminAccess() {
+
+        if (!currentUserService.isAuthenticated()) {
+
+            throw new ForbiddenException(
+                    "Authentication is required to manage roles."
+            );
+        }
+
+        if (!currentUserService.isSuperAdmin()) {
+
+            throw new ForbiddenException(
+                    "Only SUPER_ADMIN can manage roles."
+            );
+        }
+    }
+
+
+    // =========================================================
+    // SYSTEM ROLE PROTECTION
+    // =========================================================
+
+    /**
+     * Prevents modification of system roles.
+     *
+     * @param role role being modified
+     */
+    private void validateSystemRoleModification(
+            Role role) {
+
+        if (role == null) {
+
+            throw new ForbiddenException(
+                    "Role is required."
+            );
+        }
+
+        if (role.getIsSystem() != null
+                && role.getIsSystem() == ACTIVE) {
+
+            throw new ForbiddenException(
+                    "System role cannot be modified."
+            );
+        }
+
+        /*
+         * Explicitly protect the standard roles even if
+         * the database system flag was incorrectly configured.
+         */
+        String roleCode =
+                role.getRoleCode();
+
+        if (RoleConstants.SUPER_ADMIN.equalsIgnoreCase(roleCode)
+                || RoleConstants.ADMIN.equalsIgnoreCase(roleCode)
+                || RoleConstants.USER.equalsIgnoreCase(roleCode)) {
+
+            throw new ForbiddenException(
+                    "Standard application role cannot be modified."
+            );
+        }
     }
 }

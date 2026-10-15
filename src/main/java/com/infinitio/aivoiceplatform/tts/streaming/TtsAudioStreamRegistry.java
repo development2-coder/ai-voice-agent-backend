@@ -2,7 +2,7 @@ package com.infinitio.aivoiceplatform.tts.streaming;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Component;
 
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +60,15 @@ public class TtsAudioStreamRegistry {
             AtomicBoolean>
             activePlayback =
             new ConcurrentHashMap<>();
+
+    /**
+     * Identifies the current TTS generation for each call.
+     *
+     * An old TTS stream becomes invalid when a newer stream starts
+     * or when the caller interrupts the current stream.
+     */
+    private final ConcurrentHashMap<String, AtomicLong>
+            streamGenerations = new ConcurrentHashMap<>();
 
     /**
      * Registers a TTS audio listener for a call.
@@ -137,6 +146,13 @@ public class TtsAudioStreamRegistry {
 
             return;
         }
+
+        streamGenerations
+                .computeIfAbsent(
+                        callId,
+                        key -> new AtomicLong(0L)
+                )
+                .incrementAndGet();
 
         interruptions
                 .computeIfAbsent(
@@ -342,9 +358,74 @@ public class TtsAudioStreamRegistry {
                 callId
         );
 
+        streamGenerations.remove(callId);
+
         log.debug(
                 "Removed TTS audio stream state. callId={}",
                 callId
         );
+    }
+
+    /**
+     * Starts a new TTS generation for the specified call.
+     *
+     * @param callId application call identifier
+     * @return generation token for this TTS stream
+     */
+    public long beginStream(String callId) {
+
+        if (callId == null || callId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Call ID is required to start a TTS stream."
+            );
+        }
+
+        long generation = streamGenerations
+                .computeIfAbsent(
+                        callId,
+                        key -> new AtomicLong(0L)
+                )
+                .incrementAndGet();
+
+        interruptions
+                .computeIfAbsent(
+                        callId,
+                        key -> new AtomicBoolean(false)
+                )
+                .set(false);
+
+        log.info(
+                "Started TTS stream generation. callId={}, generation={}",
+                callId,
+                generation
+        );
+
+        return generation;
+    }
+
+    /**
+     * Checks whether a TTS stream still owns the call's audio output.
+     *
+     * @param callId application call identifier
+     * @param generation generation token captured by the stream
+     * @return true if this stream is still current and not interrupted
+     */
+    public boolean isCurrentStream(
+            String callId,
+            long generation) {
+
+        if (callId == null || callId.isBlank()) {
+            return false;
+        }
+
+        AtomicLong currentGeneration =
+                streamGenerations.get(callId);
+
+        if (currentGeneration == null
+                || currentGeneration.get() != generation) {
+            return false;
+        }
+
+        return !isInterrupted(callId);
     }
 }

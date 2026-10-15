@@ -1,15 +1,16 @@
 package com.infinitio.aivoiceplatform.campaign.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.campaign.constant.CampaignMessages;
 import com.infinitio.aivoiceplatform.campaign.dto.request.CreateCampaignRequest;
 import com.infinitio.aivoiceplatform.campaign.dto.request.UpdateCampaignRequest;
 import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignResponse;
+import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResponse;
 import com.infinitio.aivoiceplatform.campaign.service.CampaignService;
+import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
-import com.infinitio.aivoiceplatform.campaign.dto.response.CampaignVariablesResponse;
-import com.infinitio.aivoiceplatform.campaign.service.CampaignVariableService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -39,7 +40,15 @@ public class CampaignController {
     private final CampaignVariableService
             campaignVariableService;
 
+
+    /**
+     * Creates a Campaign.
+     *
+     * @param request create request
+     * @return created campaign
+     */
     @Operation(summary = "Create Campaign")
+    @RequiresPermission("CAMPAIGN_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<CampaignResponse>> create(
             @Valid @RequestBody
@@ -58,7 +67,15 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Updates a Campaign.
+     *
+     * @param request update request
+     * @return updated campaign
+     */
     @Operation(summary = "Update Campaign")
+    @RequiresPermission("CAMPAIGN_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<CampaignResponse>> update(
             @Valid @RequestBody
@@ -77,7 +94,15 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Gets a Campaign by public ID.
+     *
+     * @param publicId campaign public ID
+     * @return campaign
+     */
     @Operation(summary = "Get Campaign By Public Id")
+    @RequiresPermission("CAMPAIGN_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<CampaignResponse>>
     getByPublicId(
@@ -100,9 +125,16 @@ public class CampaignController {
     }
 
 
+    /**
+     * Gets Campaign Flow variables.
+     *
+     * @param publicId campaign public ID
+     * @return campaign variables
+     */
     @Operation(
             summary = "Get Campaign Flow Variables"
     )
+    @RequiresPermission("CAMPAIGN_VIEW")
     @GetMapping("/{publicId}/variables")
     public ResponseEntity<
             ApiResponse<CampaignVariablesResponse>>
@@ -125,7 +157,14 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Gets all campaigns.
+     *
+     * @return campaigns visible to current user
+     */
     @Operation(summary = "Get All Campaigns")
+    @RequiresPermission("CAMPAIGN_VIEW")
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<CampaignResponse>>>
@@ -144,7 +183,15 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Deletes a Campaign.
+     *
+     * @param publicId campaign public ID
+     * @return success response
+     */
     @Operation(summary = "Delete Campaign")
+    @RequiresPermission("CAMPAIGN_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -162,7 +209,15 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Activates a Campaign.
+     *
+     * @param publicId campaign public ID
+     * @return success response
+     */
     @Operation(summary = "Activate Campaign")
+    @RequiresPermission("CAMPAIGN_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -180,7 +235,15 @@ public class CampaignController {
         );
     }
 
+
+    /**
+     * Deactivates a Campaign.
+     *
+     * @param publicId campaign public ID
+     * @return success response
+     */
     @Operation(summary = "Deactivate Campaign")
+    @RequiresPermission("CAMPAIGN_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

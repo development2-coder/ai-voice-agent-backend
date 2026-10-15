@@ -1,5 +1,6 @@
 package com.infinitio.aivoiceplatform.knowledgebase.controller;
 
+import com.infi.library.annotation.RequiresPermission;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
@@ -16,12 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * REST Controller for Knowledge Base Management.
- *
- * @author Infinitio Digital
- * @version 1.0.0
- */
 @Slf4j
 @RestController
 @RequiredArgsConstructor
@@ -35,13 +30,12 @@ public class KnowledgeBaseController {
     private final KnowledgeBaseService knowledgeBaseService;
 
     @Operation(summary = "Create Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<KnowledgeBaseResponse>> create(
             @Valid @RequestBody CreateKnowledgeBaseRequest request) {
 
-        log.info(
-                "REST Request : Create Knowledge Base"
-        );
+        log.info("REST Request: Create Knowledge Base");
 
         KnowledgeBaseResponse response =
                 knowledgeBaseService.create(request);
@@ -53,12 +47,14 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Update Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<KnowledgeBaseResponse>> update(
             @Valid @RequestBody UpdateKnowledgeBaseRequest request) {
 
         log.info(
-                "REST Request : Update Knowledge Base"
+                "REST Request: Update Knowledge Base: {}",
+                request.getPublicId()
         );
 
         KnowledgeBaseResponse response =
@@ -71,19 +67,15 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Get Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<KnowledgeBaseResponse>> getByPublicId(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Get Knowledge Base : {}",
-                publicId
-        );
+        log.info("REST Request: Get Knowledge Base: {}", publicId);
 
         KnowledgeBaseResponse response =
-                knowledgeBaseService.getByPublicId(
-                        publicId
-                );
+                knowledgeBaseService.getByPublicId(publicId);
 
         return ResponseBuilder.success(
                 response,
@@ -92,14 +84,13 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Get All Knowledge Bases")
+    @RequiresPermission("KNOWLEDGE_BASE_VIEW")
     @GetMapping
     public ResponseEntity<
             ApiResponse<PageResponse<KnowledgeBaseResponse>>>
     getAll() {
 
-        log.info(
-                "REST Request : Get All Knowledge Bases"
-        );
+        log.info("REST Request: Get Knowledge Bases");
 
         PageResponse<KnowledgeBaseResponse> response =
                 knowledgeBaseService.getAll();
@@ -111,14 +102,12 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Delete Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Delete Knowledge Base : {}",
-                publicId
-        );
+        log.info("REST Request: Delete Knowledge Base: {}", publicId);
 
         knowledgeBaseService.delete(publicId);
 
@@ -129,14 +118,12 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Activate Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Activate Knowledge Base : {}",
-                publicId
-        );
+        log.info("REST Request: Activate Knowledge Base: {}", publicId);
 
         knowledgeBaseService.activate(publicId);
 
@@ -147,14 +134,12 @@ public class KnowledgeBaseController {
     }
 
     @Operation(summary = "Deactivate Knowledge Base")
+    @RequiresPermission("KNOWLEDGE_BASE_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {
 
-        log.info(
-                "REST Request : Deactivate Knowledge Base : {}",
-                publicId
-        );
+        log.info("REST Request: Deactivate Knowledge Base: {}", publicId);
 
         knowledgeBaseService.deactivate(publicId);
 

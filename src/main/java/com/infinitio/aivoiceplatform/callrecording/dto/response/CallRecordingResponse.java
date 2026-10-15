@@ -23,6 +23,8 @@ public class CallRecordingResponse {
 
     private String fileUrl;
 
+    private String streamUrl;
+
     private String fileType;
 
     private String storageProvider;

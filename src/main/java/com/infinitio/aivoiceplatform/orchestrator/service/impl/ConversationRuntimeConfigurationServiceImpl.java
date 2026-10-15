@@ -30,8 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * The telephony layer does not decide the AI provider, model,
- * voice or system prompt. Those values are resolved from the
- * Agent Configuration belonging to the selected Agent.
+ * voice, system prompt or greeting configuration. Those values
+ * are resolved from the persisted Agent and Agent Configuration.
  * </p>
  *
  * @author Infinitio Digital
@@ -144,6 +144,16 @@ public class ConversationRuntimeConfigurationServiceImpl
                         flow
                 );
 
+        String welcomeMessage =
+                resolveWelcomeMessage(
+                        agent
+                );
+
+        String greetingMessage =
+                resolveGreetingMessage(
+                        agentConfig
+                );
+
         ConversationRuntimeConfigurationResponseDto
                 response =
                 ConversationRuntimeConfigurationResponseDto
@@ -165,6 +175,12 @@ public class ConversationRuntimeConfigurationServiceImpl
                                         agent,
                                         agentConfig
                                 )
+                        )
+                        .welcomeMessage(
+                                welcomeMessage
+                        )
+                        .greetingMessage(
+                                greetingMessage
                         )
                         .sttProvider(
                                 agentConfig.getSttProvider()
@@ -201,12 +217,19 @@ public class ConversationRuntimeConfigurationServiceImpl
         log.info(
                 "Conversation runtime configuration resolved successfully. " +
                         "tenantId={}, agentId={}, agentVersion={}, " +
-                        "flowPublicId={}, sttProvider={}, llmProvider={}, " +
-                        "ttsProvider={}",
+                        "flowPublicId={}, welcomeConfigured={}, " +
+                        "greetingConfigured={}, sttProvider={}, " +
+                        "llmProvider={}, ttsProvider={}",
                 response.getTenantId(),
                 response.getAgentId(),
                 response.getAgentVersion(),
                 response.getFlowPublicId(),
+                isConfigured(
+                        response.getWelcomeMessage()
+                ),
+                isConfigured(
+                        response.getGreetingMessage()
+                ),
                 response.getSttProvider(),
                 response.getLlmProvider(),
                 response.getTtsProvider()
@@ -322,7 +345,7 @@ public class ConversationRuntimeConfigurationServiceImpl
                 )) {
 
             log.warn(
-                    "Tenant isolation validation failed. " +
+                    "Tenant-Agent isolation validation failed. " +
                             "tenantPublicId={}, agentPublicId={}, " +
                             "agentTenantPublicId={}",
                     tenant.getPublicId(),
@@ -552,11 +575,77 @@ public class ConversationRuntimeConfigurationServiceImpl
     }
 
     // =========================================================
+    // GREETING CONFIGURATION
+    // =========================================================
+
+    /**
+     * Resolves the welcome message configured directly on the Agent.
+     *
+     * <p>
+     * The Agent welcome message is intentionally kept separate
+     * from the Flow greeting. The conversation runtime uses this
+     * value as the first agent-level message before Flow execution.
+     * </p>
+     *
+     * @param agent active Agent
+     * @return configured Agent welcome message, or {@code null}
+     */
+    private String resolveWelcomeMessage(
+            Agent agent) {
+
+        if (agent == null
+                || agent.getWelcomeMessage() == null
+                || agent.getWelcomeMessage().isBlank()) {
+
+            return null;
+        }
+
+        return agent.getWelcomeMessage().trim();
+    }
+
+    /**
+     * Resolves the greeting message configured in Agent Configuration.
+     *
+     * <p>
+     * This message is kept separate from the Agent welcome message
+     * because it belongs to the Agent Configuration layer.
+     * </p>
+     *
+     * @param agentConfig active Agent Configuration
+     * @return configured greeting message, or {@code null}
+     */
+    private String resolveGreetingMessage(
+            AgentConfig agentConfig) {
+
+        if (agentConfig == null
+                || agentConfig.getGreetingMessage() == null
+                || agentConfig.getGreetingMessage().isBlank()) {
+
+            return null;
+        }
+
+        return agentConfig.getGreetingMessage().trim();
+    }
+
+    /**
+     * Checks whether a runtime text value is configured.
+     *
+     * @param value configuration value
+     * @return {@code true} when a non-blank value exists
+     */
+    private boolean isConfigured(
+            String value) {
+
+        return value != null
+                && !value.isBlank();
+    }
+
+    // =========================================================
     // AGENT VERSION
     // =========================================================
 
     /**
-     * Resolves the runtime agent version.
+     * Resolves the runtime Agent version.
      *
      * <p>
      * The current source does not contain a separate persisted

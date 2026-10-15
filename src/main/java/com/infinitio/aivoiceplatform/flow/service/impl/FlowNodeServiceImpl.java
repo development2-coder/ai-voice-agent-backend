@@ -14,6 +14,7 @@ import com.infinitio.aivoiceplatform.flow.mapper.FlowNodeMapper;
 import com.infinitio.aivoiceplatform.flow.repository.FlowNodeRepository;
 import com.infinitio.aivoiceplatform.flow.service.FlowNodeService;
 import com.infinitio.aivoiceplatform.flow.validator.FlowValidator;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -67,7 +68,7 @@ public class FlowNodeServiceImpl
     /**
      * Current authenticated user service.
      */
-    private final CurrentUserService currentUserService;
+    private final TenantAccessService tenantAccessService;
 
     /**
      * {@inheritDoc}
@@ -86,6 +87,10 @@ public class FlowNodeServiceImpl
                 flowValidator.validateAndGet(
                         flowPublicId
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         List<FlowNodeResponse> nodes =
                 nodeRepository
@@ -131,6 +136,10 @@ public class FlowNodeServiceImpl
                 flowValidator.validateAndGet(
                         request.getFlowPublicId()
                 );
+
+        tenantAccessService.validateFlowAccess(
+                flow
+        );
 
         /*
          * Check configured maximum number of nodes.
@@ -180,7 +189,7 @@ public class FlowNodeServiceImpl
         );
 
         node.setCreatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         log.debug(
@@ -235,6 +244,10 @@ public class FlowNodeServiceImpl
                         request.getPublicId()
                 );
 
+        tenantAccessService.validateFlowAccess(
+                node.getFlow()
+        );
+
         validateNodeKeyChange(
                 node,
                 request
@@ -270,7 +283,7 @@ public class FlowNodeServiceImpl
         }
 
         node.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         log.debug(
@@ -319,6 +332,10 @@ public class FlowNodeServiceImpl
                         nodePublicId
                 );
 
+        tenantAccessService.validateFlowAccess(
+                node.getFlow()
+        );
+
         validateNodeDeletion(
                 node
         );
@@ -328,7 +345,7 @@ public class FlowNodeServiceImpl
         );
 
         node.setUpdatedBy(
-                currentUserService.getCurrentUserId()
+                tenantAccessService.getCurrentUserId()
         );
 
         nodeRepository.save(

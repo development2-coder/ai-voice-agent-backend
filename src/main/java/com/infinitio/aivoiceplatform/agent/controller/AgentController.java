@@ -9,6 +9,7 @@ import com.infinitio.aivoiceplatform.agent.service.AgentService;
 import com.infinitio.aivoiceplatform.common.dto.ApiResponse;
 import com.infinitio.aivoiceplatform.common.dto.PageResponse;
 import com.infinitio.aivoiceplatform.common.util.ResponseBuilder;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -42,6 +43,7 @@ public class AgentController {
     // =========================================================
 
     @Operation(summary = "Create Agent")
+    @RequiresPermission("AGENT_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<AgentResponse>> create(
             @Valid @RequestBody CreateAgentRequest request) {
@@ -64,6 +66,7 @@ public class AgentController {
 
     @Operation(summary = "Update Agent")
     @PutMapping
+    @RequiresPermission("AGENT_UPDATE")
     public ResponseEntity<ApiResponse<AgentResponse>> update(
             @Valid @RequestBody UpdateAgentRequest request) {
 
@@ -94,6 +97,7 @@ public class AgentController {
      */
     @Operation(summary = "Copy Agent")
     @PostMapping("/{publicId}/copy")
+    @RequiresPermission("AGENT_CREATE")
     public ResponseEntity<ApiResponse<AgentResponse>> copy(
             @PathVariable String publicId,
             @Valid @RequestBody CopyAgentRequest request) {
@@ -122,6 +126,7 @@ public class AgentController {
 
     @Operation(summary = "Get Agent By Public Id")
     @GetMapping("/{publicId}")
+    @RequiresPermission("AGENT_VIEW")
     public ResponseEntity<ApiResponse<AgentResponse>> getByPublicId(
             @PathVariable String publicId) {
 
@@ -146,6 +151,7 @@ public class AgentController {
 
     @Operation(summary = "Get All Agents")
     @GetMapping
+    @RequiresPermission("AGENT_VIEW")
     public ResponseEntity<ApiResponse<PageResponse<AgentResponse>>> getAll() {
 
         log.info("REST Request : Get All Agents");
@@ -166,6 +172,7 @@ public class AgentController {
 
     @Operation(summary = "Delete Agent")
     @DeleteMapping("/{publicId}")
+    @RequiresPermission("AGENT_DELETE")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
 
@@ -189,6 +196,7 @@ public class AgentController {
 
     @Operation(summary = "Activate Agent")
     @PatchMapping("/{publicId}/activate")
+    @RequiresPermission("AGENT_UPDATE")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
 
@@ -212,6 +220,7 @@ public class AgentController {
 
     @Operation(summary = "Deactivate Agent")
     @PatchMapping("/{publicId}/deactivate")
+    @RequiresPermission("AGENT_UPDATE")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {
 
@@ -239,6 +248,7 @@ public class AgentController {
             summary = "Get Agent Workspace"
     )
     @GetMapping("/{publicId}/workspace")
+    @RequiresPermission("AGENT_VIEW")
     public ResponseEntity<ApiResponse<AgentWorkspaceResponse>>
     getWorkspace(
             @PathVariable String publicId) {

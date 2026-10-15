@@ -26,6 +26,10 @@ import com.infinitio.aivoiceplatform.transcript.mapper.TranscriptMapper;
 import com.infinitio.aivoiceplatform.transcript.repository.TranscriptRepository;
 import com.infinitio.aivoiceplatform.transcript.service.TranscriptService;
 import com.infinitio.aivoiceplatform.transcript.validator.TranscriptValidator;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
+import com.infinitio.aivoiceplatform.exception.ForbiddenException;
+import com.infinitio.aivoiceplatform.user.entity.User;
+import com.infinitio.aivoiceplatform.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -95,31 +99,21 @@ public class TranscriptServiceImpl
     private final ConversationStorageService
             conversationStorageService;
 
+    private final TenantAccessService tenantAccessService;
+
+    private final UserRepository userRepository;
+
     /**
      * {@inheritDoc}
      */
     @Override
-    public TranscriptResponse create(
-            CreateTranscriptRequest request) {
+    public TranscriptResponse create(CreateTranscriptRequest request) {
 
-        log.info(
-                "Creating transcript. callPublicId={}, sequenceNumber={}",
-                request != null
-                        ? request.getCallPublicId()
-                        : null,
-                request != null
-                        ? request.getSequenceNumber()
-                        : null
-        );
+        transcriptValidator.validateCreate(request);
 
-        transcriptValidator.validateCreate(
-                request
-        );
+        Call call = getCall(request.getCallPublicId());
 
-        Call call =
-                getCall(
-                        request.getCallPublicId()
-                );
+        validateCallTenantAccess(call);
 
         validateSequenceNumber(
                 call.getId(),
@@ -128,26 +122,29 @@ public class TranscriptServiceImpl
         );
 
         Transcript transcript =
-                transcriptMapper.toEntity(
-                        request,
-                        call
-                );
+                transcriptMapper.toEntity(request, call);
+
+        Long currentUserId = tenantAccessService.getCurrentUserId();
+
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
+
+        transcript.setCreatedBy(currentUserId);
 
         Transcript savedTranscript =
-                transcriptRepository.save(
-                        transcript
-                );
+                transcriptRepository.save(transcript);
 
         log.info(
-                "Transcript created successfully. publicId={}, callPublicId={}, sequenceNumber={}",
+                "Transcript created. publicId={}, callPublicId={}, sequenceNumber={}",
                 savedTranscript.getPublicId(),
                 call.getPublicId(),
                 savedTranscript.getSequenceNumber()
         );
 
-        return transcriptMapper.toResponse(
-                savedTranscript
-        );
+        return transcriptMapper.toResponse(savedTranscript);
     }
 
     /**
@@ -181,38 +178,24 @@ public class TranscriptServiceImpl
     public List<TranscriptResponse> getByCallPublicId(
             String callPublicId) {
 
-        log.debug(
-                "Fetching transcripts by call. callPublicId={}",
-                callPublicId
-        );
-
-        if (callPublicId == null
-                || callPublicId.isBlank()) {
-
+        if (callPublicId == null || callPublicId.isBlank()) {
             throw new ResourceNotFoundException(
                     TranscriptMessages.CALL_NOT_FOUND
             );
         }
 
-        Call call =
-                getCall(
-                        callPublicId
-                );
+        Call call = getCall(callPublicId);
+
+        validateCallTenantAccess(call);
 
         return transcriptRepository
-                .findByCallIdOrderBySequenceNumberAsc(
+                .findByCallIdAndIsDeletedOrderBySequenceNumberAsc(
                         call.getId(),
-                        PageRequest.of(
-                                TranscriptConstants.DEFAULT_PAGE,
-                                TranscriptConstants.MAX_PAGE_SIZE
-                        )
+                        NOT_DELETED
                 )
-                .getContent()
                 .stream()
                 .filter(transcript ->
-                        NOT_DELETED.equals(
-                                transcript.getIsDeleted()
-                        )
+                        ACTIVE.equals(transcript.getIsActive())
                 )
                 .map(transcriptMapper::toResponse)
                 .toList();
@@ -226,19 +209,9 @@ public class TranscriptServiceImpl
             String publicId,
             UpdateTranscriptRequest request) {
 
-        log.info(
-                "Updating transcript. publicId={}",
-                publicId
-        );
+        transcriptValidator.validateUpdate(request);
 
-        transcriptValidator.validateUpdate(
-                request
-        );
-
-        Transcript transcript =
-                getActiveTranscript(
-                        publicId
-                );
+        Transcript transcript = getActiveTranscript(publicId);
 
         if (request.getSequenceNumber() != null
                 && !request.getSequenceNumber()
@@ -251,125 +224,93 @@ public class TranscriptServiceImpl
             );
         }
 
-        transcriptMapper.updateEntity(
-                request,
-                transcript
-        );
+        transcriptMapper.updateEntity(request, transcript);
+
+        Long currentUserId = tenantAccessService.getCurrentUserId();
+
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
+
+        transcript.setUpdatedBy(currentUserId);
 
         Transcript savedTranscript =
-                transcriptRepository.save(
-                        transcript
-                );
+                transcriptRepository.save(transcript);
 
-        log.info(
-                "Transcript updated successfully. publicId={}",
-                savedTranscript.getPublicId()
-        );
-
-        return transcriptMapper.toResponse(
-                savedTranscript
-        );
+        return transcriptMapper.toResponse(savedTranscript);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void delete(
-            String publicId) {
+    public void delete(String publicId) {
 
-        log.info(
-                "Deleting transcript. publicId={}",
-                publicId
-        );
+        Transcript transcript = getActiveTranscript(publicId);
 
-        Transcript transcript =
-                getActiveTranscript(
-                        publicId
-                );
+        Long currentUserId = tenantAccessService.getCurrentUserId();
 
-        transcript.setIsDeleted(
-                DELETED
-        );
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
 
-        transcript.setIsActive(
-                0
-        );
+        transcript.markAsDeleted(currentUserId);
 
-        transcriptRepository.save(
-                transcript
-        );
+        transcriptRepository.save(transcript);
 
-        log.info(
-                "Transcript deleted successfully. publicId={}",
-                publicId
-        );
+        log.info("Transcript soft-deleted. publicId={}", publicId);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void activate(
-            String publicId) {
+    public void activate(String publicId) {
 
-        log.info(
-                "Activating transcript. publicId={}",
-                publicId
-        );
+        Transcript transcript = getTranscript(publicId);
 
-        Transcript transcript =
-                getTranscript(
-                        publicId
-                );
+        validateCallTenantAccess(transcript.getCall());
 
-        transcript.setIsActive(
-                ACTIVE
-        );
+        Long currentUserId = tenantAccessService.getCurrentUserId();
 
-        transcript.setIsDeleted(
-                NOT_DELETED
-        );
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
 
-        transcriptRepository.save(
-                transcript
-        );
+        transcript.activate(currentUserId);
 
-        log.info(
-                "Transcript activated successfully. publicId={}",
-                publicId
-        );
+        transcriptRepository.save(transcript);
+
+        log.info("Transcript activated. publicId={}", publicId);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void deactivate(
-            String publicId) {
+    public void deactivate(String publicId) {
 
-        log.info(
-                "Deactivating transcript. publicId={}",
-                publicId
-        );
+        Transcript transcript = getActiveTranscript(publicId);
 
-        Transcript transcript =
-                getActiveTranscript(
-                        publicId
-                );
+        Long currentUserId = tenantAccessService.getCurrentUserId();
 
-        transcript.setIsActive(
-                0
-        );
+        if (currentUserId == null) {
+            throw new ForbiddenException(
+                    "Authenticated user information is unavailable."
+            );
+        }
 
-        transcriptRepository.save(
-                transcript
-        );
+        transcript.deactivate(currentUserId);
 
-        log.info(
-                "Transcript deactivated successfully. publicId={}",
-                publicId
-        );
+        transcriptRepository.save(transcript);
+
+        log.info("Transcript deactivated. publicId={}", publicId);
     }
 
     /**
@@ -418,31 +359,70 @@ public class TranscriptServiceImpl
      * @param publicId transcript public identifier
      * @return transcript entity
      */
-    private Transcript getActiveTranscript(
-            String publicId) {
+    private Transcript getActiveTranscript(String publicId) {
 
-        Transcript transcript =
-                getTranscript(
-                        publicId
-                );
+        Transcript transcript = getTranscript(publicId);
 
-        if (!NOT_DELETED.equals(
-                transcript.getIsDeleted())) {
+        if (!NOT_DELETED.equals(transcript.getIsDeleted())
+                || !ACTIVE.equals(transcript.getIsActive())) {
 
             throw new ResourceNotFoundException(
                     TranscriptMessages.NOT_FOUND
             );
         }
 
-        if (!ACTIVE.equals(
-                transcript.getIsActive())) {
-
-            throw new ResourceNotFoundException(
-                    TranscriptMessages.NOT_FOUND
-            );
-        }
+        validateCallTenantAccess(transcript.getCall());
 
         return transcript;
+    }
+
+    /**
+     * Validates the current user's access to a call before exposing
+     * or modifying transcript data.
+     *
+     * Campaign calls are checked through Campaign -> Agent -> Tenant.
+     * Direct calls are checked through the creator's tenant.
+     *
+     * @param call call associated with the transcript
+     */
+    private void validateCallTenantAccess(Call call) {
+
+        if (call == null) {
+            throw new ResourceNotFoundException(
+                    TranscriptMessages.CALL_NOT_FOUND
+            );
+        }
+
+        if (tenantAccessService.isSuperAdmin()) {
+            return;
+        }
+
+        if (call.getCampaignContact() != null
+                && call.getCampaignContact().getCampaign() != null) {
+
+            tenantAccessService.validateCampaignAccess(
+                    call.getCampaignContact().getCampaign()
+            );
+
+            return;
+        }
+
+        Long creatorId = call.getCreatedBy();
+
+        if (creatorId == null) {
+            throw new ForbiddenException(
+                    "The tenant for this call cannot be determined."
+            );
+        }
+
+        User creator = userRepository.findById(creatorId)
+                .orElseThrow(() -> new ForbiddenException(
+                        "The tenant for this call cannot be determined."
+                ));
+
+        tenantAccessService.validateTenantAccess(
+                creator.getTenant()
+        );
     }
 
     /**
@@ -547,25 +527,35 @@ public class TranscriptServiceImpl
                         )
                         .orElse(null);
 
-        CallRecording callRecording =
-                callRecordingRepository
-                        .findByPublicId(
-                                callRecordingPublicId
-                        )
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException(
-                                        "Call recording not found."
-                                )
-                        );
+        CallRecording callRecording = null;
 
-        if (callRecording.getCall() == null
-                || !call.getId().equals(
-                callRecording.getCall().getId()
-        )) {
+        if (callRecordingPublicId != null
+                && !callRecordingPublicId.isBlank()) {
 
-            throw new IllegalArgumentException(
-                    "Call recording does not belong to the call."
-            );
+            callRecording =
+                    callRecordingRepository
+                            .findByPublicId(
+                                    callRecordingPublicId
+                            )
+                            .orElseThrow(() ->
+                                    new ResourceNotFoundException(
+                                            "Call recording not found."
+                                    )
+                            );
+
+            /*
+             * Validate recording ownership only when a recording
+             * is actually available.
+             */
+            if (callRecording.getCall() == null
+                    || !call.getId().equals(
+                    callRecording.getCall().getId()
+            )) {
+
+                throw new IllegalArgumentException(
+                        "Call recording does not belong to the call."
+                );
+            }
         }
 
         /*
@@ -727,9 +717,12 @@ public class TranscriptServiceImpl
 
         } else {
 
-            transcript.setCallRecording(
-                    callRecording
-            );
+            if (callRecording != null) {
+
+                transcript.setCallRecording(
+                        callRecording
+                );
+            }
 
             transcript.setText(
                     completeText
@@ -1009,9 +1002,13 @@ public class TranscriptServiceImpl
         /*
          * Validate that the Call exists.
          */
-        getCall(
-                callPublicId
-        );
+//        getCall(
+//                callPublicId
+//        );
+
+        Call call = getCall(callPublicId);
+
+        validateCallTenantAccess(call);
 
         /*
          * Primary source:

@@ -8,6 +8,7 @@ import com.infinitio.aivoiceplatform.voice.dto.request.CreateVoiceRequest;
 import com.infinitio.aivoiceplatform.voice.dto.request.UpdateVoiceRequest;
 import com.infinitio.aivoiceplatform.voice.dto.response.VoiceResponse;
 import com.infinitio.aivoiceplatform.voice.service.VoiceService;
+import com.infi.library.annotation.RequiresPermission;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -35,6 +36,7 @@ public class VoiceController {
     private final VoiceService voiceService;
 
     @Operation(summary = "Create Voice")
+    @RequiresPermission("VOICE_CREATE")
     @PostMapping
     public ResponseEntity<ApiResponse<VoiceResponse>> create(
             @Valid @RequestBody CreateVoiceRequest request) {
@@ -51,6 +53,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Update Voice")
+    @RequiresPermission("VOICE_UPDATE")
     @PutMapping
     public ResponseEntity<ApiResponse<VoiceResponse>> update(
             @Valid @RequestBody UpdateVoiceRequest request) {
@@ -67,6 +70,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Get Voice By Public Id")
+    @RequiresPermission("VOICE_VIEW")
     @GetMapping("/{publicId}")
     public ResponseEntity<ApiResponse<VoiceResponse>> getByPublicId(
             @PathVariable String publicId) {
@@ -86,6 +90,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Get All Voices")
+    @RequiresPermission("VOICE_VIEW")
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<VoiceResponse>>> getAll(
             @RequestParam(defaultValue = "0") Integer page,
@@ -107,6 +112,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Delete Voice")
+    @RequiresPermission("VOICE_DELETE")
     @DeleteMapping("/{publicId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String publicId) {
@@ -125,6 +131,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Activate Voice")
+    @RequiresPermission("VOICE_UPDATE")
     @PatchMapping("/{publicId}/activate")
     public ResponseEntity<ApiResponse<Void>> activate(
             @PathVariable String publicId) {
@@ -143,6 +150,7 @@ public class VoiceController {
     }
 
     @Operation(summary = "Deactivate Voice")
+    @RequiresPermission("VOICE_UPDATE")
     @PatchMapping("/{publicId}/deactivate")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable String publicId) {

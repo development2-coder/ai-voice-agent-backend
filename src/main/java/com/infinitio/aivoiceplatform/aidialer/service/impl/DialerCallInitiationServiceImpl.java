@@ -13,6 +13,7 @@ import com.infinitio.aivoiceplatform.exception.ResourceNotFoundException;
 import com.infinitio.aivoiceplatform.telephony.dto.request.PlaceOutboundCallRequestDto;
 import com.infinitio.aivoiceplatform.telephony.dto.response.ProviderCallResponseDto;
 import com.infinitio.aivoiceplatform.telephony.service.TelephonyService;
+import com.infinitio.aivoiceplatform.auth.service.TenantAccessService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -72,6 +73,8 @@ public class DialerCallInitiationServiceImpl
 
     private final TelephonyMediaProperties
             telephonyMediaProperties;
+
+    private final TenantAccessService tenantAccessService;
 
     /**
      * Initiates a queued Dialer Call.
@@ -369,6 +372,38 @@ public class DialerCallInitiationServiceImpl
                                     EXOTEL_PROVIDER,
                                     request
                             );
+
+
+            if (tenantAccessService.isAuthenticated()) {
+                if (call.getDialer() == null
+                        || call.getDialer().getAgent() == null
+                        || call.getDialer().getCampaign() == null) {
+                    throw new IllegalStateException(
+                            "Dialer Call has incomplete ownership information."
+                    );
+                }
+
+                tenantAccessService.validateAgentAccess(
+                        call.getDialer().getAgent()
+                );
+
+                tenantAccessService.validateCampaignAccess(
+                        call.getDialer().getCampaign()
+                );
+
+                if (call.getCampaignContact() == null
+                        || call.getCampaignContact().getCampaign() == null
+                        || !call.getDialer().getCampaign().getId().equals(
+                        call.getCampaignContact().getCampaign().getId())) {
+                    throw new IllegalStateException(
+                            "Dialer Call does not match its Campaign Contact."
+                    );
+                }
+
+                tenantAccessService.validateCampaignAccess(
+                        call.getCampaignContact().getCampaign()
+                );
+            }
 
             /*
              * -----------------------------------------------------

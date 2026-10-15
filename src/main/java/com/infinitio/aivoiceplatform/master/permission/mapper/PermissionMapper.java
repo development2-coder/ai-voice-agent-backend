@@ -35,6 +35,7 @@ public interface PermissionMapper {
     @Mapping(target = "deletedAt", ignore = true)
     @Mapping(target = "isDeleted", ignore = true)
     @Mapping(target = "isActive", ignore = true)
+    @Mapping(target = "module", ignore = true)
     Permission toEntity(
             CreatePermissionRequest request
     );

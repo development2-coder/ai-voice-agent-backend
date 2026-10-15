@@ -26,4 +26,7 @@ public class CreatePermissionRequest {
     private Integer displayOrder;
 
     private Integer isSystem;
+
+    @NotBlank(message = "Module public ID is required.")
+    private String modulePublicId;
 }

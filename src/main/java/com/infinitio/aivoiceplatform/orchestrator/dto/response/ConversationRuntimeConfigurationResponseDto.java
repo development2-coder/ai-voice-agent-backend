@@ -43,6 +43,26 @@ public class ConversationRuntimeConfigurationResponseDto {
 
     private String language;
 
+    /**
+     * Welcome message configured on the Agent.
+     *
+     * <p>
+     * This is the first message that should be spoken to the
+     * caller before the Flow greeting.
+     * </p>
+     */
+    private String welcomeMessage;
+
+    /**
+     * Greeting message configured in Agent Configuration.
+     *
+     * <p>
+     * This is used as a fallback when the Agent does not have
+     * a welcome message configured.
+     * </p>
+     */
+    private String greetingMessage;
+
     private String sttProvider;
 
     private String sttModel;
